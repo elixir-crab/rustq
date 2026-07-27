@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## v1.0.0-rc.5 - 2026-07-27
+
+- Add focused `RustQ.Meta.AST` selectors for generated Rust items, type items,
+  enums, structs, and inherent or trait implementation blocks.
+
 ## v1.0.0-rc.4 - 2026-07-27
 
 - Add `defrustimpl` for generating inherent and trait Rust implementation

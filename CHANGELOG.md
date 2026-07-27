@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## v1.0.0-rc.6 - 2026-07-27
+
+- Infer mutable owned Rust arguments from mutating collection method calls and
+  render them directly as `mut` parameters, including metadata-backed mutable
+  receivers and supported `Vec` and set/map insertion methods.
+
 ## v1.0.0-rc.5 - 2026-07-27
 
 - Add focused `RustQ.Meta.AST` selectors for generated Rust items, type items,

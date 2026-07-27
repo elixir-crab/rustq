@@ -89,7 +89,7 @@ algorithms can stay in Rust while RustQ removes the repetitive boundary glue.
 ```elixir
 def deps do
   [
-    {:rustq, "~> 1.0.0-rc.3", runtime: false}
+    {:rustq, "~> 1.0.0-rc.4", runtime: false}
   ]
 end
 ```

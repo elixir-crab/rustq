@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## v1.0.0-rc.4 - 2026-07-27
+
+- Add `defrustimpl` for generating inherent and trait Rust implementation
+  methods directly from typed Rusty-Elixir, including `&self` and `&mut self`
+  receiver inference and implementation visibility, attributes, and lifetimes.
+
 ## v1.0.0-rc.3 - 2026-07-17
 
 - Generate optional Rustler term filters with typed `Option::filter` calls for

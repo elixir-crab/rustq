@@ -17,6 +17,83 @@ defmodule RustQ.Meta.AST do
   require A
 
   @doc """
+  Returns every generated Rust item from a compiled RustQ module.
+
+  This is the public structural accessor for generated type declarations,
+  functions, modules, and implementation blocks.
+  """
+  @spec items(module()) :: [AST.item()]
+  def items(module) when is_atom(module), do: metadata!(module, :__rustq_items__, "Rust item")
+
+  @doc "Returns every generated Rust type item from a compiled RustQ module."
+  @spec generated_type_items(module()) :: [AST.item()]
+  def generated_type_items(module) when is_atom(module),
+    do: metadata!(module, :__rustq_type_items__, "Rust type item")
+
+  @doc "Returns one generated Rust type item by name, raising when absent."
+  @spec type_item!(module(), atom() | String.t()) :: AST.item()
+  def type_item!(module, name) when is_atom(module) do
+    name = Identifier.atom!(to_string(name))
+
+    Enum.find(generated_type_items(module), &(Map.get(&1, :name) == name)) ||
+      raise ArgumentError, "#{inspect(module)} has no generated Rust type item named #{name}"
+  end
+
+  @doc "Returns one generated Rust enum type item by name, raising on absence or kind mismatch."
+  @spec enum_type_item!(module(), atom() | String.t()) :: AST.Enum.t()
+  def enum_type_item!(module, name) do
+    case type_item!(module, name) do
+      %AST.Enum{} = item -> item
+      item -> raise ArgumentError, "expected #{item_name(item)} to be a generated Rust enum"
+    end
+  end
+
+  @doc "Returns one generated Rust struct type item by name, raising on absence or kind mismatch."
+  @spec struct_type_item!(module(), atom() | String.t()) :: AST.Struct.t()
+  def struct_type_item!(module, name) do
+    case type_item!(module, name) do
+      %AST.Struct{} = item -> item
+      item -> raise ArgumentError, "expected #{item_name(item)} to be a generated Rust struct"
+    end
+  end
+
+  @doc "Returns every generated Rust implementation block from a compiled module."
+  @spec impls(module()) :: [AST.Impl.t()]
+  def impls(module) when is_atom(module), do: Enum.filter(items(module), &match?(%AST.Impl{}, &1))
+
+  @doc """
+  Returns one generated Rust implementation block for a target.
+
+  Pass `trait: Name` to select a trait implementation. Without `:trait`, only
+  inherent implementations match. Raises when no implementation matches or
+  when the selector is ambiguous.
+  """
+  @spec impl!(module(), atom() | String.t() | [atom() | String.t()], keyword()) :: AST.Impl.t()
+  def impl!(module, target, opts \\ []) when is_atom(module) and is_list(opts) do
+    trait = Keyword.get(opts, :trait)
+
+    matches =
+      Enum.filter(impls(module), fn impl ->
+        type_path_matches?(impl.target, target) and trait_matches?(impl.trait, trait)
+      end)
+
+    case matches do
+      [impl] ->
+        impl
+
+      [] ->
+        trait_suffix = if trait, do: " for trait #{format_path(trait)}", else: ""
+
+        raise ArgumentError,
+              "#{inspect(module)} has no generated Rust impl for #{format_path(target)}#{trait_suffix}"
+
+      _matches ->
+        raise ArgumentError,
+              "#{inspect(module)} has multiple generated Rust impls for #{format_path(target)}; refine the selector with :trait"
+    end
+  end
+
+  @doc """
   Returns all generated `defrust` function AST nodes from a compiled module.
 
   Raises `ArgumentError` when the module does not contain compiled `defrust`
@@ -106,6 +183,33 @@ defmodule RustQ.Meta.AST do
     |> macro_definition!(name)
     |> RustMacro.item_call(args)
   end
+
+  defp metadata!(module, function, description) do
+    if Code.ensure_loaded?(module) and function_exported?(module, function, 0) do
+      apply(module, function, [])
+    else
+      raise ArgumentError, "#{inspect(module)} has no compiled #{description} metadata"
+    end
+  end
+
+  defp type_path_matches?(%AST.TypePath{parts: parts}, expected),
+    do: normalize_path(parts) == normalize_path(expected)
+
+  defp type_path_matches?(_type, _expected), do: false
+
+  defp trait_matches?(nil, nil), do: true
+
+  defp trait_matches?(%AST.TypePath{} = actual, expected) when not is_nil(expected),
+    do: type_path_matches?(actual, expected)
+
+  defp trait_matches?(_actual, _expected), do: false
+
+  defp normalize_path(parts) when is_list(parts), do: Enum.map(parts, &to_string/1)
+  defp normalize_path(path) when is_atom(path), do: [to_string(path)]
+  defp normalize_path(path) when is_binary(path), do: String.split(path, "::")
+
+  defp format_path(path), do: path |> normalize_path() |> Enum.join("::")
+  defp item_name(item), do: Map.get(item, :name, item.__struct__) |> to_string()
 
   defp macro_definition!(module, name) when is_atom(module) do
     name = Identifier.atom!(to_string(name))

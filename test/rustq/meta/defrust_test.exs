@@ -140,6 +140,49 @@ defmodule RustQ.Meta.DefrustTest do
                  end
   end
 
+  defmodule SelectorCase do
+    use RustQ.Meta
+    alias RustQ.Type, as: R
+
+    @type mode :: :ready | :busy
+    @type point :: %{required(:x) => R.f32()}
+
+    defrustimpl Counter do
+      @spec value(R.ref(R.path(:Counter))) :: R.i64()
+      defrust(value(self), do: self.value)
+    end
+
+    defrustimpl Display, for: Counter do
+      @spec label(R.ref(R.path(:Counter))) :: R.str()
+      defrust(label(self), do: self.label.as_str())
+    end
+  end
+
+  test "public selectors expose generated type and implementation items" do
+    assert MetaAST.items(SelectorCase) == SelectorCase.__rustq_items__()
+    assert MetaAST.generated_type_items(SelectorCase) == SelectorCase.__rustq_type_items__()
+    assert %RustQ.Rust.AST.Enum{name: :Mode} = MetaAST.enum_type_item!(SelectorCase, :Mode)
+    assert %RustQ.Rust.AST.Struct{name: :Point} = MetaAST.struct_type_item!(SelectorCase, "Point")
+    assert %RustQ.Rust.AST.Impl{trait: nil} = MetaAST.impl!(SelectorCase, :Counter)
+
+    assert %RustQ.Rust.AST.Impl{trait: %RustQ.Rust.AST.TypePath{parts: [:Display]}} =
+             MetaAST.impl!(SelectorCase, "Counter", trait: :Display)
+  end
+
+  test "public selectors report absent and mismatched items" do
+    assert_raise ArgumentError, ~r/no generated Rust type item named Missing/, fn ->
+      MetaAST.type_item!(SelectorCase, :Missing)
+    end
+
+    assert_raise ArgumentError, ~r/expected Point to be a generated Rust enum/, fn ->
+      MetaAST.enum_type_item!(SelectorCase, :Point)
+    end
+
+    assert_raise ArgumentError, ~r/no generated Rust impl for Missing/, fn ->
+      MetaAST.impl!(SelectorCase, :Missing)
+    end
+  end
+
   test "defrust combines multiple clauses, head patterns, guards, and recursion" do
     defmodule MultiClauseCase do
       use RustQ.Meta

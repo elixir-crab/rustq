@@ -32,8 +32,8 @@ This includes the documented surfaces under:
 - `RustQ.Diagnostic` data and the documented Reach checks
 - generated `RustQ.Meta` accessors documented by `RustQ.Meta`, including
   `__rustq_items__/0`, `__rustq_source__/0`, and `__rustq_type_items__/0`; for
-  structural function metadata, prefer `RustQ.Meta.AST.functions/1` and
-  `function!/2`
+  structural metadata, prefer the focused `RustQ.Meta.AST` selectors such as
+  `functions/1`, `function!/2`, `type_item!/2`, and `impl!/3`
 
 A module is not public merely because it is compiled into the package or can be
 addressed by name. Modules with `@moduledoc false`, functions with `@doc false`,

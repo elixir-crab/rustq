@@ -58,7 +58,7 @@ the Rust argument without adding a public BEAM argument.
 RustQ's compatibility contract is documented in [`guides/compatibility.md`](guides/compatibility.md) and published in HexDocs. When changing RustQ or a consumer:
 
 - treat documented Rusty-Elixir forms, public AST schemas/builders, Rustler helpers, diagnostics, and Reach finding kinds as the stable surface
-- treat `RustQ.Meta.AST` as the public structural accessor for compiled `defrust` metadata; use `RustQ.Meta.AST.functions/1` or `function!/2` instead of calling the hidden `__rustq_asts__/0` accessor directly, while `@moduledoc false`, `@doc false`, the hidden AST renderer, native NIF implementation, lowerer, inference engine, caches, and other implementation modules remain unstable
+- treat `RustQ.Meta.AST` as the public structural accessor for compiled RustQ metadata; use focused selectors such as `functions/1`, `function!/2`, `type_item!/2`, and `impl!/3` instead of calling generated metadata accessors directly when selecting items, while `@moduledoc false`, `@doc false`, the hidden AST renderer, native NIF implementation, lowerer, inference engine, caches, and other implementation modules remain unstable
 - expect generated Rust to be deterministic for one RustQ and formatter version, but not byte-identical across upgrades; regenerate checked-in output after dependency updates
 - classify new lowering forms and Reach checks as additive minor changes; reserve semantic changes to documented valid forms for a major release unless correcting invalid, unsafe, or contradicted behavior
 - validate package contents and documented APIs through the external public-consumer fixture before release

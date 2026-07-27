@@ -20,7 +20,7 @@ pub(crate) fn decode_function_arg_value(term: Term) -> NifResult<syn::FnArg> {
             let (name, ty) = term.decode::<(Term, Term)>()?;
             let name = format_ident!("{}", atom_or_string(name)?);
             let ty = decode_type(ty)?;
-            crate::parse_function_arg(name, ty)
+            crate::parse_function_arg(name, ty, false)
         }
     }
 }

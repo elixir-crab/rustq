@@ -3,7 +3,7 @@ defmodule RustQ.Meta.AST do
   Builds RustQ AST items from `defrust` metadata and explicit quoted bodies.
   """
 
-  alias RustQ.Binding.Callable
+  alias RustQ.Binding.{Callable, Index}
   alias RustQ.Diagnostic
   alias RustQ.Meta.Decoder
   alias RustQ.Meta.Lower
@@ -478,6 +478,7 @@ defmodule RustQ.Meta.AST do
     args =
       Enum.zip(arg_names, Enum.map(arg_types, & &1.ast))
       |> Enum.map(fn {name, type} -> %AST.FunctionArg{name: name, type: type} end)
+      |> mark_mutable_owned_args(body_ast, arg_names, arg_types, external_callables)
       |> maybe_prepend_nif_env(implicit_env?)
 
     vars = Map.merge(external_static_types, Map.new(Enum.zip(arg_names, arg_types)))
@@ -503,6 +504,49 @@ defmodule RustQ.Meta.AST do
 
     %{ast: ast, rust_module: rust_module, rust_impl: rust_impl}
   end
+
+  defp mark_mutable_owned_args(args, body, arg_names, arg_types, callables) do
+    types = Map.new(Enum.zip(arg_names, arg_types))
+    callables = Index.new(callables)
+
+    mutable =
+      Macro.prewalk(body, MapSet.new(), fn
+        {{:., _, [{name, _, context}, method]}, _, method_args} = call, acc
+        when is_atom(name) and (is_atom(context) or is_nil(context)) and is_atom(method) and
+               is_list(method_args) ->
+          type = Map.get(types, name)
+
+          if mutable_receiver?(type, method, length(method_args), callables) do
+            {call, MapSet.put(acc, name)}
+          else
+            {call, acc}
+          end
+
+        ast, acc ->
+          {ast, acc}
+      end)
+      |> elem(1)
+
+    Enum.map(args, fn arg -> %{arg | mutable: MapSet.member?(mutable, arg.name)} end)
+  end
+
+  defp mutable_receiver?(%Type{} = type, method, arity, callables) do
+    target = type.rust
+
+    case Index.get(callables, target, method, arity) do
+      %Callable{args: [%{type: %Type{ast: %AST.TypeRef{mutable: true}}} | _args]} -> true
+      _missing -> mutable_standard_receiver?(type, method)
+    end
+  end
+
+  defp mutable_receiver?(_type, _method, _arity, _callables), do: false
+
+  defp mutable_standard_receiver?(%Type{kind: :vec}, :push), do: true
+
+  defp mutable_standard_receiver?(%Type{rust: rust}, :insert),
+    do: String.starts_with?(rust, ["HashSet<", "HashMap<", "BTreeSet<", "BTreeMap<"])
+
+  defp mutable_standard_receiver?(_type, _method), do: false
 
   defp nif_attrs?(attrs) do
     Enum.any?(attrs, &match?(%AST.Attribute{path: [:rustler, :nif]}, &1))

@@ -541,6 +541,7 @@ pub(crate) fn decode_function_arg<'a>(term: Term<'a>) -> NifResult<FnArg> {
         super::parse_function_arg(
             super::format_ident_value(atom_key(term, "name")?),
             required_type(term, "type")?,
+            mutable,
         )
     }
 }

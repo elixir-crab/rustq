@@ -183,6 +183,41 @@ defmodule RustQ.Meta.DefrustTest do
     end
   end
 
+  test "defrust marks owned standard collection receivers mutable" do
+    defmodule OwnedMutationCase do
+      use RustQ.Meta
+      alias RustQ.Type, as: R
+
+      @spec append(R.vec(R.i64()), R.i64()) :: R.vec(R.i64())
+      defrust append(values, value) do
+        values.push(value)
+        values
+      end
+
+      @spec remember(HashSet.t(String.t()), String.t()) :: boolean()
+      defrust(remember(values, value), do: values.insert(value))
+    end
+
+    assert rust_source!(OwnedMutationCase, :append) =~
+             "fn append(mut values: Vec<i64>, value: i64)"
+
+    assert rust_source!(OwnedMutationCase, :remember) =~
+             "fn remember(mut values: HashSet<String>, value: String)"
+  end
+
+  test "defrust keeps shared standard collection receivers immutable" do
+    defmodule SharedCollectionCase do
+      use RustQ.Meta
+      alias RustQ.Type, as: R
+
+      @spec count(R.vec(R.i64())) :: R.usize()
+      defrust(count(values), do: values.len())
+    end
+
+    assert rust_source!(SharedCollectionCase, :count) =~ "fn count(values: Vec<i64>)"
+    refute rust_source!(SharedCollectionCase, :count) =~ "mut values"
+  end
+
   test "defrust combines multiple clauses, head patterns, guards, and recursion" do
     defmodule MultiClauseCase do
       use RustQ.Meta

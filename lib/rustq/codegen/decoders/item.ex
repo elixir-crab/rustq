@@ -181,7 +181,8 @@ defmodule RustQ.Codegen.Decoders.Item do
     else
       Super.parse_function_arg(
         Super.format_ident_value(atom_key(term, "name")),
-        required_type(term, "type")
+        required_type(term, "type"),
+        mutable
       )
     end
   end

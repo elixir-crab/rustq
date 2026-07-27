@@ -220,6 +220,35 @@ end
 
 Use `return!`, `break`, and `continue` only when modelling an inherently Rusty low-level primitive or RustQ internals. They should be unusual in downstream product generators.
 
+## Use `defrustimpl` for Rust methods
+
+Use `defrustimpl` when Rusty-Elixir functions belong to an inherent or trait
+implementation. Keep the receiver as the first valid-Elixir argument and type it
+with `R.ref/1` or `R.mut_ref/1`; RustQ renders those as `&self` and `&mut self`.
+
+```elixir
+defrustimpl ComponentRegistry, vis: :crate do
+  @spec input_mut(R.mut_ref(R.path(:ComponentRegistry)), R.str()) ::
+          R.option(R.mut_ref(R.path(:ComponentInput)))
+  defrust input_mut(self, id) do
+    self.entries.get_mut(ref(id))
+  end
+end
+```
+
+For trait implementations, use `:for`:
+
+```elixir
+defrustimpl Display, for: Widget do
+  @spec display(R.ref(R.path(:Widget))) :: R.str()
+  defrust display(self), do: self.label.as_str()
+end
+```
+
+Use `:vis`, `:attrs`, and `:lifetimes` for implementation metadata. Prefer this
+API over compiling free `defrust` functions and manually rewriting their AST
+arguments into receivers.
+
 ## Use ordinary Elixir macros for reusable Rusty-Elixir
 
 ```elixir

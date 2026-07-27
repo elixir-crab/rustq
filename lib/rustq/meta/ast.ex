@@ -178,7 +178,7 @@ defmodule RustQ.Meta.AST do
       ),
       do:
         build_ast(
-          {call_ast, body_ast, [], nil},
+          {call_ast, body_ast, [], nil, nil},
           specs,
           type_aliases,
           rust_modules,
@@ -200,7 +200,7 @@ defmodule RustQ.Meta.AST do
       ),
       do:
         build_ast(
-          {call_ast, body_ast, attrs, nil},
+          {call_ast, body_ast, attrs, nil, nil},
           specs,
           type_aliases,
           rust_modules,
@@ -211,7 +211,7 @@ defmodule RustQ.Meta.AST do
         )
 
   def build_ast(
-        {call_ast, body_ast, attrs, rust_module},
+        {call_ast, body_ast, attrs, rust_module, rust_impl},
         specs,
         type_aliases,
         rust_modules,
@@ -221,7 +221,7 @@ defmodule RustQ.Meta.AST do
         rust_macros
       ) do
     do_build_ast(
-      {call_ast, body_ast, attrs, rust_module},
+      {call_ast, body_ast, attrs, rust_module, rust_impl},
       specs,
       type_aliases,
       rust_modules,
@@ -246,17 +246,72 @@ defmodule RustQ.Meta.AST do
   end
 
   @doc false
-  def group_module_asts(built_asts) do
+  def group_items(built_asts, rust_modules \\ %{}) do
     {plain, nested} = Enum.split_with(built_asts, &is_nil(&1.rust_module))
 
-    plain_items = Enum.map(plain, & &1.ast)
+    plain_items = group_impl_asts(plain, rust_modules)
 
     nested_items =
       nested
-      |> Enum.group_by(& &1.rust_module, & &1.ast)
-      |> Enum.map(fn {module, items} -> %AST.Module{name: List.last(module), items: items} end)
+      |> Enum.group_by(& &1.rust_module)
+      |> Enum.map(fn {module, items} ->
+        %AST.Module{name: List.last(module), items: group_impl_asts(items, rust_modules)}
+      end)
 
     plain_items ++ nested_items
+  end
+
+  @doc false
+  def group_module_asts(built_asts), do: group_items(built_asts)
+
+  defp group_impl_asts(built_asts, rust_modules) do
+    {methods, ordinary} =
+      Enum.split_with(built_asts, &Map.get(&1, :rust_impl))
+
+    ordinary_items = Enum.map(ordinary, & &1.ast)
+
+    impl_items =
+      methods
+      |> Enum.group_by(& &1.rust_impl)
+      |> Enum.map(fn {impl, entries} ->
+        %AST.Impl{
+          target: impl_type!(impl.target, rust_modules),
+          trait: impl.trait && impl_type!(impl.trait, rust_modules),
+          attrs: impl.attrs,
+          lifetimes: impl.lifetimes,
+          items: Enum.map(entries, &method_ast(&1.ast, impl.vis))
+        }
+      end)
+
+    ordinary_items ++ impl_items
+  end
+
+  defp method_ast(%AST.Function{args: [receiver | args]} = function, vis) do
+    unless match?(%AST.TypeRef{}, receiver.type) do
+      raise ArgumentError,
+            "the first defrustimpl argument must have type R.ref(...) or R.mut_ref(...)"
+    end
+
+    %AST.TypeRef{mutable: mutable} = receiver.type
+    receiver = %{receiver | name: :self, type: nil, receiver: true, mutable: mutable}
+    %{function | args: [receiver | args], vis: vis}
+  end
+
+  defp method_ast(%AST.Function{}, _vis) do
+    raise ArgumentError, "defrustimpl methods require a self argument"
+  end
+
+  defp impl_type!({:__aliases__, _, parts}, rust_modules) do
+    rust_parts = Map.get(rust_modules, parts, Enum.map(parts, &Identifier.atom!/1))
+    %AST.TypePath{parts: rust_parts}
+  end
+
+  defp impl_type!(part, _rust_modules) when is_atom(part),
+    do: %AST.TypePath{parts: [Identifier.atom!(part)]}
+
+  defp impl_type!(other, _rust_modules) do
+    raise ArgumentError,
+          "expected a Rust type alias in defrustimpl, got: #{Macro.to_string(other)}"
   end
 
   defp normalize_type(%Type{} = type, _aliases), do: type
@@ -289,7 +344,7 @@ defmodule RustQ.Meta.AST do
   defp rust_ast_type_kind(_type_ast), do: :type
 
   defp do_build_ast(
-         {call_ast, body_ast, attrs, rust_module},
+         {call_ast, body_ast, attrs, rust_module, rust_impl},
          specs,
          type_aliases,
          rust_modules,
@@ -342,7 +397,7 @@ defmodule RustQ.Meta.AST do
       attrs: attrs
     }
 
-    %{ast: ast, rust_module: rust_module}
+    %{ast: ast, rust_module: rust_module, rust_impl: rust_impl}
   end
 
   defp nif_attrs?(attrs) do

@@ -190,6 +190,34 @@ before inventing a RustQ-specific syntax.
 small pattern. Keep it small and keep its body Rusty-Elixir. Do not use it as a
 second general-purpose language.
 
+## Put Rust methods in `defrustimpl`
+
+When Rusty-Elixir functions belong to a Rust implementation, group them with
+`defrustimpl` rather than retrieving and rewriting function ASTs. The first
+argument remains an ordinary Elixir variable. Type it with `R.ref/1` for
+`&self` or `R.mut_ref/1` for `&mut self`:
+
+```elixir
+defrustimpl ComponentRegistry, vis: :crate do
+  @spec input_mut(R.mut_ref(R.path(:ComponentRegistry)), R.str()) ::
+          R.option(R.mut_ref(R.path(:ComponentInput)))
+  defrust input_mut(self, id) do
+    self.entries.get_mut(ref(id))
+  end
+end
+```
+
+Trait implementations use `:for`:
+
+```elixir
+defrustimpl Display, for: Widget do
+  @spec display(R.ref(R.path(:Widget))) :: R.str()
+  defrust display(self), do: self.label.as_str()
+end
+```
+
+Implementation metadata can use `:vis`, `:attrs`, and `:lifetimes`.
+
 ## Use AST for Rust-only structure
 
 Rust declarations, attributes, unsafe blocks, and other Rust-only structures

@@ -13,6 +13,11 @@ defmodule RustQ.Meta do
   their own codegen boundary instead of pretending external Rust modules are
   Elixir modules.
 
+  `defrustimpl` groups `defrust` declarations into an inherent or trait Rust
+  `impl` block. The first argument of each method remains valid Elixir and must
+  be typed as `R.ref(Target.t())` or `R.mut_ref(Target.t())`; RustQ renders it
+  as `&self` or `&mut self` respectively.
+
   `defrustmacro` defines a small `macro_rules!` item from a Rusty-Elixir body.
   Its arguments are Rust macro fragments (`:expr` by default, with `:ty`
   supported for type arguments) while the body still uses ordinary Rusty-Elixir
@@ -85,6 +90,7 @@ defmodule RustQ.Meta do
       Module.register_attribute(__MODULE__, :rustq_callable_modules, accumulate: true)
       Module.register_attribute(__MODULE__, :rustq_static_types, accumulate: true)
       Module.register_attribute(__MODULE__, :rustq_current_rust_mod, accumulate: false)
+      Module.register_attribute(__MODULE__, :rustq_current_rust_impl, accumulate: false)
       @rustq_rust_sources unquote(Macro.escape(List.wrap(rust_sources)))
       @rustq_rust_packages unquote(Macro.escape(List.wrap(rust_packages)))
       @rustq_callable_modules unquote(Macro.escape(List.wrap(callable_modules)))
@@ -114,6 +120,46 @@ defmodule RustQ.Meta do
     end
   end
 
+  @doc """
+  Groups Rusty-Elixir methods into an inherent or trait Rust `impl` block.
+
+  The first argument of every nested `defrust` declaration is the receiver. Its
+  spec must use `R.ref(...)` for `&self` or `R.mut_ref(...)` for `&mut self`.
+
+      defrustimpl Counter, vis: :crate do
+        @spec increment(R.mut_ref(R.path(:Counter)), R.i64()) :: R.i64()
+        defrust increment(self, amount), do: self.value + amount
+      end
+
+      defrustimpl Display, for: Counter do
+        @spec fmt(R.ref(R.path(:Counter)), R.path(:Formatter)) :: R.path(:FmtResult)
+        defrust fmt(self, formatter), do: formatter.write_str(self.label.as_str())
+      end
+
+  Supported options are `:for`, `:vis`, `:attrs`, and `:lifetimes`.
+  """
+  defmacro defrustimpl(target_or_trait_ast, opts \\ [], do: block) do
+    {target_ast, trait_ast, opts} =
+      case Keyword.pop(opts, :for) do
+        {nil, opts} -> {target_or_trait_ast, nil, opts}
+        {target_ast, opts} -> {target_ast, target_or_trait_ast, opts}
+      end
+
+    impl = %{
+      target: target_ast,
+      trait: trait_ast,
+      vis: Keyword.get(opts, :vis),
+      attrs: Keyword.get(opts, :attrs, []),
+      lifetimes: Keyword.get(opts, :lifetimes, [])
+    }
+
+    quote do
+      Module.put_attribute(__MODULE__, :rustq_current_rust_impl, unquote(Macro.escape(impl)))
+      unquote(block)
+      Module.delete_attribute(__MODULE__, :rustq_current_rust_impl)
+    end
+  end
+
   defmacro defrust(call_ast, do: body_ast) do
     rust_definition(call_ast, body_ast, :public_helper)
   end
@@ -140,7 +186,8 @@ defmodule RustQ.Meta do
       quote do
         @rustq_defs {unquote(Macro.escape(call_ast)), unquote(Macro.escape(body_ast)),
                      RustQ.Meta.Attrs.take_pending(__MODULE__),
-                     RustQ.Meta.Attrs.current_rust_mod(__MODULE__)}
+                     RustQ.Meta.Attrs.current_rust_mod(__MODULE__),
+                     RustQ.Meta.Attrs.current_rust_impl(__MODULE__)}
       end
 
     quote do
@@ -227,14 +274,15 @@ defmodule RustQ.Meta do
       built_macros: built_macros,
       local_callables: local_callables,
       rust_macros: rust_macros,
-      type_aliases: type_aliases
+      type_aliases: type_aliases,
+      rust_modules: rust_modules
     } = compile_context(env)
 
     asts = Enum.map(built_asts, & &1.ast)
     macro_items = Enum.map(built_macros, &Map.take(&1, [:name, :ast, :rust_module]))
     type_asts = AST.build_type_asts(type_aliases)
     type_items = type_asts
-    rust_items = AST.group_module_asts(built_macros ++ built_asts)
+    rust_items = AST.group_items(built_macros ++ built_asts, rust_modules)
     items = type_items ++ rust_items
 
     type_source = Rust.render_all(type_items)
@@ -349,7 +397,8 @@ defmodule RustQ.Meta do
       built_macros: RustMacro.items(rust_macros, rust_modules, env, callables, rust_macro_index),
       local_callables: local_callables,
       rust_macros: rust_macros,
-      type_aliases: type_aliases
+      type_aliases: type_aliases,
+      rust_modules: rust_modules
     }
   end
 
@@ -359,12 +408,14 @@ defmodule RustQ.Meta do
     |> Enum.map(&normalize_definition_group/1)
   end
 
-  defp definition_key({call_ast, _body, _attrs, rust_module}) do
+  defp definition_key({call_ast, _body, _attrs, rust_module, rust_impl}) do
     {name, args} = call_name_args!(call_ast)
-    {name, length(args), rust_module}
+    {name, length(args), rust_module, rust_impl}
   end
 
-  defp normalize_definition_group([{call_ast, _body, _attrs, _rust_module} = definition]) do
+  defp normalize_definition_group([
+         {call_ast, _body, _attrs, _rust_module, _rust_impl} = definition
+       ]) do
     {_head, guard} = split_guarded_head(call_ast)
     {_name, args} = call_name_args!(call_ast)
 
@@ -377,7 +428,11 @@ defmodule RustQ.Meta do
 
   defp normalize_definition_group(definitions), do: combine_definitions(definitions)
 
-  defp combine_definitions([{first_call, _body, attrs, rust_module} | _] = definitions) do
+  defp combine_definitions(
+         [
+           {first_call, _body, attrs, rust_module, rust_impl} | _
+         ] = definitions
+       ) do
     {name, args} = call_name_args!(first_call)
     arity = length(args)
 
@@ -394,7 +449,7 @@ defmodule RustQ.Meta do
       end
 
     clauses =
-      Enum.map(definitions, fn {call_ast, body, _clause_attrs, _rust_module} ->
+      Enum.map(definitions, fn {call_ast, body, _clause_attrs, _rust_module, _rust_impl} ->
         {call_ast, guard} = split_guarded_head(call_ast)
         {_name, _meta, patterns} = call_ast
 
@@ -408,7 +463,8 @@ defmodule RustQ.Meta do
         {:->, [], [[pattern], body]}
       end)
 
-    {{name, [], function_args}, {:case, [], [scrutinee, [do: clauses]]}, attrs, rust_module}
+    {{name, [], function_args}, {:case, [], [scrutinee, [do: clauses]]}, attrs, rust_module,
+     rust_impl}
   end
 
   defp split_guarded_head({:when, _, [call_ast, guard]}), do: {call_ast, guard}

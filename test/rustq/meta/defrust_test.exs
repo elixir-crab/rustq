@@ -87,6 +87,59 @@ defmodule RustQ.Meta.DefrustTest do
     assert_raise ErlangError, fn -> EntrypointCase.add(1, 2) end
   end
 
+  test "defrustimpl groups Rusty-Elixir methods with typed receivers" do
+    defmodule ImplCase do
+      use RustQ.Meta
+      alias RustQ.Type, as: R
+
+      defrustimpl Counter, vis: :crate do
+        @spec value(R.ref(R.path(:Counter))) :: R.i64()
+        defrust(value(self), do: self.value)
+
+        @spec increment(R.mut_ref(R.path(:Counter)), R.i64()) :: R.i64()
+        defrust(increment(self, amount), do: self.value + amount)
+      end
+    end
+
+    source = rust_source!(ImplCase)
+
+    assert source =~ "impl Counter {"
+    assert source =~ "pub(crate) fn value(&self) -> i64"
+    assert source =~ "pub(crate) fn increment(&mut self, amount: i64)"
+    assert source =~ "self.value + amount"
+    assert RustQ.valid?(source, "defrustimpl.rs")
+  end
+
+  test "defrustimpl supports trait implementations" do
+    defmodule TraitImplCase do
+      use RustQ.Meta
+      alias RustQ.Type, as: R
+
+      defrustimpl Displayable, for: Counter do
+        @spec display(R.ref(R.path(:Counter))) :: R.str()
+        defrust(display(self), do: self.label.as_str())
+      end
+    end
+
+    assert rust_source!(TraitImplCase) =~ "impl Displayable for Counter {"
+  end
+
+  test "defrustimpl requires a typed reference receiver" do
+    assert_raise ArgumentError,
+                 ~r/first defrustimpl argument must have type R.ref.*or R.mut_ref/,
+                 fn ->
+                   defmodule InvalidImplReceiverCase do
+                     use RustQ.Meta
+                     alias RustQ.Type, as: R
+
+                     defrustimpl Counter do
+                       @spec value(R.path(:Counter)) :: R.i64()
+                       defrust(value(self), do: self.value)
+                     end
+                   end
+                 end
+  end
+
   test "defrust combines multiple clauses, head patterns, guards, and recursion" do
     defmodule MultiClauseCase do
       use RustQ.Meta

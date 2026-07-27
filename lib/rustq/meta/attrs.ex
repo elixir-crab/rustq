@@ -15,6 +15,7 @@ defmodule RustQ.Meta.Attrs do
   end
 
   def current_rust_mod(module), do: Module.get_attribute(module, :rustq_current_rust_mod)
+  def current_rust_impl(module), do: Module.get_attribute(module, :rustq_current_rust_impl)
 
   defp add_nif_attr(attrs, nil), do: attrs
   defp add_nif_attr(attrs, false), do: attrs

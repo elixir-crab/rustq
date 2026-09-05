@@ -62,5 +62,9 @@ defmodule RustQ.PublicConsumerTest do
     assert source =~ "#[rustler::nif]"
     assert source =~ "fn add(left: i64, right: i64) -> i64"
     assert source =~ ~s|rustler::init! { "Elixir.RustQZeroRustConsumer.Native" }|
+
+    release_env = [{"RUSTQ_TEST_RELEASE", "1"} | env]
+    run!(consumer, "mix", ["clean"], release_env)
+    run!(consumer, "mix", ["test"], release_env)
   end
 end

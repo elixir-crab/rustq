@@ -3,6 +3,7 @@ defmodule RustQ.Meta.Lower.Map do
 
   alias RustQ.Diagnostic
   alias RustQ.Meta.Core.Call
+  alias RustQ.Meta.Lower.Stdlib
   alias RustQ.Meta.Lower.Stdlib.{Context, TypeContext}
   alias RustQ.Meta.Type
   alias RustQ.Rust.AST
@@ -26,15 +27,17 @@ defmodule RustQ.Meta.Lower.Map do
     end
   end
 
-  def lower(%Call{function: :has_key?, args: [map, key]}, %Context{} = context)
+  def lower(%Call{function: :has_key?, args: [map, key]} = call, %Context{} = context)
       when is_atom(key) do
-    present? =
-      case map_type(context.type_of.(map)) do
-        %Type{} = type -> match?(%Type{}, Type.field_type(type, key))
-        nil -> false
-      end
+    case map_type(Stdlib.shape_type(context.type_of.(map))) do
+      %Type{} = type ->
+        present? = match?(%Type{}, Type.field_type(type, key))
 
-    {:ok, %AST.Literal{value: present?}}
+        Stdlib.evaluated_constant(map, present?, context)
+
+      nil ->
+        unsupported_field!(call)
+    end
   end
 
   def lower(%Call{function: function, args: [map, key, value]} = call, %Context{} = context)

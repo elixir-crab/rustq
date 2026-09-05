@@ -18,10 +18,22 @@ defmodule RustQZeroRustConsumer.NativeError do
   defexception [:message]
 end
 
+defmodule RustQZeroRustConsumer.NativeConfiguration do
+  @moduledoc false
+
+  defmacro __using__(_opts) do
+    mode = if System.get_env("RUSTQ_TEST_RELEASE") == "1", do: :release, else: :debug
+
+    quote do
+      use RustQ.Native, crates: [crc32fast: "1"], mode: unquote(mode)
+    end
+  end
+end
+
 defmodule RustQZeroRustConsumer.Native do
   @moduledoc false
 
-  use RustQ.Native, crates: [crc32fast: "1"]
+  use RustQZeroRustConsumer.NativeConfiguration
 
   alias RustQ.Type, as: R
 
@@ -58,6 +70,121 @@ defmodule RustQZeroRustConsumer.Native do
 
   @spec add_impl(integer(), integer()) :: integer()
   defrustp(add_impl(left, right), do: left + right)
+
+  @spec checked_value(integer()) :: R.result(integer(), String.t())
+  defrustp checked_value(value) do
+    if value > 0, do: {:ok, value}, else: {:error, "nonpositive"}
+  end
+
+  @spec nested_result(integer()) :: R.result(integer(), String.t())
+  defnif nested_result(value) do
+    case checked_value(value) do
+      {:ok, result} -> {:ok, result + 1}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @spec forwarded_result(integer()) :: R.result(integer(), String.t())
+  defnif(forwarded_result(value), do: checked_value(value))
+
+  @spec checked_pair(term()) :: R.nif_result({integer(), integer()})
+  defrustp(checked_pair(value), do: value.decode())
+
+  @spec checked_coordinates(term()) :: R.nif_result(coordinates())
+  defrustp(checked_coordinates(value), do: value.decode())
+
+  @spec evaluated_pair_size(term()) :: R.nif_result(integer())
+  defnif(evaluated_pair_size(value), do: {:ok, tuple_size(checked_pair(value))})
+
+  @spec evaluated_map_size(term()) :: R.nif_result(integer())
+  defnif(evaluated_map_size(value), do: {:ok, map_size(checked_coordinates(value))})
+
+  @spec evaluated_has_key(term()) :: R.nif_result(boolean())
+  defnif(evaluated_has_key(value),
+    do: {:ok, Map.has_key?(checked_coordinates(value), :x)}
+  )
+
+  @spec decode_local_coordinates(term()) :: R.nif_result(coordinates())
+  defnif(decode_local_coordinates(value), do: decode_as(value, coordinates()))
+
+  @spec decode_local_x(term()) :: R.nif_result(float())
+  defnif decode_local_x(value) do
+    point = decode_as!(value, coordinates())
+    {:ok, point.x}
+  end
+
+  @spec counted_pair(R.mut_ref(R.vec(integer()))) :: {integer(), integer()}
+  defrustp counted_pair(counter) do
+    counter.push(1)
+    {1, 2}
+  end
+
+  @spec counted_coordinates(R.mut_ref(R.vec(integer()))) :: coordinates()
+  defrustp counted_coordinates(counter) do
+    counter.push(1)
+    %{x: 1.0, y: 2.0}
+  end
+
+  @spec shape_evaluation_count() :: integer()
+  defnif shape_evaluation_count() do
+    counter = [0]
+    tuple_size(counted_pair(mut_ref(counter)))
+    map_size(counted_coordinates(mut_ref(counter)))
+    Map.has_key?(counted_coordinates(mut_ref(counter)), :x)
+    length(counter) - 1
+  end
+
+  @spec recursive_result(integer()) :: R.result(integer(), String.t())
+  defnif(recursive_result(1), do: {:ok, 1})
+
+  defnif recursive_result(value) do
+    if value <= 0, do: checked_value(value), else: recursive_result(value - 1)
+  end
+
+  @spec composed_result(integer()) :: R.result(integer(), String.t())
+  defnif composed_result(value) do
+    case recursive_result(value) do
+      {:ok, result} -> nested_result(result)
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @spec conditional_result(integer()) :: R.result(integer(), String.t())
+  defnif conditional_result(value) do
+    cond do
+      value < 0 -> {:error, "negative"}
+      value == 0 -> {:ok, 0}
+      true -> composed_result(value)
+    end
+  end
+
+  @spec closure_results([integer()]) :: [R.result(integer(), String.t())]
+  defnif closure_results(values) do
+    Enum.map(values, fn value ->
+      case nested_result(value) do
+        {:ok, result} -> {:ok, result + 10}
+        {:error, reason} -> {:error, reason}
+      end
+    end)
+  end
+
+  @spec captured_results([integer()]) :: [R.result(integer(), String.t())]
+  defnif(captured_results(values), do: Enum.map(values, &nested_result/1))
+
+  @spec checked_addition(R.i64(), R.i64()) :: R.option(R.i64())
+  defnif(checked_addition(left, right), do: left.checked_add(right))
+
+  @spec checked_division(R.i64(), R.i64()) :: R.option(R.i64())
+  defnif(checked_division(left, right), do: left.checked_div(right))
+
+  @spec integer_quotient(R.i64(), R.i64()) :: R.i64()
+  defnif(integer_quotient(left, right), do: div(left, right))
+
+  @spec integer_remainder(R.i64(), R.i64()) :: R.i64()
+  defnif(integer_remainder(left, right), do: rem(left, right))
+
+  @spec floating_quotient(R.i64(), R.i64()) :: R.f64()
+  defnif(floating_quotient(left, right), do: cast(left, R.f64()) / cast(right, R.f64()))
 
   @spec sum([float()]) :: float()
   defnif(sum(values), do: Enum.sum(values))

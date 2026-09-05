@@ -5,6 +5,48 @@ defmodule RustQ.Binding.SourceTest do
   alias RustQ.Binding.Source
   alias RustQ.Meta.Type
 
+  @moduletag :tmp_dir
+
+  test "refreshes package callables after a same-size edit with unchanged timestamp", %{
+    tmp_dir: dir
+  } do
+    package = "rustq_binding_refresh"
+    manifest = Path.join(dir, "Cargo.toml")
+    source = Path.join([dir, "src", "lib.rs"])
+    File.mkdir_p!(Path.dirname(source))
+
+    File.write!(
+      manifest,
+      TomlElixir.encode!(%{
+        "package" => %{"name" => package, "version" => "0.1.0", "edition" => "2021"}
+      })
+    )
+
+    File.write!(source, "pub fn value() -> i64 { 1 }\n")
+    timestamp = File.stat!(source).mtime
+
+    resolve = fn ->
+      module = Module.concat(__MODULE__, "PackageConsumer#{System.unique_integer([:positive])}")
+
+      Code.compile_quoted(
+        quote do
+          defmodule unquote(module) do
+            @rustq_rust_packages [{unquote(package), [manifest_path: unquote(manifest)]}]
+            @callables RustQ.Binding.Source.external_callables(__MODULE__)
+            def callables, do: @callables
+          end
+        end
+      )
+
+      Enum.find(module.callables(), &(&1.name == "value"))
+    end
+
+    assert %Callable{returns: %Type{kind: :i64}} = resolve.()
+    File.write!(source, "pub fn value() -> u64 { 1 }\n")
+    File.touch!(source, timestamp)
+    assert %Callable{returns: %Type{kind: :u64}} = resolve.()
+  end
+
   test "expands relative Rust source paths from current working directory" do
     assert Source.rust_source_paths("test/fixtures/external_callables.rs") == [
              Path.expand("test/fixtures/external_callables.rs", File.cwd!())
@@ -104,10 +146,47 @@ defmodule RustQ.Binding.SourceTest do
       end)
 
     assert_receive :callable_resolved
-    assert Task.yield(compiler, 0) == nil
-
-    send(lock_holder, :release_cache_lock)
+    # Callable resolution must not depend on the obsolete outer cache lock.
     Task.await(compiler)
+    send(lock_holder, :release_cache_lock)
+  end
+
+  test "observes recompiled callable providers in the same VM" do
+    suffix = System.unique_integer([:positive])
+    provider = Module.concat(__MODULE__, "Reloaded#{suffix}")
+
+    define_provider = fn value ->
+      Code.compile_quoted(
+        quote do
+          defmodule unquote(provider) do
+            def __rustq_callables__, do: [unquote(value)]
+          end
+        end
+      )
+    end
+
+    resolve = fn ->
+      consumer = Module.concat(__MODULE__, "ReloadConsumer#{System.unique_integer([:positive])}")
+
+      Code.compile_quoted(
+        quote do
+          defmodule unquote(consumer) do
+            @rustq_callable_modules [unquote(provider)]
+            @callables RustQ.Binding.Source.external_callables(__MODULE__)
+            def callables, do: @callables
+          end
+        end
+      )
+
+      consumer.callables()
+    end
+
+    define_provider.(:before_reload)
+    assert resolve.() == [:before_reload]
+    :code.purge(provider)
+    :code.delete(provider)
+    define_provider.(:after_reload)
+    assert resolve.() == [:after_reload]
   end
 
   defp compile_source_module!(source) do

@@ -273,10 +273,19 @@ defmodule RustQ.Meta.Lower.Enum do
   def synth(%Call{}, %TypeContext{}), do: :unsupported
 
   defp lower_map(collection, {:fn, _, [{:->, _, [args, body]}]}, context) do
+    mapped_type = collection_inner(context.expected)
+
+    closure =
+      if mapped_type do
+        context.lower_typed_closure.(args, body, mapped_type)
+      else
+        context.lower_closure.(args, body)
+      end
+
     collection
     |> lower_collection(context)
     |> method_chain(:into_iter)
-    |> method_chain(:map, [context.lower_closure.(args, body)])
+    |> method_chain(:map, [closure])
     |> collect(context)
   end
 

@@ -13,9 +13,10 @@ defmodule RustQ.Meta.Typing do
 
   defmodule Env do
     @moduledoc false
-    defstruct vars: %{}, callables: %BindingIndex{}, rust_modules: %{}
+    defstruct vars: %{}, callables: %BindingIndex{}, rust_modules: %{}, type_aliases: %{}
 
     @type t :: %__MODULE__{
+            type_aliases: map(),
             vars: %{optional(atom()) => Type.t()},
             callables: BindingIndex.t(),
             rust_modules: %{optional([atom()]) => [atom()]}
@@ -46,6 +47,7 @@ defmodule RustQ.Meta.Typing do
   @spec env(keyword()) :: Env.t()
   def env(opts \\ []) do
     %Env{
+      type_aliases: Keyword.get(opts, :type_aliases, %{}),
       vars: Keyword.get(opts, :vars, %{}),
       callables: BindingIndex.new(Keyword.get(opts, :callables)),
       rust_modules: Keyword.get(opts, :rust_modules, %{})
@@ -71,17 +73,17 @@ defmodule RustQ.Meta.Typing do
     }
   end
 
-  def synth({:cast, _meta, [_expression, type_ast]}, %Env{}) do
-    RustQ.Spec.type(type_ast)
+  def synth({:cast, _meta, [_expression, type_ast]}, %Env{type_aliases: aliases}) do
+    RustQ.Spec.type(type_ast, aliases)
   end
 
-  def synth({:decode_as!, _meta, [_expression, type_ast]}, %Env{}) do
-    RustQ.Spec.type(type_ast)
+  def synth({:decode_as!, _meta, [_expression, type_ast]}, %Env{type_aliases: aliases}) do
+    RustQ.Spec.type(type_ast, aliases)
   end
 
-  def synth({:decode_as, _meta, [_expression, type_ast]}, %Env{}) do
+  def synth({:decode_as, _meta, [_expression, type_ast]}, %Env{type_aliases: aliases}) do
     type_ast
-    |> RustQ.Spec.type()
+    |> RustQ.Spec.type(aliases)
     |> result_type()
   end
 
@@ -202,6 +204,17 @@ defmodule RustQ.Meta.Typing do
       target_type: fn _type -> nil end,
       method_receiver_type: fn _name, _arity -> nil end
     }
+  end
+
+  defp synth_method_call({{:., _, [receiver, method]}, _meta, [_operand]}, %Env{} = env)
+       when method in [:checked_add, :checked_sub, :checked_mul, :checked_div, :checked_rem] do
+    case synth(receiver, env) do
+      %Type{} = type ->
+        if Type.category(type) == :integer, do: Type.option(type)
+
+      _unknown ->
+        nil
+    end
   end
 
   defp synth_method_call({{:., _, [receiver, :ok]}, _meta, []}, %Env{} = env) do

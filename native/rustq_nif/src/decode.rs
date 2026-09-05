@@ -281,6 +281,9 @@ pub(crate) fn parse_if_expr(
     else_block: Option<syn::Block>,
 ) -> NifResult<Expr> {
     if let Some(else_block) = else_block {
+        if let [Stmt::Expr(nested @ Expr::If(_), None)] = else_block.stmts.as_slice() {
+            return parse_syn::<Expr>(quote!(if #condition #then_block else #nested));
+        }
         parse_syn::<Expr>(quote!(if #condition #then_block else #else_block))
     } else {
         parse_syn::<Expr>(quote!(if #condition #then_block))

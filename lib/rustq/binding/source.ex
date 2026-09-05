@@ -11,6 +11,7 @@ defmodule RustQ.Binding.Source do
   alias RustQ.Diagnostic
   alias RustQ.Meta.Type
   alias RustQ.Rust.Identifier
+  alias RustQ.SourceFingerprint
   alias RustQ.Spec
   alias RustQ.Syn
 
@@ -67,8 +68,7 @@ defmodule RustQ.Binding.Source do
     |> Enum.flat_map(&cached_callable_module_callables/1)
   end
 
-  defp cached_callable_module_callables(module),
-    do: cached_callables({:callable_module, module}, fn -> callable_module_callables!(module) end)
+  defp cached_callable_module_callables(module), do: callable_module_callables!(module)
 
   defp callable_module_callables!(module) when is_atom(module) do
     case Code.ensure_compiled(module) do
@@ -144,15 +144,7 @@ defmodule RustQ.Binding.Source do
     Enum.map(paths, &rust_source_fingerprint/1)
   end
 
-  defp rust_source_fingerprint(path) do
-    case File.stat(path, time: :posix) do
-      {:ok, %File.Stat{size: size, mtime: mtime}} ->
-        {path, mtime, size}
-
-      {:error, reason} ->
-        {path, :missing, reason}
-    end
-  end
+  defp rust_source_fingerprint(path), do: SourceFingerprint.file(path)
 
   defp rust_source_callables(paths) do
     index = rust_source_index!(paths)
@@ -191,8 +183,9 @@ defmodule RustQ.Binding.Source do
     |> Enum.flat_map(&cached_rust_package_callables/1)
   end
 
-  defp cached_rust_package_callables(config),
-    do: cached_callables({:rust_package, config}, fn -> rust_package_callables(config) end)
+  # The package index owns freshness and caching. An outer permanent cache
+  # would prevent its invalidation checks from running after a source change.
+  defp cached_rust_package_callables(config), do: rust_package_callables(config)
 
   defp rust_package_callables(package) when is_binary(package),
     do: rust_package_callables({package, []})
@@ -469,35 +462,4 @@ defmodule RustQ.Binding.Source do
     do: parts |> List.last() |> to_string()
 
   defp type_name_from_ast(_ast), do: nil
-
-  defp cached_callables(key, fun) do
-    cache_key = {__MODULE__, :callables, key}
-
-    case :persistent_term.get(cache_key, :missing) do
-      :missing ->
-        # Resolving callable modules may suspend in Code.ensure_compiled/1. Do
-        # that outside the global cache lock so parallel compilation can make
-        # progress instead of forming an invisible lock/wait cycle.
-        callables = fun.()
-        single_flight(cache_key, fn -> fill_callables_cache(cache_key, callables) end)
-
-      callables ->
-        callables
-    end
-  end
-
-  defp fill_callables_cache(cache_key, callables) do
-    case :persistent_term.get(cache_key, :missing) do
-      :missing ->
-        :persistent_term.put(cache_key, callables)
-        callables
-
-      cached ->
-        cached
-    end
-  end
-
-  defp single_flight(cache_key, fun) do
-    :global.trans({{__MODULE__, :cache_fill, cache_key}, self()}, fun, [node()], :infinity)
-  end
 end

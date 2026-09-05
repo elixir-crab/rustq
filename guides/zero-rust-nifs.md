@@ -96,6 +96,41 @@ defnif scale(point, factor) do
 end
 ```
 
+## Numeric boundaries and arithmetic
+
+Rusty-Elixir uses native numeric representations, not BEAM arbitrary-precision
+arithmetic. `integer()` maps to Rust `i64`, and `float()` maps to `f64`.
+Use `R.i8()` through `R.i64()`, unsigned types, or `R.f32()` when the native
+width is part of the contract. Integer inputs outside the declared type's range
+are rejected at the NIF boundary.
+
+Keep arithmetic policy explicit:
+
+- `div/2` and `rem/2` on valid signed integer operands truncate toward zero,
+  matching Elixir. A zero divisor and signed minimum divided by `-1` are not
+  valid ordinary Rust integer division operations.
+- Use native `checked_add`, `checked_sub`, `checked_mul`, `checked_div`, and
+  `checked_rem` methods when overflow or invalid division must be represented
+  as a value. With an `R.option(...)` return type, `None` is encoded as `nil`.
+- `/` with statically known integer operands is rejected. Convert explicitly
+  with `cast(value, R.f64())` when floating-point division is intended. This
+  conversion can lose precision for large integers.
+- Ordinary integer `+`, `-`, and `*` retain the owning Rust crate's overflow
+  behavior. Do not rely on debug/release overflow behavior being identical;
+  use checked operations when failure is part of the API.
+- Floating-point arithmetic follows Rust/IEEE-754 behavior, not Elixir's
+  arithmetic exception rules. In particular, reject zero divisors explicitly
+  if the API must not produce non-finite values. Do not assume such values are
+  portable through every BEAM codec.
+
+```elixir
+@spec checked_total(R.i64(), R.i64()) :: R.option(R.i64())
+defnif checked_total(left, right), do: left.checked_add(right)
+```
+
+RustQ does not add big-integer emulation or silently choose an overflow policy
+for an externally owned crate.
+
 ## Resources
 
 Wrap a structural state type with `R.resource/1` to derive registration and the

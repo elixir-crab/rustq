@@ -3,6 +3,76 @@ defmodule RustQZeroRustConsumer.NativeTest do
 
   alias RustQZeroRustConsumer.{Circle, Native, NativeError, Point, Rectangle}
 
+  test "decodes local structural aliases in expressions" do
+    assert Native.decode_local_coordinates(%{x: 1.5, y: 2.0}) == %{x: 1.5, y: 2.0}
+    assert Native.decode_local_x(%{x: 1.5, y: 2.0}) == 1.5
+    assert_raise ArgumentError, fn -> Native.decode_local_coordinates(:invalid) end
+    assert_raise ArgumentError, fn -> Native.decode_local_x(:invalid) end
+  end
+
+  test "shape queries evaluate side-effecting arguments exactly once" do
+    assert Native.shape_evaluation_count() == 3
+  end
+
+  test "constant shape queries still evaluate fallible arguments" do
+    assert Native.evaluated_pair_size({1, 2}) == 2
+    assert Native.evaluated_map_size(%{x: 1.0, y: 2.0}) == 2
+    assert Native.evaluated_has_key(%{x: 1.0, y: 2.0})
+
+    for query <- [
+          &Native.evaluated_pair_size/1,
+          &Native.evaluated_map_size/1,
+          &Native.evaluated_has_key/1
+        ] do
+      assert_raise ArgumentError, fn -> query.(:invalid) end
+    end
+  end
+
+  test "result-returning closures and captures preserve native composition" do
+    assert Native.closure_results([1, 0, 3]) == [{:ok, 12}, {:error, "nonpositive"}, {:ok, 14}]
+    assert Native.captured_results([1, 0, 3]) == [{:ok, 2}, {:error, "nonpositive"}, {:ok, 4}]
+    assert Native.closure_results([]) == []
+    assert Native.captured_results([]) == []
+  end
+
+  test "native numeric contracts are explicit at boundaries" do
+    max = 9_223_372_036_854_775_807
+    min = -9_223_372_036_854_775_808
+    assert Native.checked_addition(max - 1, 1) == max
+    assert Native.checked_addition(max, 1) == nil
+    assert Native.checked_addition(min, -1) == nil
+    assert Native.checked_division(4, 0) == nil
+    assert Native.checked_division(min, -1) == nil
+    assert_raise ArgumentError, fn -> Native.checked_addition(max + 1, 0) end
+
+    for left <- [-17, -1, 0, 1, 17], right <- [-5, -2, 1, 2, 5] do
+      assert Native.integer_quotient(left, right) == div(left, right)
+      assert Native.integer_remainder(left, right) == rem(left, right)
+      assert Native.checked_division(left, right) == div(left, right)
+      assert Native.floating_quotient(left, right) == left / right
+    end
+  end
+
+  test "cond preserves result types in every branch" do
+    assert Native.conditional_result(-1) == {:error, "negative"}
+    assert Native.conditional_result(0) == {:ok, 0}
+    assert Native.conditional_result(4) == {:ok, 2}
+  end
+
+  test "result NIFs compose through native calls and recursion" do
+    assert Native.recursive_result(4) == {:ok, 1}
+    assert Native.recursive_result(0) == {:error, "nonpositive"}
+    assert Native.composed_result(4) == {:ok, 2}
+    assert Native.composed_result(0) == {:error, "nonpositive"}
+  end
+
+  test "adapts only the outer result boundary" do
+    assert Native.nested_result(3) == {:ok, 4}
+    assert Native.nested_result(0) == {:error, "nonpositive"}
+    assert Native.forwarded_result(3) == {:ok, 3}
+    assert Native.forwarded_result(0) == {:error, "nonpositive"}
+  end
+
   test "lowers arithmetic, recursion, guards, comprehensions, and Enum pipelines" do
     assert Native.add(20, 22) == 42
     assert Native.sum([1.5, 2.0, 3.5]) == 7.0

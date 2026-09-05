@@ -7,6 +7,8 @@ defmodule RustQ.Cargo do
   layout.
   """
 
+  alias RustQ.SourceFingerprint
+
   defmodule Package do
     @moduledoc "Package entry from `cargo metadata`."
 
@@ -133,12 +135,7 @@ defmodule RustQ.Cargo do
     |> Enum.map(&file_fingerprint/1)
   end
 
-  defp file_fingerprint(path) do
-    case File.read(path) do
-      {:ok, contents} -> {path, :sha256, :crypto.hash(:sha256, contents)}
-      {:error, reason} -> {path, :missing, reason}
-    end
-  end
+  defp file_fingerprint(path), do: SourceFingerprint.file(path)
 
   defp single_flight_metadata(key, fun) do
     :global.trans({{__MODULE__, :metadata_cache_fill, key}, self()}, fun, [node()], :infinity)

@@ -14,6 +14,7 @@ defmodule RustQ.Meta.Lower.Stdlib do
       :lower_expected,
       :lower_binary_operand,
       :lower_closure,
+      :lower_typed_closure,
       :lower_closure_body,
       :lower_capture,
       :closure_arg,
@@ -26,12 +27,39 @@ defmodule RustQ.Meta.Lower.Stdlib do
             lower_expected: (Macro.t(), term() -> term()),
             lower_binary_operand: (Macro.t() -> term()),
             lower_closure: ([Macro.t()], Macro.t() -> term()),
+            lower_typed_closure: ([Macro.t()], Macro.t(), Type.t() | nil -> term()),
             lower_closure_body: (Macro.t(), term() -> term()),
             lower_capture: (Macro.t() -> term()),
             closure_arg: (Macro.t() -> atom()),
             type_of: (Macro.t() -> term()),
             expected: Type.t() | nil
           }
+  end
+
+  @spec shape_type(Type.t() | nil) :: Type.t() | nil
+  def shape_type(%Type{kind: kind} = type) when kind in [:nif_result, :result],
+    do: Type.inner(type)
+
+  def shape_type(type), do: type
+
+  @spec evaluated_constant(Macro.t(), term(), Context.t()) :: {:ok, AST.expr()}
+  def evaluated_constant(argument, value, context) do
+    evaluated =
+      case context.type_of.(argument) do
+        %Type{kind: kind} = type when kind in [:nif_result, :result] ->
+          context.lower_expected.(argument, Type.inner(type))
+
+        _type ->
+          context.lower.(argument)
+      end
+
+    {:ok,
+     %AST.BlockExpr{
+       body: [
+         %AST.Let{pattern: %AST.PatWildcard{}, expr: evaluated},
+         %AST.Return{expr: %AST.Literal{value: value}}
+       ]
+     }}
   end
 
   @spec lower(Macro.t(), Context.t()) :: {:ok, term()} | :unsupported

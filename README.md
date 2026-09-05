@@ -140,6 +140,9 @@ order and the important escape boundaries.
 
 ## Development
 
+See [Internal structure](guides/internals.md) for module ownership, compiler
+boundaries, and the self-hosted generation cycle.
+
 ```bash
 mix deps.get
 mix ci

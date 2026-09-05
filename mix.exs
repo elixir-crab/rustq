@@ -37,6 +37,7 @@ defmodule RustQ.MixProject do
     [
       {:rustler, "~> 0.37", runtime: false},
       {:json_codec, "~> 0.1"},
+      {:toml_elixir, "~> 3.1"},
       {:nimble_options, "~> 1.1"},
       {:vibe_kit, "~> 0.1", only: [:dev, :test], runtime: false},
       {:igniter, "~> 0.6", only: [:dev, :test], runtime: false},
@@ -111,6 +112,7 @@ defmodule RustQ.MixProject do
         "README.md",
         "SKILL.md",
         "guides/using-rustq-well.md",
+        "guides/internals.md",
         "guides/rustler-generation.md",
         "guides/designing-generators.md",
         "guides/generating-rust.md",
@@ -128,6 +130,7 @@ defmodule RustQ.MixProject do
       main: "readme",
       extras: [
         "README.md",
+        "guides/internals.md",
         "guides/using-rustq-well.md",
         "guides/rustler-generation.md",
         "guides/designing-generators.md",

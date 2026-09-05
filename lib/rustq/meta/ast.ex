@@ -239,6 +239,7 @@ defmodule RustQ.Meta.AST do
 
     body =
       Lower.quoted_body(body_ast, return_type, Map.new(Enum.zip(arg_names, arg_types)),
+        type_aliases: type_aliases,
         rust_modules: Keyword.get(opts, :rust_modules, %{})
       )
 
@@ -485,6 +486,7 @@ defmodule RustQ.Meta.AST do
 
     body =
       Lower.quoted_body(body_ast, return_type, vars,
+        type_aliases: type_aliases,
         rust_modules: rust_modules,
         callables: spec_callables(specs, type_aliases) ++ external_callables,
         rust_macros: rust_macros

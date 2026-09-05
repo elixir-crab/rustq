@@ -26,6 +26,7 @@ defmodule RustQ.Meta.Lower do
       :return_type,
       vars: %{},
       lexical_vars: %{},
+      type_aliases: %{},
       position: :return,
       rust_modules: %{},
       callables: %BindingIndex{},
@@ -40,6 +41,7 @@ defmodule RustQ.Meta.Lower do
   def quoted_body(body_ast, return_type, vars \\ %{}, opts \\ []) do
     context = %Context{
       return_type: return_type,
+      type_aliases: Keyword.get(opts, :type_aliases, %{}),
       vars: vars,
       rust_modules: Keyword.get(opts, :rust_modules, %{}),
       callables: BindingIndex.new(Keyword.get(opts, :callables)),
@@ -175,6 +177,10 @@ defmodule RustQ.Meta.Lower do
     %AST.Return{expr: lower_if(condition, branches, context)}
   end
 
+  defp lower_return({:cond, _, [[do: clauses]]}, %Context{} = context) do
+    %AST.Return{expr: lower_cond(clauses, context, context.return_type)}
+  end
+
   defp lower_return({:with, _, clauses}, %Context{} = context) do
     %AST.Return{expr: lower_with(clauses, context)}
   end
@@ -272,6 +278,15 @@ defmodule RustQ.Meta.Lower do
          %Context{} = context
        ),
        do: lower_expected_expr_context(expression, expected_type, context)
+
+  defp lower_expected_expr_context(
+         {tag, _value} = expression,
+         %Type{kind: kind} = expected_type,
+         %Context{} = context
+       )
+       when tag in [:ok, :error] and kind in [:result, :nif_result] do
+    lower_return_expr(expression, expected_type, context)
+  end
 
   defp lower_expected_expr_context(
          value,
@@ -422,14 +437,17 @@ defmodule RustQ.Meta.Lower do
     if Keyword.get(meta, :no_parens, false) do
       lower_expr_context(expression, context)
     else
-      %AST.Try{
-        expr: %AST.MethodCall{
-          receiver: lower_checked_expr(receiver, rustler_term_type(), context),
-          method: :decode,
-          args: [],
-          generics: [expected_type.ast]
-        }
+      target =
+        if expected_type.kind == :nif_result, do: Type.inner(expected_type), else: expected_type
+
+      decoded = %AST.MethodCall{
+        receiver: lower_checked_expr(receiver, rustler_term_type(), context),
+        method: :decode,
+        args: [],
+        generics: [target.ast]
       }
+
+      if expected_type.kind == :nif_result, do: decoded, else: %AST.Try{expr: decoded}
     end
   end
 
@@ -2172,6 +2190,7 @@ defmodule RustQ.Meta.Lower do
       lower_expected: &lower_expr(&1, &2, context),
       lower_binary_operand: &lower_binary_operand(&1, context),
       lower_closure: &lower_closure_args(&1, &2, context),
+      lower_typed_closure: &lower_closure_args(&1, &2, context, &3),
       lower_closure_body: &lower_closure_body(&1, &2, context),
       lower_capture: &lower_function_capture(&1, context),
       closure_arg: &closure_arg!/1,
@@ -2197,6 +2216,8 @@ defmodule RustQ.Meta.Lower do
 
   defp lower_closure_args(args, body, %Context{} = context, expected_return_type \\ nil)
        when is_list(args) do
+    context = %{context | return_type: expected_return_type, position: :expr}
+
     %AST.Closure{
       args: Enum.map(args, &closure_arg!/1),
       body: lower_closure_body(body, expected_return_type, context)
@@ -2477,7 +2498,8 @@ defmodule RustQ.Meta.Lower do
     end
   end
 
-  defp lower_type_arg(type_ast, %Context{}), do: RustQ.Spec.type(type_ast).ast
+  defp lower_type_arg(type_ast, %Context{type_aliases: aliases}),
+    do: RustQ.Spec.type(type_ast, aliases).ast
 
   defp rustler_term_type, do: RustQ.Spec.type(quote(do: RustQ.Type.term()))
   defp rustler_atom_type, do: RustQ.Spec.type(quote(do: RustQ.Type.atom()))
@@ -2673,6 +2695,7 @@ defmodule RustQ.Meta.Lower do
 
   defp typing_env(%Context{} = context) do
     Typing.env(
+      type_aliases: context.type_aliases,
       vars: context.vars,
       callables: context.callables,
       rust_modules: context.rust_modules

@@ -28,6 +28,12 @@ defmodule RustQ.Codegen.GeneratedASTTest do
     Var
   }
 
+  test "fails explicitly when the configured formatter is unavailable" do
+    assert_raise RustQ.Error, fn ->
+      Codegen.generated_ast_support(rustfmt: "rustq-nonexistent-formatter")
+    end
+  end
+
   test "generates parseable AST support" do
     source = Codegen.generated_ast_support()
 

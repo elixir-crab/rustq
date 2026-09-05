@@ -1,6 +1,8 @@
 defmodule RustQ.Meta.Lower.Kernel do
   @moduledoc false
 
+  import RustQ.Meta.Lower.Stdlib, only: [evaluated_constant: 3, shape_type: 1]
+
   alias RustQ.Diagnostic
   alias RustQ.Meta.Core.Call
   alias RustQ.Meta.Lower.Stdlib.{Context, TypeContext}
@@ -28,6 +30,22 @@ defmodule RustQ.Meta.Lower.Kernel do
   @comparison_functions [:==, :!=, :<, :<=, :>, :>=, :and, :or, :not, :is_nil]
 
   @spec lower(Call.t(), Context.t()) :: {:ok, term()} | :unsupported
+  def lower(%Call{function: :/, args: [left, right]} = call, %Context{} = context) do
+    if integer_type?(context.type_of.(left)) or integer_type?(context.type_of.(right)) do
+      unsupported_semantics!(
+        call,
+        "Kernel.//2 with integer operands requires an explicit floating-point conversion"
+      )
+    else
+      {:ok,
+       %AST.BinaryOp{
+         left: context.lower_binary_operand.(left),
+         op: :div,
+         right: context.lower_binary_operand.(right)
+       }}
+    end
+  end
+
   def lower(%Call{function: function, args: [left, right]}, %Context{} = context)
       when is_map_key(@binary_ops, function) do
     {:ok,
@@ -67,15 +85,9 @@ defmodule RustQ.Meta.Lower.Kernel do
       do: {:ok, cast_i64(method(context.lower.(value), :len))}
 
   def lower(%Call{function: :map_size, args: [map]} = call, %Context{} = context) do
-    case struct_fields(context.type_of.(map)) do
+    case struct_fields(shape_type(context.type_of.(map))) do
       fields when is_list(fields) ->
-        {:ok,
-         %AST.BlockExpr{
-           body: [
-             %AST.Let{pattern: %AST.PatWildcard{}, expr: context.lower.(map)},
-             %AST.Return{expr: %AST.Literal{value: length(fields)}}
-           ]
-         }}
+        evaluated_constant(map, length(fields), context)
 
       _unknown ->
         unsupported_semantics!(call, "map_size/1 requires a statically typed map or struct")
@@ -118,9 +130,12 @@ defmodule RustQ.Meta.Lower.Kernel do
   end
 
   def lower(%Call{function: :tuple_size, args: [tuple]} = call, %Context{} = context) do
-    case tuple_elements(context.type_of.(tuple)) do
-      elements when is_list(elements) -> {:ok, %AST.Literal{value: length(elements)}}
-      _unknown -> unsupported_semantics!(call, "tuple_size/1 requires a statically typed tuple")
+    case tuple_elements(shape_type(context.type_of.(tuple))) do
+      elements when is_list(elements) ->
+        evaluated_constant(tuple, length(elements), context)
+
+      _unknown ->
+        unsupported_semantics!(call, "tuple_size/1 requires a statically typed tuple")
     end
   end
 

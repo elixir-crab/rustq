@@ -14,6 +14,7 @@ defmodule RustQ.Syn.Index do
   over internal module names.
   """
 
+  alias RustQ.SourceFingerprint
   alias RustQ.Syn.Type
   alias RustQ.Syn.TypeAlias
   alias RustQ.Syn.Use
@@ -57,8 +58,8 @@ defmodule RustQ.Syn.Index do
   cache access; later callers read the already-built index from `:persistent_term`.
 
   Cached entries are fingerprinted from the Cargo manifest/lockfile inputs and
-  indexed Rust source file mtimes/sizes. If any of those files change, the next
-  caller rebuilds the package index.
+  indexed Rust source contents. Same-size edits with unchanged timestamps also
+  invalidate the index; the next caller rebuilds it.
   """
   @spec cached_package(String.t(), keyword()) :: t()
   def cached_package(package_name, opts \\ []) when is_binary(package_name) do
@@ -166,12 +167,7 @@ defmodule RustQ.Syn.Index do
     [manifest_path, lock_path]
   end
 
-  defp file_fingerprint(path) do
-    case File.stat(path, time: :posix) do
-      {:ok, %File.Stat{mtime: mtime, size: size}} -> {path, mtime, size}
-      {:error, reason} -> {path, :missing, reason}
-    end
-  end
+  defp file_fingerprint(path), do: SourceFingerprint.file(path)
 
   @doc "Clears a cached package index."
   @spec clear_cached_package(String.t(), keyword()) :: :ok

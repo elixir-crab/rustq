@@ -65,6 +65,37 @@ defmodule RustQ.Meta.StdlibTest do
              })
   end
 
+  test "rejects integer division spelled as floating-point division" do
+    integer = RustQ.Spec.type(quote(do: integer()))
+    float = RustQ.Spec.type(quote(do: float()))
+
+    assert_raise Diagnostic.Error, ~r/explicit floating-point conversion/, fn ->
+      Lower.quoted_body(quote(do: left / right), float, %{left: integer, right: integer})
+    end
+  end
+
+  test "constant tuple size preserves evaluation of its argument" do
+    integer = RustQ.Spec.type(quote(do: integer()))
+    tuple = Type.tuple([integer, integer])
+
+    assert [
+             %AST.Return{
+               expr: %AST.BlockExpr{
+                 body: [
+                   %AST.Let{pattern: %AST.PatWildcard{}, expr: %AST.Var{name: :value}},
+                   %AST.Return{expr: %AST.Literal{value: 2}}
+                 ]
+               }
+             }
+           ] = Lower.quoted_body(quote(do: tuple_size(value)), integer, %{value: tuple})
+  end
+
+  test "has_key rejects maps with no known structural type" do
+    assert_raise Diagnostic.Error, ~r/typed Map lowering requires/, fn ->
+      Lower.quoted_body(quote(do: Map.has_key?(value, :x)), nil)
+    end
+  end
+
   test "rejects descending ranges instead of silently changing Elixir semantics" do
     assert_raise Diagnostic.Error, ~r/require ascending integer literal bounds/, fn ->
       Lower.quoted_body(quote(do: 3..1), nil)

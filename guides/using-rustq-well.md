@@ -190,6 +190,49 @@ before inventing a RustQ-specific syntax.
 small pattern. Keep it small and keep its body Rusty-Elixir. Do not use it as a
 second general-purpose language.
 
+## Conditional Rust helpers
+
+Use `@cfg` before `defrust` or `defrustp` to emit a Cargo compile-time
+condition. RustQ does not evaluate the predicate during Elixir compilation.
+
+```elixir
+@spec normalize(integer()) :: integer()
+
+@cfg feature: "extended"
+defrust normalize(0), do: 0
+defrust normalize(value), do: value + 1
+
+@cfg not: [feature: "extended"]
+defrust normalize(value), do: value
+```
+
+A condition belongs to the following implementation group. Consecutive clauses
+of the same function inherit it; another `@cfg` begins a separate implementation.
+A different function ends that inheritance. Keep the function's shared `@spec`
+outside the groups. Do not mix unconditional and conditional implementations.
+
+Compose predicates with keyword lists, preserving repeated keys:
+
+```elixir
+@cfg all: [feature: "native-test", not: [target_os: "windows"]]
+@cfg any: [target_os: "linux", target_os: "macos"]
+```
+
+These are alternative examples, not two attributes to stack on one declaration.
+Only one pending `@cfg` is allowed. `not` requires exactly one predicate.
+Identical conditions are rejected, but RustQ does not prove arbitrary predicates
+mutually exclusive or exhaustive; compile every supported Cargo configuration.
+Conditions on `defnif` are not supported yet. Gate Rust helpers instead.
+
+Conditional methods are supported inside `defrustimpl`; use `self` as the
+receiver name. `RustQ.Meta.AST.functions/1` returns every conditional function
+implementation with its attributes intact. `function!/2` rejects ambiguous
+names instead of selecting an arbitrary implementation. Callable signatures
+remain shared and are not filtered according to the local machine's features.
+
+The AST builder accepts the same recursive structure:
+`A.attr(:cfg, not: [feature: "native-test"])`.
+
 ## Put Rust methods in `defrustimpl`
 
 When Rusty-Elixir functions belong to a Rust implementation, group them with

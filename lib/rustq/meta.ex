@@ -95,6 +95,7 @@ defmodule RustQ.Meta do
       @rustq_rust_packages unquote(Macro.escape(List.wrap(rust_packages)))
       @rustq_callable_modules unquote(Macro.escape(List.wrap(callable_modules)))
       @rustq_static_types unquote(Macro.escape(List.wrap(static_types)))
+      Module.register_attribute(__MODULE__, :cfg, accumulate: true)
       Module.register_attribute(__MODULE__, :nif, accumulate: false)
       Module.register_attribute(__MODULE__, :allow, accumulate: true)
       @before_compile RustQ.Meta
@@ -269,6 +270,9 @@ defmodule RustQ.Meta do
   defmacro __before_compile__(env), do: build_before_compile(env)
 
   defp build_before_compile(env) do
+    if Module.get_attribute(env.module, :cfg) not in [nil, []],
+      do: raise(ArgumentError, "@cfg must be followed by a defrust or defrustp declaration")
+
     %{
       built_asts: built_asts,
       built_macros: built_macros,
@@ -404,13 +408,67 @@ defmodule RustQ.Meta do
 
   defp normalize_definitions(definitions) do
     definitions
+    |> validate_cfg_groups!()
+    |> inherit_cfg()
     |> Enum.chunk_by(&definition_key/1)
     |> Enum.map(&normalize_definition_group/1)
   end
 
-  defp definition_key({call_ast, _body, _attrs, rust_module, rust_impl}) do
+  defp validate_cfg_groups!(definitions) do
+    _state = Enum.reduce(definitions, {%{}, nil}, &validate_cfg_group!/2)
+    definitions
+  end
+
+  defp validate_cfg_group!({call, _body, attrs, mod, impl}, {seen, previous}) do
+    {name, args} = call_name_args!(call)
+    key = {name, length(args), mod, impl}
+    cfg = Enum.find(attrs, &match?(%RustQ.Rust.AST.Attribute{path: [:cfg]}, &1))
+
+    if key == previous and is_nil(cfg) do
+      {seen, key}
+    else
+      conditions = Map.get(seen, key, [])
+
+      if conditions != [] and (is_nil(cfg) or nil in conditions),
+        do:
+          raise(
+            ArgumentError,
+            "cannot mix unconditional and conditional implementations of #{name}/#{length(args)}"
+          )
+
+      if cfg && cfg in conditions,
+        do: raise(ArgumentError, "duplicate @cfg implementation of #{name}/#{length(args)}")
+
+      {Map.put(seen, key, [cfg | conditions]), key}
+    end
+  end
+
+  defp inherit_cfg(definitions) do
+    {definitions, _state} =
+      Enum.map_reduce(definitions, nil, fn
+        {call, body, attrs, mod, impl}, previous ->
+          {name, args} = call_name_args!(call)
+          key = {name, length(args), mod, impl}
+          cfg = Enum.find(attrs, &match?(%RustQ.Rust.AST.Attribute{path: [:cfg]}, &1))
+
+          cfg =
+            cfg ||
+              case previous do
+                {^key, inherited} -> inherited
+                _ -> nil
+              end
+
+          attrs = if cfg && cfg not in attrs, do: [cfg | attrs], else: attrs
+          {{call, body, attrs, mod, impl}, {key, cfg}}
+      end)
+
+    definitions
+  end
+
+  defp definition_key({call_ast, _body, attrs, rust_module, rust_impl}) do
     {name, args} = call_name_args!(call_ast)
-    {name, length(args), rust_module, rust_impl}
+    cfg = Enum.find(attrs, &match?(%RustQ.Rust.AST.Attribute{path: [:cfg]}, &1))
+    {name, length(args), rust_module, rust_impl, cfg}
   end
 
   defp normalize_definition_group([

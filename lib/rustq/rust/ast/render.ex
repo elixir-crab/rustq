@@ -333,6 +333,9 @@ defmodule RustQ.Rust.AST.Render do
     |> Elixir.Enum.intersperse(", ")
   end
 
+  defp render_attr_arg({key, value}) when is_list(value),
+    do: [to_string(key), "(", render_attr_args(value), ")"]
+
   defp render_attr_arg({key, value}), do: [to_string(key), " = ", render_attr_value(value)]
   defp render_attr_arg(%Path{} = path), do: render_expr(path)
   defp render_attr_arg(value), do: to_string(value)

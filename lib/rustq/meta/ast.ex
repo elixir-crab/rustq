@@ -113,8 +113,17 @@ defmodule RustQ.Meta.AST do
   def function!(module, name) when is_atom(module) do
     name = Identifier.atom!(to_string(name))
 
-    Enum.find(functions(module), &(&1.name == name)) ||
-      raise ArgumentError, "#{inspect(module)} has no defrust function named #{name}"
+    case Enum.filter(functions(module), &(&1.name == name)) do
+      [function] ->
+        function
+
+      [] ->
+        raise ArgumentError, "#{inspect(module)} has no defrust function named #{name}"
+
+      _multiple ->
+        raise ArgumentError,
+              "#{inspect(module)} has multiple implementations of #{name}; select from functions/1 by attributes"
+    end
   end
 
   @doc "Returns selected generated `defrust` function AST nodes."

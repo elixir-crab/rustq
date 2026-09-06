@@ -52,6 +52,7 @@ enum AttributeArg {
     Ident(proc_macro2::Ident),
     Path(syn::Path),
     NameValueString(proc_macro2::Ident, String),
+    List(proc_macro2::Ident, Vec<AttributeArg>),
 }
 
 impl ToTokens for AttributeArg {
@@ -59,6 +60,7 @@ impl ToTokens for AttributeArg {
         match self {
             AttributeArg::Ident(ident) => tokens.extend(quote!(#ident)),
             AttributeArg::Path(path) => tokens.extend(quote!(#path)),
+            AttributeArg::List(ident, args) => tokens.extend(quote!(#ident(#(#args),*))),
             AttributeArg::NameValueString(ident, value) => tokens.extend(quote!(#ident = #value)),
         }
     }
@@ -106,10 +108,15 @@ fn decode_attribute_args(term: Term) -> NifResult<Vec<AttributeArg>> {
         return args
             .into_iter()
             .map(|(key, value)| {
-                Ok(AttributeArg::NameValueString(
-                    format_ident!("{}", atom_or_string(key)?),
-                    decode_attribute_value(value)?,
-                ))
+                let ident = format_ident!("{}", atom_or_string(key)?);
+                if value.is_list() {
+                    Ok(AttributeArg::List(ident, decode_attribute_args(value)?))
+                } else {
+                    Ok(AttributeArg::NameValueString(
+                        ident,
+                        decode_attribute_value(value)?,
+                    ))
+                }
             })
             .collect();
     }

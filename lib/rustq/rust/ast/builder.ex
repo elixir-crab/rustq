@@ -192,7 +192,9 @@ defmodule RustQ.Rust.AST.Builder do
   def function_args(args), do: Enum.map(args, &function_arg/1)
 
   def derive(paths), do: %Derive{paths: List.wrap(paths)}
+
   def attr(path, args \\ []), do: %Attribute{path: List.wrap(path), args: args}
+
   def attr_value(path, value), do: %Attribute{path: List.wrap(path), args: {:value, value}}
   def nif_attr(opts \\ []), do: attr([:rustler, :nif], opts)
   def allow_attr(value), do: attr([:allow], List.wrap(value))

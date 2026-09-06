@@ -224,8 +224,9 @@ Identical conditions are rejected, but RustQ does not prove arbitrary predicates
 mutually exclusive or exhaustive; compile every supported Cargo configuration.
 Conditions on `defnif` are not supported yet. Gate Rust helpers instead.
 
-Conditional methods are supported inside `defrustimpl`; use `self` as the
-receiver name. `RustQ.Meta.AST.functions/1` returns every conditional function
+Conditional methods are supported inside `defrustimpl`. A receiver named other
+than `self` is bound locally to the Rust receiver, preserving ordinary lexical
+shadowing. `RustQ.Meta.AST.functions/1` returns every conditional function
 implementation with its attributes intact. `function!/2` rejects ambiguous
 names instead of selecting an arbitrary implementation. Callable signatures
 remain shared and are not filtered according to the local machine's features.

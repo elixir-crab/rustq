@@ -16,7 +16,9 @@ defmodule RustQ.Meta.CfgTest do
     end
 
     functions = MetaAST.functions(Conditional)
-    assert [_, _] = functions
+    assert [enabled, disabled] = functions
+    assert MetaAST.function!(Conditional, :value, cfg: [feature: "extended"]) == enabled
+    assert MetaAST.function!(Conditional, :value, cfg: [not: [feature: "extended"]]) == disabled
 
     assert_raise ArgumentError, ~r/multiple implementations/, fn ->
       MetaAST.function!(Conditional, :value)
@@ -69,16 +71,22 @@ defmodule RustQ.Meta.CfgTest do
       alias RustQ.Type, as: R
 
       defrustimpl Counter do
+        @spec shadow(R.ref(Counter.t())) :: integer()
+        defrust shadow(counter) do
+          total = Enum.reduce([1, 2], 0, fn counter, total -> total + counter * 2 end)
+          counter.value + total
+        end
+
         @spec value(R.ref(Counter.t())) :: integer()
         @cfg feature: "extended"
-        defrust(value(self), do: self.value + 1)
+        defrust(value(counter), do: counter.value + 1)
         @cfg not: [feature: "extended"]
-        defrust(value(self), do: self.value)
+        defrust(value(counter), do: counter.value)
       end
     end
 
     impl = MetaAST.impl!(ConditionalMethods, :Counter)
-    assert [_, _] = impl.items
+    assert [_, _, _] = impl.items
     source = RustQ.Rust.render(impl)
 
     for {flags, expected} <- [{[], "4"}, {["--cfg", ~s|feature="extended"|], "5"}] do
@@ -88,7 +96,8 @@ defmodule RustQ.Meta.CfgTest do
       File.write!(
         path,
         "struct Counter { value: i64 }\n" <>
-          source <> "\nfn main() { println!(\"{}\", Counter { value: 4 }.value()); }\n"
+          source <>
+          "\nfn main() { let counter = Counter { value: 4 }; assert_eq!(counter.shadow(), 10); println!(\"{}\", counter.value()); }\n"
       )
 
       assert {_, 0} =

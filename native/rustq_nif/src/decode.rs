@@ -51,8 +51,8 @@ pub(crate) fn decode_derive(term: Term) -> NifResult<Vec<syn::Attribute>> {
 enum AttributeArg {
     Ident(proc_macro2::Ident),
     Path(syn::Path),
-    NameValueString(proc_macro2::Ident, String),
-    List(proc_macro2::Ident, Vec<AttributeArg>),
+    NameValueString(syn::Path, String),
+    List(syn::Path, Vec<AttributeArg>),
 }
 
 impl ToTokens for AttributeArg {
@@ -108,7 +108,7 @@ fn decode_attribute_args(term: Term) -> NifResult<Vec<AttributeArg>> {
         return args
             .into_iter()
             .map(|(key, value)| {
-                let ident = format_ident!("{}", atom_or_string(key)?);
+                let ident = path_from_parts(vec![atom_or_string(key)?])?;
                 if value.is_list() {
                     Ok(AttributeArg::List(ident, decode_attribute_args(value)?))
                 } else {
@@ -128,6 +128,28 @@ fn decode_attribute_args(term: Term) -> NifResult<Vec<AttributeArg>> {
 }
 
 fn decode_attribute_arg(term: Term) -> NifResult<AttributeArg> {
+    match struct_name(term).ok().as_deref() {
+        Some("Elixir.RustQ.Rust.AST.Metadata.Path") => {
+            let path = path_from_parts(decode_string_list(
+                term.map_get(atom(term.get_env(), "parts")?)?,
+            )?)?;
+            return Ok(AttributeArg::Path(path));
+        }
+        Some("Elixir.RustQ.Rust.AST.Metadata.NameValue") => {
+            let parts = decode_string_list(term.map_get(atom(term.get_env(), "parts")?)?)?;
+            let path = path_from_parts(parts)?;
+            let value = decode_attribute_value(term.map_get(atom(term.get_env(), "value")?)?)?;
+            return Ok(AttributeArg::NameValueString(path, value));
+        }
+        Some("Elixir.RustQ.Rust.AST.Metadata.List") => {
+            let parts = decode_string_list(term.map_get(atom(term.get_env(), "parts")?)?)?;
+            let path = path_from_parts(parts)?;
+            let items = decode_attribute_args(term.map_get(atom(term.get_env(), "items")?)?)?;
+            return Ok(AttributeArg::List(path, items));
+        }
+        _ => {}
+    }
+
     if struct_name(term).ok().as_deref() == Some("Elixir.RustQ.Rust.AST.Path") {
         let path = path_from_parts(decode_string_list(
             term.map_get(atom(term.get_env(), "parts")?)?,

@@ -3,6 +3,8 @@ defmodule RustQ.Rust.AST.Render do
 
   alias RustQ.Diagnostic
   alias RustQ.Native.Nif
+  alias RustQ.Rust.AST.Metadata
+  alias RustQ.Rust.AST.Walk
 
   alias RustQ.Rust.AST.{
     Arm,
@@ -124,6 +126,15 @@ defmodule RustQ.Rust.AST.Render do
   def render_function(%Function{} = function), do: render_item(function)
 
   defp render_native(item) do
+    item =
+      Walk.prewalk(item, fn
+        %Attribute{args: args} = attr when is_list(args) ->
+          %{attr | args: Metadata.normalize(args)}
+
+        node ->
+          node
+      end)
+
     Nif.render_ast(item)
   rescue
     error in [ArgumentError, RuntimeError] ->
@@ -332,6 +343,14 @@ defmodule RustQ.Rust.AST.Render do
     |> Elixir.Enum.map(&render_attr_arg/1)
     |> Elixir.Enum.intersperse(", ")
   end
+
+  defp render_attr_arg(%RustQ.Rust.AST.Metadata.Path{parts: parts}), do: render_attr_path(parts)
+
+  defp render_attr_arg(%RustQ.Rust.AST.Metadata.NameValue{parts: parts, value: value}),
+    do: [render_attr_path(parts), " = ", render_attr_value(value)]
+
+  defp render_attr_arg(%RustQ.Rust.AST.Metadata.List{parts: parts, items: items}),
+    do: [render_attr_path(parts), "(", render_attr_args(items), ")"]
 
   defp render_attr_arg({key, value}) when is_list(value),
     do: [to_string(key), "(", render_attr_args(value), ")"]

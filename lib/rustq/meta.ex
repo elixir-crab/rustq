@@ -61,6 +61,7 @@ defmodule RustQ.Meta do
 
   alias RustQ.Binding.Source
   alias RustQ.Meta.AST
+  alias RustQ.Meta.Conditional
   alias RustQ.Meta.Options
   alias RustQ.Meta.RustMacro
   alias RustQ.Meta.Type
@@ -408,67 +409,8 @@ defmodule RustQ.Meta do
 
   defp normalize_definitions(definitions) do
     definitions
-    |> validate_cfg_groups!()
-    |> inherit_cfg()
-    |> Enum.chunk_by(&definition_key/1)
-    |> Enum.map(&normalize_definition_group/1)
-  end
-
-  defp validate_cfg_groups!(definitions) do
-    _state = Enum.reduce(definitions, {%{}, nil}, &validate_cfg_group!/2)
-    definitions
-  end
-
-  defp validate_cfg_group!({call, _body, attrs, mod, impl}, {seen, previous}) do
-    {name, args} = call_name_args!(call)
-    key = {name, length(args), mod, impl}
-    cfg = Enum.find(attrs, &match?(%RustQ.Rust.AST.Attribute{path: [:cfg]}, &1))
-
-    if key == previous and is_nil(cfg) do
-      {seen, key}
-    else
-      conditions = Map.get(seen, key, [])
-
-      if conditions != [] and (is_nil(cfg) or nil in conditions),
-        do:
-          raise(
-            ArgumentError,
-            "cannot mix unconditional and conditional implementations of #{name}/#{length(args)}"
-          )
-
-      if cfg && cfg in conditions,
-        do: raise(ArgumentError, "duplicate @cfg implementation of #{name}/#{length(args)}")
-
-      {Map.put(seen, key, [cfg | conditions]), key}
-    end
-  end
-
-  defp inherit_cfg(definitions) do
-    {definitions, _state} =
-      Enum.map_reduce(definitions, nil, fn
-        {call, body, attrs, mod, impl}, previous ->
-          {name, args} = call_name_args!(call)
-          key = {name, length(args), mod, impl}
-          cfg = Enum.find(attrs, &match?(%RustQ.Rust.AST.Attribute{path: [:cfg]}, &1))
-
-          cfg =
-            cfg ||
-              case previous do
-                {^key, inherited} -> inherited
-                _ -> nil
-              end
-
-          attrs = if cfg && cfg not in attrs, do: [cfg | attrs], else: attrs
-          {{call, body, attrs, mod, impl}, {key, cfg}}
-      end)
-
-    definitions
-  end
-
-  defp definition_key({call_ast, _body, attrs, rust_module, rust_impl}) do
-    {name, args} = call_name_args!(call_ast)
-    cfg = Enum.find(attrs, &match?(%RustQ.Rust.AST.Attribute{path: [:cfg]}, &1))
-    {name, length(args), rust_module, rust_impl, cfg}
+    |> Conditional.groups!()
+    |> Enum.map(fn group -> normalize_definition_group(group.clauses) end)
   end
 
   defp normalize_definition_group([

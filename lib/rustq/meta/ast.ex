@@ -109,11 +109,20 @@ defmodule RustQ.Meta.AST do
   end
 
   @doc "Returns one generated `defrust` function AST by name, raising when absent."
-  @spec function!(module(), atom() | String.t()) :: AST.Function.t()
-  def function!(module, name) when is_atom(module) do
+  @spec function!(module(), atom() | String.t(), keyword()) :: AST.Function.t()
+  def function!(module, name, opts \\ []) when is_atom(module) do
     name = Identifier.atom!(to_string(name))
+    unknown = Keyword.keys(opts) -- [:cfg]
 
-    case Enum.filter(functions(module), &(&1.name == name)) do
+    if unknown != [],
+      do: raise(ArgumentError, "unknown function selector options: #{inspect(unknown)}")
+
+    matches =
+      Enum.filter(functions(module), fn function ->
+        function.name == name and selected_cfg?(function.attrs, opts)
+      end)
+
+    case matches do
       [function] ->
         function
 
@@ -123,6 +132,16 @@ defmodule RustQ.Meta.AST do
       _multiple ->
         raise ArgumentError,
               "#{inspect(module)} has multiple implementations of #{name}; select from functions/1 by attributes"
+    end
+  end
+
+  defp selected_cfg?(attrs, opts) do
+    case Keyword.fetch(opts, :cfg) do
+      :error ->
+        true
+
+      {:ok, condition} ->
+        Enum.any?(attrs, &match?(%AST.Attribute{path: [:cfg], args: ^condition}, &1))
     end
   end
 
@@ -407,8 +426,21 @@ defmodule RustQ.Meta.AST do
     end
 
     %AST.TypeRef{mutable: mutable} = receiver.type
+
+    body =
+      if receiver.name == :self do
+        function.body
+      else
+        binding = %AST.Let{
+          pattern: %AST.PatVar{name: receiver.name},
+          expr: %AST.Var{name: :self}
+        }
+
+        [binding | function.body]
+      end
+
     receiver = %{receiver | name: :self, type: nil, receiver: true, mutable: mutable}
-    %{function | args: [receiver | args], vis: vis}
+    %{function | args: [receiver | args], body: body, vis: vis}
   end
 
   defp method_ast(%AST.Function{}, _vis) do

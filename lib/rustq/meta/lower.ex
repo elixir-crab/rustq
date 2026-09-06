@@ -2523,6 +2523,24 @@ defmodule RustQ.Meta.Lower do
     )
   end
 
+  defp lower_struct_literal_path({:__aliases__, meta, parts} = alias_ast, %Context{} = context) do
+    explicit =
+      Enum.find_value(alias_prefixes(parts), fn {prefix, suffix} ->
+        case Map.fetch(context.rust_modules, prefix) do
+          {:ok, mapped} -> mapped ++ suffix
+          :error -> nil
+        end
+      end)
+
+    if explicit do
+      %AST.Path{parts: explicit}
+    else
+      type_ast = {{:., meta, [alias_ast, :t]}, meta, []}
+      %AST.TypePath{parts: resolved} = RustQ.Spec.type(type_ast, context.type_aliases).ast
+      %AST.Path{parts: resolved}
+    end
+  end
+
   defp lower_struct_literal_path(path, %Context{} = context), do: lower_expr(path, context)
 
   defp enum_variant_path(path, variant), do: enum_variant_path(path, variant, %Context{})

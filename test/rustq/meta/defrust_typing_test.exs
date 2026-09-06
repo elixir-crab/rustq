@@ -4,6 +4,22 @@ defmodule RustQ.Meta.DefrustTypingTest do
   alias RustQ.Meta.AST, as: MetaAST
   alias RustQ.Rust.AST
 
+  test "external struct constructors use the same path as their remote types" do
+    defmodule ExternalConstructorCase do
+      use RustQ.Meta
+      alias RustQ.Type, as: R
+
+      @spec position(R.u64()) :: Core.Position.t()
+      defrustp(position(line), do: struct_literal(Core.Position, line: line))
+    end
+
+    function = MetaAST.function!(ExternalConstructorCase, :position)
+    assert %AST.TypePath{parts: [:core, :Position]} = function.returns
+
+    assert [%AST.Return{expr: %AST.StructLiteral{path: %AST.Path{parts: [:core, :Position]}}}] =
+             function.body
+  end
+
   test "builds a function AST from defrust valid Elixir" do
     defmodule GeneratedSaveCase do
       use RustQ.Meta

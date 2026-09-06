@@ -2,6 +2,35 @@
 
 ## Unreleased
 
+## 1.0.0-rc.7 - 2026-09-06
+
+### Changed
+
+- Reject integer operands for `/` with an actionable diagnostic; use explicit
+  floating-point conversion when floating-point division is intended.
+- Validate generated Cargo dependency names, options, and duplicates, and
+  serialize manifests with a TOML encoder for correct string escaping.
+
+### Fixed
+
+- Load generated native libraries correctly on macOS.
+- Preserve native result types through NIF boundary encoding, recursive calls,
+  composed calls, closures, and named captures; diagnose generated-name conflicts.
+- Preserve expected result types in `cond` branches and typed `Enum.map` closures.
+- Resolve local type aliases in decoding expressions and external struct
+  constructor paths consistently with their remote typespecs.
+- Infer the decoded value type for return-position `.decode()` and optional
+  return types for checked integer arithmetic methods.
+- Preserve argument evaluation and infer result propagation for shape queries.
+- Refresh callable metadata after provider recompilation and source changes,
+  including same-size edits with unchanged timestamps.
+- Render nested conditionals as `else if` where appropriate for Clippy-clean output.
+
+### Security
+
+- Update maintainer HTTP dependencies to versions without the reported security
+  advisories and remove unused dependency lock entries.
+
 ## v1.0.0-rc.6 - 2026-07-27
 
 - Infer mutable owned Rust arguments from mutating collection method calls and

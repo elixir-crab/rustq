@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+## 1.0.0-rc.8 - 2026-09-06
+
+### Added
+
+- Add `@cfg` for conditional Rust helper, method, and NIF implementations with
+  shared signatures and separate clause groups.
+- Support nested attribute metadata, including `not`, `all`, and `any`
+  predicates, with typed path, name/value, and list representations.
+- Select conditional functions with `RustQ.Meta.AST.function!/3` and a `:cfg`
+  option.
+
+### Changed
+
+- Reject ambiguous function selectors instead of choosing the first conditional
+  implementation.
+- Diagnose stacked or dangling conditions, duplicate conditions, mixed
+  unconditional/conditional definitions, and inconsistent NIF scheduling policies.
+
+### Fixed
+
+- Preserve authored receiver names and lexical shadowing in `defrustimpl`
+  methods through a local binding to the Rust receiver.
+- Gate generated NIF result codecs and implementation helpers consistently
+  with their conditional entrypoints while retaining one Elixir export.
+
 ## 1.0.0-rc.7 - 2026-09-06
 
 ### Changed

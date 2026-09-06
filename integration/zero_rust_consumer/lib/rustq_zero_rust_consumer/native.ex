@@ -186,6 +186,18 @@ defmodule RustQZeroRustConsumer.Native do
   @spec floating_quotient(R.i64(), R.i64()) :: R.f64()
   defnif(floating_quotient(left, right), do: cast(left, R.f64()) / cast(right, R.f64()))
 
+  @spec conditional_boundary(integer()) :: R.result(integer(), String.t())
+  @cfg [:debug_assertions]
+  defnif(conditional_boundary(value), do: {:ok, value + 1})
+  @cfg not: [:debug_assertions]
+  defnif(conditional_boundary(_value), do: {:error, "release"})
+
+  @spec feature_boundary(integer()) :: R.result(integer(), String.t())
+  @cfg feature: "extended"
+  defnif(feature_boundary(value), do: {:ok, value + 2})
+  @cfg not: [feature: "extended"]
+  defnif(feature_boundary(_value), do: {:error, "disabled"})
+
   @spec sum([float()]) :: float()
   defnif(sum(values), do: Enum.sum(values))
 

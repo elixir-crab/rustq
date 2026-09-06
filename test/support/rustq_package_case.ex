@@ -46,4 +46,37 @@ defmodule RustQ.Test.PackageCase do
 
     output
   end
+
+  def rebuild_feature!(consumer, native_manifest, release_env) do
+    manifest = native_manifest |> File.read!() |> TomlElixir.decode!()
+
+    File.write!(
+      native_manifest,
+      TomlElixir.encode!(Map.put(manifest, "features", %{"extended" => []}))
+    )
+
+    run!(
+      consumer,
+      "cargo",
+      ["build", "--release", "--features", "extended", "--manifest-path", native_manifest],
+      release_env
+    )
+
+    crate = manifest["lib"]["name"]
+
+    filename =
+      case :os.type() do
+        {:unix, :darwin} -> "lib#{crate}.dylib"
+        {:win32, _} -> "#{crate}.dll"
+        _ -> "lib#{crate}.so"
+      end
+
+    installed = if match?({:win32, _}, :os.type()), do: "#{crate}.dll", else: "lib#{crate}.so"
+    source_library = Path.join([Path.dirname(native_manifest), "target", "release", filename])
+
+    destination =
+      Path.join([consumer, "_build/test/lib/rustq_zero_rust_consumer/priv/native", installed])
+
+    File.cp!(source_library, destination)
+  end
 end

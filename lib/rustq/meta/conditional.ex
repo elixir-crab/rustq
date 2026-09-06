@@ -10,7 +10,31 @@ defmodule RustQ.Meta.Conditional do
   @spec groups!([tuple()]) :: [t()]
   def groups!(definitions) do
     {groups, _seen} = Enum.reduce(definitions, {[], %{}}, &group!/2)
+    validate_nif_policies!(groups)
     groups |> Enum.reverse() |> Enum.map(&%{&1 | clauses: Enum.reverse(&1.clauses)})
+  end
+
+  defp validate_nif_policies!(groups) do
+    groups
+    |> Enum.group_by(& &1.key)
+    |> Enum.each(fn {key, implementations} ->
+      policies =
+        Enum.map(implementations, &nif_policy/1)
+        |> Enum.uniq()
+
+      if match?([_, _ | _], policies),
+        do:
+          raise(
+            ArgumentError,
+            "conditional implementations must share NIF policy: #{inspect(key)}"
+          )
+    end)
+  end
+
+  defp nif_policy(group) do
+    Enum.find_value(group.clauses, fn {_call, _body, attrs, _mod, _impl} ->
+      Enum.find(attrs, &match?(%AST.Attribute{path: [:rustler, :nif]}, &1))
+    end)
   end
 
   defp group!({call, body, attrs, mod, impl}, {groups, seen}) do

@@ -222,7 +222,12 @@ These are alternative examples, not two attributes to stack on one declaration.
 Only one pending `@cfg` is allowed. `not` requires exactly one predicate.
 Identical conditions are rejected, but RustQ does not prove arbitrary predicates
 mutually exclusive or exhaustive; compile every supported Cargo configuration.
-Conditions on `defnif` are not supported yet. Gate Rust helpers instead.
+implementations of the same signature must use the same NIF scheduling policy.
+`@cfg` also supports `defnif`: Rust entrypoints, result codecs, and internal
+implementation helpers carry their conditions, while Elixir exposes one stub.
+Compile every supported configuration to ensure exactly one implementation is
+selected. Conditional payload types themselves are not inferred or generated
+from feature conditions.
 
 Conditional methods are supported inside `defrustimpl`. A receiver named other
 than `self` is bound locally to the Rust receiver, preserving ordinary lexical

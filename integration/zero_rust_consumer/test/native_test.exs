@@ -53,6 +53,21 @@ defmodule RustQZeroRustConsumer.NativeTest do
     end
   end
 
+  test "Cargo features select exactly one NIF implementation" do
+    expected =
+      if System.get_env("RUSTQ_TEST_FEATURE") == "1", do: {:ok, 6}, else: {:error, "disabled"}
+
+    assert Native.feature_boundary(4) == expected
+  end
+
+  test "conditional NIFs load exactly one implementation" do
+    expected =
+      if System.get_env("RUSTQ_TEST_RELEASE") == "1", do: {:error, "release"}, else: {:ok, 5}
+
+    assert Native.conditional_boundary(4) == expected
+    assert function_exported?(Native, :conditional_boundary, 1)
+  end
+
   test "cond preserves result types in every branch" do
     assert Native.conditional_result(-1) == {:error, "negative"}
     assert Native.conditional_result(0) == {:ok, 0}

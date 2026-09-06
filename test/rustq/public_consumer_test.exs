@@ -40,7 +40,11 @@ defmodule RustQ.PublicConsumerTest do
     refute File.exists?(Path.join(@zero_rust_fixture, "rustq.exs"))
 
     consumer = copy_fixture!(@zero_rust_fixture, context.workspace, "zero-rust-consumer")
-    env = package_env(context.package)
+
+    env = [
+      {"RUSTFLAGS", ~s|--check-cfg=cfg(feature,values("extended"))|}
+      | package_env(context.package)
+    ]
 
     run!(consumer, "mix", ["deps.get"], env)
     run!(consumer, "mix", ["test"], env)
@@ -66,5 +70,8 @@ defmodule RustQ.PublicConsumerTest do
     release_env = [{"RUSTQ_TEST_RELEASE", "1"} | env]
     run!(consumer, "mix", ["clean"], release_env)
     run!(consumer, "mix", ["test"], release_env)
+
+    rebuild_feature!(consumer, native_manifest, release_env)
+    run!(consumer, "mix", ["test", "--no-compile"], [{"RUSTQ_TEST_FEATURE", "1"} | release_env])
   end
 end

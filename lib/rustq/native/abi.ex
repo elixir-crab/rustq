@@ -230,6 +230,7 @@ defmodule RustQ.Native.ABI do
         name: codec_name,
         vis: :pub,
         derive: ["Clone", "Debug", "rustler::NifTaggedEnum"],
+        attrs: Enum.filter(attrs, &match?(%AST.Attribute{path: [:cfg]}, &1)),
         variants: [
           %AST.EnumVariant{name: :Ok, tuple: [ok_type]},
           %AST.EnumVariant{name: :Error, tuple: [error_type]}

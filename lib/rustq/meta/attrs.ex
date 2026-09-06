@@ -26,9 +26,6 @@ defmodule RustQ.Meta.Attrs do
 
   defp add_cfg(attrs, nil, _nif), do: attrs
 
-  defp add_cfg(_attrs, _cfg, nif) when nif not in [nil, false],
-    do: raise(ArgumentError, "@cfg on defnif is not supported yet; gate defrust helpers instead")
-
   defp add_cfg(attrs, cfg, _nif) do
     validate_cfg!(cfg)
     attrs ++ [%AST.Attribute{path: [:cfg], args: cfg}]

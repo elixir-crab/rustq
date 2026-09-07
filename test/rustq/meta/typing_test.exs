@@ -10,6 +10,23 @@ defmodule RustQ.Meta.TypingTest do
     %Type{kind: kind, rust: rust, ast: %AST.TypePath{parts: [String.to_atom(rust)]}}
   end
 
+  test "infers known clone and dereference results without guessing foreign clones" do
+    string = Type.parse(quote(do: String.t()), %{})
+    reference = Type.parse(quote(do: R.ref(String.t())), %{})
+    unknown = Type.parse(quote(do: R.ref(External.t())), %{})
+    nested = Type.parse(quote(do: R.ref(R.ref(String.t()))), %{})
+
+    env =
+      Typing.env(vars: %{owned: string, borrowed: reference, foreign: unknown, nested: nested})
+
+    assert Typing.synth(quote(do: owned.clone()), env) == string
+    assert Typing.synth(quote(do: borrowed.clone()), env).ast == string.ast
+    assert Typing.synth(quote(do: deref(borrowed)), env).ast == string.ast
+    assert Typing.synth(quote(do: deref(nested)), env).ast == reference.ast
+    assert Typing.synth(quote(do: foreign.clone()), env) == nil
+    assert Typing.synth(quote(do: nested.clone()), env) == nil
+  end
+
   test "synthesizes variables and local callable return types from explicit env" do
     path = type(:type, "Path")
 

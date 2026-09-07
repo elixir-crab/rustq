@@ -216,6 +216,11 @@ pub(crate) fn parse_block_arm(pat: Pat, block: syn::Block) -> NifResult<Arm> {
     })
 }
 
+pub(crate) fn arm_with_attrs(mut arm: Arm, attrs: Vec<syn::Attribute>) -> NifResult<Arm> {
+    arm.attrs = attrs;
+    Ok(arm)
+}
+
 pub(crate) fn parse_guarded_block_arm(
     pat: Pat,
     guard: Option<Expr>,
@@ -377,7 +382,17 @@ pub(crate) fn parse_struct_literal_expr(
         return Err(rustler::Error::BadArg);
     };
 
-    parse_syn::<Expr>(quote!(#path { #(#fields),* }))
+    let mut expression = parse_syn::<Expr>(quote!(#path { #(#fields),* }))?;
+    if let Expr::Struct(value) = &mut expression {
+        for field in &mut value.fields {
+            if let (syn::Member::Named(name), Expr::Path(path)) = (&field.member, &field.expr) {
+                if path.qself.is_none() && path.path.is_ident(name) {
+                    field.colon_token = None;
+                }
+            }
+        }
+    }
+    Ok(expression)
 }
 
 pub(crate) fn parse_raise_atom_expr(name: String) -> NifResult<Expr> {
@@ -417,8 +432,38 @@ pub(crate) fn parse_vec_expr(values: Vec<Expr>) -> NifResult<Expr> {
     parse_syn::<Expr>(quote!(vec![#(#values),*]))
 }
 
-pub(crate) fn parse_closure_expr(args: Vec<proc_macro2::Ident>, body: Expr) -> NifResult<Expr> {
-    parse_syn::<Expr>(quote!(|#(#args),*| #body))
+pub(crate) fn decode_closure_args(term: Term) -> NifResult<Vec<Pat>> {
+    term.decode::<Vec<Term>>()?
+        .into_iter()
+        .map(|arg| {
+            if let Ok((pattern, ty)) = arg.decode::<(Term, Term)>() {
+                return Ok(Pat::Type(syn::PatType {
+                    attrs: vec![],
+                    pat: Box::new(decode_pat(pattern)?),
+                    colon_token: Default::default(),
+                    ty: Box::new(decode_type(ty)?),
+                }));
+            }
+            if let Ok(pattern) = decode_pat(arg) {
+                return Ok(pattern);
+            }
+            let name = atom_or_string(arg)?;
+            if name == "_" {
+                Ok(syn::parse_quote!(_))
+            } else {
+                parse_var_pat(format_ident!("{}", name), false)
+            }
+        })
+        .collect()
+}
+
+pub(crate) fn parse_pattern_closure_expr(
+    args: Vec<Pat>,
+    body: Expr,
+    capture_move: bool,
+) -> NifResult<Expr> {
+    let capture = capture_move.then(|| quote!(move));
+    parse_syn::<Expr>(quote!(#capture |#(#args),*| #body))
 }
 
 pub(crate) fn parse_macro_call_expr(path: syn::Path, args: Vec<Expr>) -> NifResult<Expr> {
@@ -485,7 +530,10 @@ pub(crate) fn parse_method_call_expr(
 }
 
 fn method_receiver_needs_grouping(receiver: &Expr) -> bool {
-    matches!(receiver, Expr::Binary(_) | Expr::Cast(_))
+    matches!(
+        receiver,
+        Expr::Binary(_) | Expr::Cast(_) | Expr::Reference(_) | Expr::Unary(_)
+    )
 }
 
 pub(crate) fn parse_field_expr(receiver: Expr, field: Term) -> NifResult<Expr> {
@@ -707,7 +755,19 @@ pub(crate) fn parse_path_tuple_pat(path: syn::Path, patterns: Vec<Pat>) -> NifRe
 }
 
 pub(crate) fn parse_struct_pat(path: syn::Path, fields: Vec<NamedField<Pat>>) -> NifResult<Pat> {
-    parse_syn::<Pat>(quote!(#path { #(#fields),* }))
+    let mut pattern = parse_syn::<Pat>(quote!(#path { #(#fields),* }))?;
+    if let Pat::Struct(value) = &mut pattern {
+        for field in &mut value.fields {
+            if let (syn::Member::Named(name), Pat::Ident(binding)) =
+                (&field.member, field.pat.as_ref())
+            {
+                if name == &binding.ident && binding.subpat.is_none() {
+                    field.colon_token = None;
+                }
+            }
+        }
+    }
+    Ok(pattern)
 }
 
 pub(crate) fn parse_slice_pat(patterns: Vec<Pat>, rest: Option<Pat>) -> NifResult<Pat> {
@@ -755,15 +815,6 @@ pub(crate) fn decode_named_field_list<T>(
 
 pub(crate) fn decode_pat_struct_fields(term: Term) -> NifResult<Vec<NamedField<Pat>>> {
     decode_named_field_list(term, decode_pat)
-}
-
-pub(crate) fn decode_ident_list(term: Term) -> NifResult<Vec<proc_macro2::Ident>> {
-    decode_string_list(term).map(|names| {
-        names
-            .into_iter()
-            .map(|name| format_ident!("{}", name))
-            .collect()
-    })
 }
 
 pub(crate) fn decode_literal_expr(term: Term) -> NifResult<Expr> {

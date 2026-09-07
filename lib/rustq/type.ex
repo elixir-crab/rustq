@@ -105,6 +105,18 @@ defmodule RustQ.Type do
   @typedoc "Low-level explicit Rust path marker with options such as `R.lifetime(:a)`. Prefer ordinary remote types when possible."
   @type path(parts, opts) :: {parts, opts, term()}
 
+  @typedoc """
+  Opaque Rust callable (`impl Fn(...) -> ...` by default).
+
+  Use an ordinary Elixir function signature. Options are `kind: :fn | :fn_mut |
+  :fn_once`, `traits: [Send.t(), ...]`, and `lifetime: R.lifetime(:static)`.
+  For example: `R.impl((-> R.usize()), traits: [Send.t()], lifetime: R.lifetime(:static))`.
+  Capture ownership is separate: use `move(fn ... end)` in the function body.
+  This is a native type marker, not a BEAM-callable closure or a Rustler codec.
+  """
+  @type impl(signature) :: signature
+  @type impl(signature, options) :: {signature, options}
+
   @typedoc "Rust lifetime marker for external remote types and low-level `R.path/2`."
   @type lifetime(name) :: {name, term()}
 
@@ -173,6 +185,12 @@ defmodule RustQ.Type do
 
   @spec path(term(), term()) :: no_return()
   def path(_parts, _opts), do: type_only!()
+
+  @spec impl(term()) :: no_return()
+  def impl(_signature), do: type_only!()
+
+  @spec impl(term(), term()) :: no_return()
+  def impl(_signature, _options), do: type_only!()
 
   @spec lifetime(term()) :: no_return()
   def lifetime(_name), do: type_only!()

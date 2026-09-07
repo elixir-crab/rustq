@@ -2,6 +2,45 @@
 
 ## Unreleased
 
+## 1.0.0-rc.9 - 2026-09-06
+
+### Added
+
+- Support named fields and attributes on Rust enum variants, and attributes on
+  match arms, enabling feature-gated event declarations and dispatch.
+- Add explicit move captures with `move(fn ... end)`, tuple-pattern closure
+  parameters, and structural closure arguments with optional Rust types.
+- Add `R.impl` for native callable types using ordinary Elixir function
+  signatures, with `:fn`, `:fn_mut`, and `:fn_once` kinds, additional traits,
+  and explicit lifetime bounds.
+- Preserve foreign callable-trait parameter and return types, and specialize
+  supported generic method arguments from known receiver and argument types.
+- Expand supported source-defined Rust type aliases for receiver inference,
+  including generic aliases and grouped imports. Resolve known standard-library
+  shared pointers, mutex lock results, and guard receivers without guessing
+  from unrelated method names.
+
+### Fixed
+
+- Render matching struct-field bindings in shorthand form for Clippy-clean
+  generated patterns while preserving explicit renamed bindings.
+- Reject enum variants that mix tuple and named fields.
+- Preserve reference and unary-expression precedence in method receivers.
+- Infer borrows for dereferenced values and supported `String` and `Vec` clone
+  results, including expressions derived from typed callback parameters.
+- Keep closure parameter types scoped to the callback instead of inheriting
+  shadowed outer-variable types.
+- Omit redundant unit returns, use struct-expression field shorthand, and
+  simplify supported ignored-error result matches for Clippy-clean output.
+- Avoid unnecessary mutable bindings for local references while preserving
+  explicit mutation requirements.
+- Respect generic-parameter shadowing during alias expansion, refresh aliases
+  after source edits, and diagnose conflicting generic substitutions.
+- Reject unsupported lifetime-alias expansion and inconsistent specialization
+  of opaque foreign trait bounds rather than silently changing their meaning.
+  Defer unsupported nested or ambiguous alias diagnostics until expansion
+  requests them.
+
 ## 1.0.0-rc.8 - 2026-09-06
 
 ### Added

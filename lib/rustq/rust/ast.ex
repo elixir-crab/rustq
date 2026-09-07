@@ -405,8 +405,16 @@ defmodule RustQ.Rust.AST do
       )
   )
 
-  defnode(EnumVariant, :field, [:name, tuple: []],
-    type: quote(do: %__MODULE__{name: atom(), tuple: [AST.type()]})
+  defnode(EnumVariant, :field, [:name, tuple: [], fields: [], attrs: []],
+    type:
+      quote(
+        do: %__MODULE__{
+          name: atom(),
+          tuple: [AST.type()],
+          fields: [AST.StructField.t()],
+          attrs: [AST.Attribute.t()]
+        }
+      )
   )
 
   defnode(TypePath, :type, [:parts, lifetimes: [], generics: []],
@@ -468,7 +476,18 @@ defmodule RustQ.Rust.AST do
       )
   )
 
-  defnode(TypeImplTrait, :type, [bounds: []], type: quote(do: %__MODULE__{bounds: [String.t()]}))
+  defnode(TypeImplTrait, :type, [bounds: [], callable: nil, kind: :fn, traits: [], lifetime: nil],
+    type:
+      quote(
+        do: %__MODULE__{
+          bounds: [String.t()],
+          callable: TypeBareFn.t() | nil,
+          kind: :fn | :fn_mut | :fn_once,
+          traits: [TypePath.t()],
+          lifetime: atom() | nil
+        }
+      )
+  )
 
   defnode(TypeRaw, :type, [:source], type: quote(do: %__MODULE__{source: String.t()}))
 
@@ -618,8 +637,15 @@ defmodule RustQ.Rust.AST do
     type: quote(do: %__MODULE__{expr: AST.expr(), separator: String.t(), operator: String.t()})
   )
 
-  defnode(Closure, :expr, [:args, :body],
-    type: quote(do: %__MODULE__{args: [atom()], body: AST.expr()})
+  defnode(Closure, :expr, [:args, :body, move: false],
+    type:
+      quote(
+        do: %__MODULE__{
+          args: [atom() | AST.pat() | {AST.pat(), AST.type()}],
+          body: AST.expr(),
+          move: boolean()
+        }
+      )
   )
 
   defnode(Literal, :expr, [:value],
@@ -682,8 +708,16 @@ defmodule RustQ.Rust.AST do
       )
   )
 
-  defnode(Arm, :field, [:pattern, guard: nil, body: []],
-    type: quote(do: %__MODULE__{pattern: AST.pat(), guard: AST.expr() | nil, body: [AST.stmt()]})
+  defnode(Arm, :field, [:pattern, guard: nil, body: [], attrs: []],
+    type:
+      quote(
+        do: %__MODULE__{
+          pattern: AST.pat(),
+          guard: AST.expr() | nil,
+          body: [AST.stmt()],
+          attrs: [AST.Attribute.t()]
+        }
+      )
   )
 
   defnode(PatVar, :pat, [:name, mutable: false],

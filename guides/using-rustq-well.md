@@ -239,6 +239,35 @@ remain shared and are not filtered according to the local machine's features.
 The AST builder accepts the same recursive structure:
 `A.attr(:cfg, not: [feature: "native-test"])`.
 
+## Native closures
+
+Use ordinary Elixir function syntax for callback bodies. `move(fn ... end)`
+explicitly transfers captures into the Rust closure; clone shared values before
+capture when required. Moving captures does not by itself imply `FnOnce`.
+
+```elixir
+@spec callback(String.t()) ::
+        R.impl((-> R.usize()), traits: [Send.t()], lifetime: R.lifetime(:static))
+defrust callback(label) do
+  move(fn -> label.len() end)
+end
+```
+
+This returns `impl Fn() -> usize + Send + 'static`. `R.impl` also accepts
+`kind: :fn_mut` and `kind: :fn_once`; the default is `:fn`. A `'static` bound
+forbids retaining shorter-lived borrows, not normal destruction of owned values.
+These are native callable types, not BEAM callback codecs.
+
+Tuple patterns and wildcards work in closure parameters. AST generators can
+use `{pattern, type}` arguments with `A.closure(args, body, move: true)` when an
+explicit Rust parameter annotation is necessary. Known callback parameter types
+participate in borrowing inference, but generic trait solving is not complete.
+
+Source-backed receiver inference supports a limited set of root type aliases
+and qualified standard-library pointer types. Unsupported lifetime aliases and
+requested nested or ambiguous aliases fail explicitly; this is not a complete
+Rust module or reexport resolver.
+
 ## Put Rust methods in `defrustimpl`
 
 When Rusty-Elixir functions belong to a Rust implementation, group them with

@@ -133,7 +133,7 @@ defmodule RustQ.ASTSamples do
   defp semantic_fragment(:pat_ok), do: "Ok(value) =>"
   defp semantic_fragment(:pat_err), do: "Err(reason) =>"
   defp semantic_fragment(:pat_path_tuple), do: "Event::Click(click) =>"
-  defp semantic_fragment(:pat_struct), do: "Click { name: name } =>"
+  defp semantic_fragment(:pat_struct), do: "Click { name } =>"
   defp semantic_fragment(:pat_slice), do: "[head, tail @ ..] =>"
   defp semantic_fragment(_), do: ""
 

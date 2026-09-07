@@ -497,8 +497,59 @@ defmodule RustQ.Meta.Type do
         do: %AST.TypeRaw{source: code},
         else: %AST.TypeImplTrait{bounds: Enum.map(bounds, & &1.code)}
 
-    type(:impl_trait, ast, %{traits: trait_types, bounds: bounds})
+    callable = Enum.find(traits, &match?(%SynType.Path{callable: %{}}, &1))
+    metadata = %{traits: trait_types, bounds: bounds}
+
+    metadata =
+      if callable do
+        Map.merge(metadata, %{
+          args: Enum.map(callable.callable.args, &from_syn/1),
+          returns:
+            if(callable.callable.returns,
+              do: from_syn(callable.callable.returns),
+              else: type(:unit, %AST.TypeUnit{})
+            )
+        })
+      else
+        metadata
+      end
+
+    ast = callable_impl_ast(ast, callable, trait_types, bounds)
+    type(:impl_trait, ast, metadata)
   end
+
+  defp callable_impl_ast(ast, nil, _traits, _bounds), do: ast
+
+  defp callable_impl_ast(ast, callable, traits, bounds) do
+    kind = %{"Fn" => :fn, "FnMut" => :fn_mut, "FnOnce" => :fn_once}[callable.name]
+
+    simple = Enum.all?(bounds, &simple_callable_bound?/1)
+
+    lifetimes = Enum.filter(bounds, &(&1.kind == :lifetime))
+
+    if kind && simple && not match?([_, _ | _], lifetimes) do
+      %AST.TypeImplTrait{
+        callable: %AST.TypeBareFn{
+          args: Enum.map(callable.callable.args, &from_syn(&1).ast),
+          returns: if(callable.callable.returns, do: from_syn(callable.callable.returns).ast)
+        },
+        kind: kind,
+        traits:
+          traits |> Enum.reject(&(&1.meta[:syn_name] == callable.name)) |> Enum.map(& &1.ast),
+        lifetime:
+          case lifetimes do
+            [] -> nil
+            [bound] -> bound.code |> String.trim_leading("'") |> Identifier.atom!()
+          end
+      }
+    else
+      ast
+    end
+  end
+
+  defp simple_callable_bound?(%{kind: :lifetime}), do: true
+  defp simple_callable_bound?(%{kind: :trait, modifier: nil, lifetimes: []}), do: true
+  defp simple_callable_bound?(_bound), do: false
 
   defp from_syn_path(%SynType.Path{
          name: name,
@@ -818,6 +869,52 @@ defmodule RustQ.Meta.Type do
   defp parse_rust_type(:usize, [], _aliases), do: type(:usize, path(:usize))
   defp parse_rust_type(:unit, [], _aliases), do: type(:unit, %AST.TypeUnit{})
 
+  defp parse_rust_type(:impl, [signature], aliases),
+    do: parse_rust_type(:impl, [signature, []], aliases)
+
+  defp parse_rust_type(:impl, [[{:->, _, [args, returns]}], opts], aliases) do
+    validate_impl_options!(opts)
+
+    kind = Keyword.get(opts, :kind, :fn)
+
+    unless kind in [:fn, :fn_mut, :fn_once],
+      do: raise(ArgumentError, "invalid R.impl callable kind")
+
+    args = Enum.map(args, &parse(&1, aliases))
+    returns = parse(returns, aliases)
+    trait_options = Keyword.get(opts, :traits, [])
+    unless is_list(trait_options), do: raise(ArgumentError, "R.impl traits must be a list")
+    traits = Enum.map(trait_options, &parse(&1, aliases).ast)
+
+    unless Enum.all?(traits, &match?(%AST.TypePath{}, &1)),
+      do: raise(ArgumentError, "R.impl traits must be Rust trait paths")
+
+    lifetime =
+      case Keyword.get(opts, :lifetime) do
+        nil ->
+          nil
+
+        {{:., _, [module, :lifetime]}, _, [name]} when is_atom(name) ->
+          unless type_module?(module), do: raise(ArgumentError, "expected R.lifetime(name)")
+          name
+
+        _ ->
+          raise ArgumentError, "expected R.lifetime(name)"
+      end
+
+    ast = %AST.TypeImplTrait{
+      callable: %AST.TypeBareFn{args: Enum.map(args, & &1.ast), returns: returns.ast},
+      kind: kind,
+      traits: traits,
+      lifetime: lifetime
+    }
+
+    type(:impl_trait, ast, %{args: args, returns: returns, traits: []})
+  end
+
+  defp parse_rust_type(:impl, _args, _aliases),
+    do: raise(ArgumentError, "R.impl expects an ordinary Elixir function type")
+
   defp parse_rust_type(:path, [parts], aliases), do: parse_path_type(parts, nil, aliases)
   defp parse_rust_type(:path, [parts, opts], aliases), do: parse_path_type(parts, opts, aliases)
 
@@ -883,6 +980,14 @@ defmodule RustQ.Meta.Type do
       parts: [function],
       generics: Enum.map(args, &parse(&1, aliases).ast)
     })
+  end
+
+  defp validate_impl_options!(opts) do
+    unless Keyword.keyword?(opts), do: raise(ArgumentError, "R.impl expects keyword options")
+    keys = Keyword.keys(opts)
+
+    unless keys -- [:kind, :traits, :lifetime] == [] and keys == Enum.uniq(keys),
+      do: raise(ArgumentError, "R.impl expects unique kind, traits, and lifetime options")
   end
 
   defp vector_type(inner, aliases) do

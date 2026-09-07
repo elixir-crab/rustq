@@ -127,7 +127,7 @@ defmodule RustQ.Syn do
 
     defmodule Path do
       @moduledoc "Rust path type metadata, for example `Paint`, `skia_safe::Canvas`, or `AsRef<Rect>`."
-      defstruct [:code, :name, segments: [], args: [], assoc: %{}, generic_args: []]
+      defstruct [:code, :name, :callable, segments: [], args: [], assoc: %{}, generic_args: []]
 
       @type t :: %__MODULE__{
               code: String.t(),
@@ -135,6 +135,7 @@ defmodule RustQ.Syn do
               segments: [String.t()],
               args: [RustQ.Syn.type()],
               assoc: %{optional(String.t()) => RustQ.Syn.type()},
+              callable: %{args: [RustQ.Syn.type()], returns: RustQ.Syn.type() | nil} | nil,
               generic_args: [RustQ.Syn.Type.GenericArgument.t()]
             }
     end
@@ -269,7 +270,8 @@ defmodule RustQ.Syn do
       :source_path,
       docs: [],
       segments: [],
-      glob?: false
+      glob?: false,
+      module_path: []
     ]
 
     @type t :: %__MODULE__{
@@ -311,7 +313,17 @@ defmodule RustQ.Syn do
 
   defmodule TypeAlias do
     @moduledoc "Rust `type` alias metadata."
-    defstruct [:name, :visibility, :source_line, :source_path, :type, :type_ast, docs: []]
+    defstruct [
+      :name,
+      :visibility,
+      :source_line,
+      :source_path,
+      :type,
+      :type_ast,
+      docs: [],
+      type_parameters: [],
+      module_path: []
+    ]
 
     @type t :: %__MODULE__{
             name: String.t(),
@@ -355,6 +367,7 @@ defmodule RustQ.Syn do
       :source_path,
       :signature,
       :signature_ast,
+      type_parameters: [],
       lifetimes: [],
       docs: [],
       args: [],
@@ -421,6 +434,15 @@ defmodule RustQ.Syn do
 
     defp render_arg(%RustQ.Syn.Arg{name: name, type_ast: type}),
       do: "#{name}: #{render_type(type)}"
+
+    defp render_type(%RustQ.Syn.Type.Path{
+           segments: segments,
+           callable: %{args: args, returns: returns}
+         }) do
+      output = if returns, do: " -> #{render_type(returns)}", else: ""
+
+      "#{Elixir.Enum.join(segments, "::")}(#{Elixir.Enum.map_join(args, ", ", &render_type/1)})#{output}"
+    end
 
     defp render_type(%RustQ.Syn.Type.Path{segments: segments, generic_args: [_ | _] = args}) do
       "#{Elixir.Enum.join(segments, "::")}<#{Elixir.Enum.map_join(args, ", ", &render_generic_argument/1)}>"
@@ -571,6 +593,7 @@ defmodule RustQ.Syn do
       :source_path,
       :signature,
       :signature_ast,
+      type_parameters: [],
       docs: [],
       args: [],
       returns: nil,
@@ -827,6 +850,11 @@ defmodule RustQ.Syn do
     }
   end
 
+  defp decode_item!({"use", path, segments, alias, glob?, {modules, visibility, line}, docs}) do
+    use = decode_item!({"use", path, segments, alias, glob?, {visibility, line}, docs})
+    %{use | module_path: modules}
+  end
+
   defp decode_item!({"use", path, segments, alias, glob?, {visibility, source_line}, docs}) do
     %RustQ.Syn.Use{
       path: path,
@@ -849,6 +877,18 @@ defmodule RustQ.Syn do
       type_ast: decode_type!(type_ast),
       mutable: mutable
     }
+  end
+
+  defp decode_item!({"type_alias", name, visibility, {modules, line}, docs, type, type_ast}) do
+    alias_type = decode_item!({"type_alias", name, visibility, line, docs, type, type_ast})
+    %{alias_type | module_path: modules}
+  end
+
+  defp decode_item!(
+         {"type_alias", name, visibility, source_line, docs, {type, parameters}, type_ast}
+       ) do
+    alias_type = decode_item!({"type_alias", name, visibility, source_line, docs, type, type_ast})
+    %{alias_type | type_parameters: parameters}
   end
 
   defp decode_item!({"type_alias", name, visibility, source_line, docs, type, type_ast}) do
@@ -936,6 +976,9 @@ defmodule RustQ.Syn do
     )
   end
 
+  defp decode_item!({"impl", target, target_ast, trait, {line, _parameters}, docs, methods}),
+    do: decode_item!({"impl", target, target_ast, trait, line, docs, methods})
+
   defp decode_item!({"impl", target, target_ast, trait, source_line, docs, methods}) do
     %RustQ.Syn.Impl{
       target: target,
@@ -949,6 +992,13 @@ defmodule RustQ.Syn do
 
   defp decode_field!({name, type, type_ast}) do
     %RustQ.Syn.Field{name: name, type: type, type_ast: decode_type!(type_ast)}
+  end
+
+  defp decode_method!(
+         {"method", name, visibility, {line, signature, parameters}, docs, args, returns}
+       ) do
+    method = decode_method!({"method", name, visibility, {line, signature}, docs, args, returns})
+    %{method | type_parameters: parameters}
   end
 
   defp decode_method!({"method", name, visibility, {source_line, signature}, docs, args, returns}) do
@@ -1006,6 +1056,18 @@ defmodule RustQ.Syn do
 
   defp decode_type!({"path", code, segments, args, assoc}) do
     decode_path_type!(code, segments, args, assoc, [])
+  end
+
+  defp decode_type!({"callable_path", code, segments, args, returns}) do
+    %RustQ.Syn.Type.Path{
+      code: code,
+      name: List.last(segments),
+      segments: segments,
+      callable: %{
+        args: Elixir.Enum.map(args, &decode_type!/1),
+        returns: if(returns, do: decode_type!(returns))
+      }
+    }
   end
 
   defp decode_type!({"path", code, segments, args, assoc, generic_args}) do

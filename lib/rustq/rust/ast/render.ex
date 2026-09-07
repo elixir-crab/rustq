@@ -434,11 +434,25 @@ defmodule RustQ.Rust.AST.Render do
     |> IO.iodata_to_binary()
   end
 
+  def render_enum_variant(%EnumVariant{fields: [_ | _], tuple: [_ | _]}),
+    do: raise(ArgumentError, "enum variants cannot combine named and tuple fields")
+
+  def render_enum_variant(%EnumVariant{fields: [_ | _]} = variant) do
+    [
+      render_attrs(variant.attrs),
+      Atom.to_string(variant.name),
+      " {",
+      Elixir.Enum.map(variant.fields, &render_struct_field/1),
+      "},"
+    ]
+  end
+
   def render_enum_variant(%EnumVariant{tuple: []} = variant),
-    do: [Atom.to_string(variant.name), ","]
+    do: [render_attrs(variant.attrs), Atom.to_string(variant.name), ","]
 
   def render_enum_variant(%EnumVariant{} = variant) do
     [
+      render_attrs(variant.attrs),
       Atom.to_string(variant.name),
       "(",
       variant.tuple |> Elixir.Enum.map(&render_type/1) |> Elixir.Enum.intersperse(", "),
@@ -524,8 +538,21 @@ defmodule RustQ.Rust.AST.Render do
     [lifetimes, unsafe, external, "fn(", Elixir.Enum.intersperse(args, ", "), ")", returns]
   end
 
+  def render_type(%TypeImplTrait{callable: %TypeBareFn{} = callable} = type) do
+    name = %{fn: "Fn", fn_mut: "FnMut", fn_once: "FnOnce"} |> Map.fetch!(type.kind)
+    args = callable.args |> Elixir.Enum.map(&render_type/1) |> Elixir.Enum.intersperse(", ")
+    returns = if callable.returns, do: [" -> ", render_type(callable.returns)], else: []
+    bounds = [[name, "(", args, ")", returns] | Elixir.Enum.map(type.traits, &render_type/1)]
+    bounds = if type.lifetime, do: bounds ++ [render_bound_lifetime(type.lifetime)], else: bounds
+    ["impl ", Elixir.Enum.intersperse(bounds, " + ")]
+  end
+
   def render_type(%TypeImplTrait{bounds: bounds}),
     do: ["impl ", Elixir.Enum.intersperse(bounds, " + ")]
+
+  defp render_closure_arg(name) when is_atom(name), do: Atom.to_string(name)
+  defp render_closure_arg({pattern, type}), do: [render_pattern(pattern), ": ", render_type(type)]
+  defp render_closure_arg(pattern), do: render_pattern(pattern)
 
   defp render_bound_lifetime(lifetime) when is_atom(lifetime), do: ["'", to_string(lifetime)]
   defp render_bound_lifetime("'" <> _rest = lifetime), do: lifetime
@@ -659,8 +686,14 @@ defmodule RustQ.Rust.AST.Render do
     ["$(", render_expr(expr), separator, ")", operator]
   end
 
-  def render_expr(%Closure{args: args, body: body}) do
-    ["|", Elixir.Enum.map_join(args, ", ", &to_string/1), "| ", render_expr(body)]
+  def render_expr(%Closure{args: args, body: body, move: move}) do
+    [
+      if(move, do: "move ", else: ""),
+      "|",
+      args |> Elixir.Enum.map(&render_closure_arg/1) |> Elixir.Enum.intersperse(", "),
+      "| ",
+      render_expr(body)
+    ]
   end
 
   def render_expr(%Literal{value: value}) when is_binary(value), do: inspect(value)
@@ -728,8 +761,9 @@ defmodule RustQ.Rust.AST.Render do
     [render_expr(left), " ", render_binary_op(op), " ", render_expr(right)]
   end
 
-  def render_arm(%Arm{pattern: pattern, guard: guard, body: body}) do
+  def render_arm(%Arm{pattern: pattern, guard: guard, body: body, attrs: attrs}) do
     [
+      render_attrs(attrs),
       render_pattern(pattern),
       render_arm_guard(guard),
       " => {\n",
@@ -850,6 +884,8 @@ defmodule RustQ.Rust.AST.Render do
   defp render_binary_op(:shr), do: ">>"
   defp render_binary_op(:bitand), do: "&"
 
+  defp render_method_receiver(%Ref{} = expr), do: ["(", render_expr(expr), ")"]
+  defp render_method_receiver(%UnaryOp{} = expr), do: ["(", render_expr(expr), ")"]
   defp render_method_receiver(%BinaryOp{} = expr), do: ["(", render_expr(expr), ")"]
   defp render_method_receiver(%Cast{} = expr), do: ["(", render_expr(expr), ")"]
   defp render_method_receiver(%Match{} = expr), do: ["(", render_expr(expr), ")"]

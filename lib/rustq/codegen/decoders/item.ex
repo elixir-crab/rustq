@@ -203,9 +203,11 @@ defmodule RustQ.Codegen.Decoders.Item do
   defrust decode_enum_variant(term) do
     expect_struct(term, "Elixir.RustQ.Rust.AST.EnumVariant")
 
-    Super.parse_enum_variant(
+    Super.parse_enum_variant_fields(
       Super.format_ident_value(atom_key(term, "name")),
-      required_type_list(term, "tuple")
+      required_type_list(term, "tuple"),
+      unwrap!(required_struct_field_list(term, "fields")),
+      Super.decode_attribute_list(required_field(term, "attrs"))
     )
   end
 end

@@ -161,9 +161,10 @@ defmodule RustQ.Codegen.Decoders.Expr do
 
   @spec decode_expr_closure(term()) :: R.nif_result(R.path(:Expr))
   defrust decode_expr_closure(term) do
-    Super.parse_closure_expr(
-      Super.decode_ident_list(required_field(term, "args")),
-      required_expr(term, "body")
+    Super.parse_pattern_closure_expr(
+      Super.decode_closure_args(required_field(term, "args")),
+      required_expr(term, "body"),
+      decode_as!(required_field(term, "move"), R.bool())
     )
   end
 

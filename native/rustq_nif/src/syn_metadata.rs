@@ -219,28 +219,33 @@ fn item_terms<'a>(env: Env<'a>, item: Item, module_path: Vec<String>) -> Vec<Ter
             type_metadata(env, &item.self_ty),
             item.trait_
                 .map(|(_bang, path, _for)| path.to_token_stream().to_string()),
-            line(item.impl_token.span),
+            (line(item.impl_token.span), type_parameters(&item.generics)),
             docs(&item.attrs),
             item.items
                 .into_iter()
-                .filter_map(|item| impl_method_term(env, item))
+                .filter_map(|method| impl_method_term(env, method, &item.generics))
                 .collect::<Vec<_>>(),
         )
             .encode(env)],
-        Item::Use(item) => {
-            use_alias(&item.tree).map_or_else(Vec::new, |(path, segments, alias, glob)| {
-                vec![(
+        Item::Use(item) => use_aliases(&item.tree)
+            .into_iter()
+            .map(|(path, segments, alias, glob)| {
+                (
                     "use",
                     path,
                     segments,
                     alias,
                     glob,
-                    (visibility(&item.vis), line(item.use_token.span)),
+                    (
+                        module_path.clone(),
+                        visibility(&item.vis),
+                        line(item.use_token.span),
+                    ),
                     docs(&item.attrs),
                 )
-                    .encode(env)]
+                    .encode(env)
             })
-        }
+            .collect(),
         Item::Static(item) => vec![(
             "static",
             item.ident.to_string(),
@@ -258,9 +263,9 @@ fn item_terms<'a>(env: Env<'a>, item: Item, module_path: Vec<String>) -> Vec<Ter
             "type_alias",
             item.ident.to_string(),
             visibility(&item.vis),
-            line(item.ident.span()),
+            (module_path, line(item.ident.span())),
             docs(&item.attrs),
-            type_string(&item.ty),
+            (type_string(&item.ty), type_parameters(&item.generics)),
             type_metadata(env, &item.ty),
         )
             .encode(env)],
@@ -274,6 +279,20 @@ fn item_terms<'a>(env: Env<'a>, item: Item, module_path: Vec<String>) -> Vec<Ter
             }
         }
         _ => Vec::new(),
+    }
+}
+
+fn use_aliases(tree: &UseTree) -> Vec<(String, Vec<String>, Option<String>, bool)> {
+    match tree {
+        UseTree::Group(group) => group.items.iter().flat_map(use_aliases).collect(),
+        UseTree::Path(path) => use_aliases(&path.tree)
+            .into_iter()
+            .map(|(_, mut segments, alias, glob)| {
+                segments.insert(0, path.ident.to_string());
+                (segments.join("::"), segments, alias, glob)
+            })
+            .collect(),
+        _ => use_alias(tree).into_iter().collect(),
     }
 }
 
@@ -311,7 +330,18 @@ fn use_alias(tree: &UseTree) -> Option<(String, Vec<String>, Option<String>, boo
     walk(tree, Vec::new())
 }
 
-fn impl_method_term<'a>(env: Env<'a>, item: ImplItem) -> Option<Term<'a>> {
+fn type_parameters(generics: &syn::Generics) -> Vec<String> {
+    generics
+        .type_params()
+        .map(|param| param.ident.to_string())
+        .collect()
+}
+
+fn impl_method_term<'a>(
+    env: Env<'a>,
+    item: ImplItem,
+    generics: &syn::Generics,
+) -> Option<Term<'a>> {
     match item {
         ImplItem::Fn(item) => Some(
             (
@@ -321,6 +351,11 @@ fn impl_method_term<'a>(env: Env<'a>, item: ImplItem) -> Option<Term<'a>> {
                 (
                     line(item.sig.ident.span()),
                     item.sig.to_token_stream().to_string(),
+                    [
+                        type_parameters(generics),
+                        type_parameters(&item.sig.generics),
+                    ]
+                    .concat(),
                 ),
                 docs(&item.attrs),
                 item.sig
@@ -517,6 +552,23 @@ fn path_type_metadata<'a>(env: Env<'a>, code: String, path: &syn::Path) -> Term<
         .last()
         .map(|segment| generic_args(env, &segment.arguments))
         .unwrap_or_default();
+
+    if let Some(syn::PathSegment {
+        arguments: PathArguments::Parenthesized(arguments),
+        ..
+    }) = path.segments.last()
+    {
+        let inputs = arguments
+            .inputs
+            .iter()
+            .map(|ty| type_metadata(env, ty))
+            .collect::<Vec<_>>();
+        let output = match &arguments.output {
+            syn::ReturnType::Default => None,
+            syn::ReturnType::Type(_, ty) => Some(type_metadata(env, ty)),
+        };
+        return ("callable_path", code, segments, inputs, output).encode(env);
+    }
 
     let name = segments.last().cloned().unwrap_or_else(|| code.clone());
 

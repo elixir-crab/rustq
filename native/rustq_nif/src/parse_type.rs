@@ -42,6 +42,32 @@ pub(crate) fn parse_type_tuple(items: Vec<Type>) -> NifResult<Type> {
     }
 }
 
+pub(crate) fn parse_callable_impl(
+    callable: Option<Type>,
+    kind: String,
+    traits: Vec<Type>,
+    lifetime: Option<String>,
+    bounds: Vec<String>,
+) -> NifResult<Type> {
+    let Some(Type::BareFn(callable)) = callable else {
+        return parse_type_impl_trait(bounds);
+    };
+    let name = match kind.as_str() {
+        "fn" => quote!(Fn),
+        "fn_mut" => quote!(FnMut),
+        "fn_once" => quote!(FnOnce),
+        _ => return Err(rustler::Error::BadArg),
+    };
+    let args = callable.inputs.iter().map(|arg| &arg.ty);
+    let output = &callable.output;
+    let lifetime = lifetime
+        .map(|name| syn::parse_str::<syn::Lifetime>(&format!("'{name}")))
+        .transpose()
+        .map_err(|_| rustler::Error::BadArg)?;
+    let lifetime = lifetime.map(|value| quote!(+ #value));
+    parse_syn(quote!(impl #name(#(#args),*) #output #(+ #traits)* #lifetime))
+}
+
 pub(crate) fn parse_type_impl_trait(bounds: Vec<String>) -> NifResult<Type> {
     if bounds.is_empty() {
         return Err(rustler::Error::BadArg);

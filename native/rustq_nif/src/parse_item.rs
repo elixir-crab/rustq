@@ -247,6 +247,19 @@ pub(crate) fn parse_item_function_args(
             )));
     }
 
+    let unit = matches!(&returns, Type::Tuple(tuple) if tuple.elems.is_empty());
+    let mut stmts = stmts;
+    if unit
+        && matches!(stmts.last(), Some(Stmt::Expr(syn::Expr::Tuple(tuple), None)) if tuple.elems.is_empty())
+    {
+        stmts.pop();
+    }
+    let output = if unit {
+        syn::ReturnType::Default
+    } else {
+        syn::ReturnType::Type(token::RArrow::default(), Box::new(returns))
+    };
+
     Ok(syn::ItemFn {
         attrs,
         vis,
@@ -261,7 +274,7 @@ pub(crate) fn parse_item_function_args(
             paren_token: token::Paren::default(),
             inputs: Punctuated::from_iter(args),
             variadic: None,
-            output: syn::ReturnType::Type(token::RArrow::default(), Box::new(returns)),
+            output,
         },
         block: Box::new(syn::Block {
             brace_token: token::Brace::default(),
@@ -327,10 +340,20 @@ pub(crate) fn parse_item_enum(
     parse_syn(quote!(#(#derive)* #(#attrs)* #vis enum #name { #(#variants),* }))
 }
 
-pub(crate) fn parse_enum_variant(name: syn::Ident, tuple: Vec<Type>) -> NifResult<syn::Variant> {
-    if tuple.is_empty() {
-        parse_syn(quote!(#name))
+pub(crate) fn parse_enum_variant_fields(
+    name: syn::Ident,
+    tuple: Vec<Type>,
+    fields: Vec<syn::Field>,
+    attrs: Vec<syn::Attribute>,
+) -> NifResult<syn::Variant> {
+    if !fields.is_empty() {
+        if !tuple.is_empty() {
+            return Err(rustler::Error::BadArg);
+        }
+        parse_syn(quote!(#(#attrs)* #name { #(#fields),* }))
+    } else if tuple.is_empty() {
+        parse_syn(quote!(#(#attrs)* #name))
     } else {
-        parse_syn(quote!(#name(#(#tuple),*)))
+        parse_syn(quote!(#(#attrs)* #name(#(#tuple),*)))
     }
 }

@@ -8,6 +8,7 @@ defmodule RustQ.Meta.Typing do
   alias RustQ.Meta.Lower.Stdlib
   alias RustQ.Meta.Lower.Stdlib.TypeContext, as: StdlibTypeContext
   alias RustQ.Meta.Pattern
+  alias RustQ.Meta.StandardPointer
   alias RustQ.Meta.Type
   alias RustQ.Rust.AST
 
@@ -97,6 +98,13 @@ defmodule RustQ.Meta.Typing do
 
       nil ->
         nil
+    end
+  end
+
+  def synth({:deref, _meta, [expression]}, %Env{} = env) do
+    case synth(expression, env) do
+      %Type{} = type -> Type.ref_inner(type)
+      nil -> nil
     end
   end
 
@@ -213,6 +221,29 @@ defmodule RustQ.Meta.Typing do
         if Type.category(type) == :integer, do: Type.option(type)
 
       _unknown ->
+        nil
+    end
+  end
+
+  defp synth_method_call({{:., _, [receiver, :lock]}, _meta, []}, %Env{} = env) do
+    case synth(receiver, env) do
+      %Type{} = type -> StandardPointer.lock_result(type)
+      nil -> nil
+    end
+  end
+
+  defp synth_method_call({{:., _, [receiver, :clone]}, _meta, []}, %Env{} = env) do
+    case synth(receiver, env) do
+      %Type{} = type ->
+        inner = Type.ref_inner(type) || type
+
+        case inner.ast do
+          %AST.TypePath{parts: [:String], generics: []} -> inner
+          %AST.TypeVec{} -> inner
+          _ -> nil
+        end
+
+      nil ->
         nil
     end
   end

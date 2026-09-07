@@ -3,7 +3,7 @@ defmodule RustQ.Meta.AST do
   Builds RustQ AST items from `defrust` metadata and explicit quoted bodies.
   """
 
-  alias RustQ.Binding.{Callable, Index}
+  alias RustQ.Binding.{Callable, Index, TypeAliases}
   alias RustQ.Diagnostic
   alias RustQ.Meta.Decoder
   alias RustQ.Meta.Lower
@@ -524,6 +524,14 @@ defmodule RustQ.Meta.AST do
       |> maybe_prepend_nif_env(implicit_env?)
 
     vars = Map.merge(external_static_types, Map.new(Enum.zip(arg_names, arg_types)))
+
+    paths =
+      env.module |> Module.get_attribute(:rustq_rust_sources) |> List.wrap() |> List.flatten()
+
+    aliases = TypeAliases.from_files(paths)
+
+    vars =
+      Map.new(vars, fn {name, type} -> {name, TypeAliases.expand(type, aliases)} end)
 
     body =
       Lower.quoted_body(body_ast, return_type, vars,

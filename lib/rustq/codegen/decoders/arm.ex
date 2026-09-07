@@ -11,10 +11,13 @@ defmodule RustQ.Codegen.Decoders.Arm do
     guard = Super.decode_optional_expr_field(term, "guard")
     block = Super.decode_block(required_field(term, "body"))
 
-    if struct_name(pat_term) == "Elixir.RustQ.Rust.AST.PatAtomGuard" do
-      Super.decode_atom_guard_arm(pat_term, block)
-    else
-      Super.parse_guarded_block_arm(Super.decode_pat(pat_term), guard, block)
-    end
+    arm =
+      if struct_name(pat_term) == "Elixir.RustQ.Rust.AST.PatAtomGuard" do
+        Super.decode_atom_guard_arm(pat_term, block)
+      else
+        Super.parse_guarded_block_arm(Super.decode_pat(pat_term), guard, block)
+      end
+
+    Super.arm_with_attrs(arm, Super.decode_attribute_list(required_field(term, "attrs")))
   end
 end

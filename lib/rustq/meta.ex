@@ -49,6 +49,14 @@ defmodule RustQ.Meta do
       prefer inference when callable metadata is available
     * `ref(expression)` / `mut_ref(expression)` spell explicit Rust borrows;
       many ordinary calls infer borrows from expected argument types
+    * Closure arguments support ordinary tuple patterns and wildcards. Known
+      callable parameter types are available while lowering the closure body.
+      AST generators can additionally use `{pattern, type}` closure arguments
+      for explicit Rust annotations, without introducing new Elixir syntax.
+    * `move(fn ... end)` explicitly moves a closure's captures into the Rust
+      closure. Clone shared values explicitly before capture when needed; RustQ
+      does not insert clones or choose ownership policy. Ordinary `fn` keeps
+      Rust's default capture behavior.
     * `deref(expression)` spells Rust dereference and can propagate fallible
       reference access such as `args.first().ok_or(badarg())`
     * Option branching should use Elixir `case`, for example

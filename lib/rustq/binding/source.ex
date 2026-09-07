@@ -231,7 +231,10 @@ defmodule RustQ.Binding.Source do
 
     Enum.map(impl.methods, fn method ->
       method
-      |> Callable.from_syn_method(target: impl.target)
+      |> Callable.from_syn_method(
+        target: impl.target,
+        target_type: RustQ.Spec.from_syn(impl.target_ast)
+      )
       |> resolve_self_types(self_type)
     end)
   end

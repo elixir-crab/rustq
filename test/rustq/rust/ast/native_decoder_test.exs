@@ -26,6 +26,28 @@ defmodule RustQ.Rust.AST.NativeDecoderTest do
     assert diagnostic.snippet =~ "%RustQ.Rust.AST.Function"
   end
 
+  test "method receiver borrows and unary operators preserve precedence" do
+    receiver = A.var(:value)
+
+    for {expression, expected} <- [
+          {A.ref(receiver), "(&value).len()"},
+          {%AST.Ref{expr: receiver, mutable: true}, "(&mut value).len()"},
+          {%AST.UnaryOp{op: :deref, expr: receiver}, "(*value).len()"}
+        ] do
+      expression = A.method(expression, :len)
+      assert expression |> Render.render_expr() |> IO.iodata_to_binary() == expected
+
+      source =
+        render_ast(%Function{
+          name: :probe,
+          returns: A.type_path(:usize),
+          body: [%AST.Return{expr: expression}]
+        })
+
+      assert source =~ expected
+    end
+  end
+
   test "native type decoding accepts only structural type nodes" do
     assert_raise ArgumentError, fn ->
       Native.render_ast(%Function{name: :legacy, args: [], returns: "i32", body: []})
@@ -229,7 +251,7 @@ defmodule RustQ.Rust.AST.NativeDecoderTest do
       })
 
     assert source =~ "todo!();"
-    assert source =~ "Ok(Rect { x: x, y: y })"
+    assert source =~ "Ok(Rect { x, y })"
   end
 
   test "generated expression decoders render literal, token macro, and binary expressions" do
@@ -334,7 +356,7 @@ defmodule RustQ.Rust.AST.NativeDecoderTest do
 
     assert source =~ "(left, right) =>"
     assert source =~ "Event::Click(click) =>"
-    assert source =~ "Click { name: name } =>"
+    assert source =~ "Click { name } =>"
   end
 
   test "generated expression decoders render match, if, and raise atom expressions" do

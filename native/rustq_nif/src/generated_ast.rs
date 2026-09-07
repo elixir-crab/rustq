@@ -502,9 +502,11 @@ pub(crate) fn decode_struct_field<'a>(term: Term<'a>) -> NifResult<Field> {
 }
 pub(crate) fn decode_enum_variant<'a>(term: Term<'a>) -> NifResult<Variant> {
     expect_struct(term, "Elixir.RustQ.Rust.AST.EnumVariant")?;
-    super::parse_enum_variant(
+    super::parse_enum_variant_fields(
         super::format_ident_value(atom_key(term, "name")?),
         required_type_list(term, "tuple")?,
+        required_struct_field_list(term, "fields")?,
+        super::decode_attribute_list(required_field(term, "attrs")?)?,
     )
 }
 pub(crate) fn path_parts<'a>(term: Term<'a>) -> NifResult<String> {
@@ -572,7 +574,19 @@ pub(crate) fn decode_type_bare_fn<'a>(term: Term<'a>) -> NifResult<Type> {
     )
 }
 pub(crate) fn decode_type_impl_trait<'a>(term: Term<'a>) -> NifResult<Type> {
-    super::parse_type_impl_trait(required_string_list(term, "bounds")?)
+    let lifetime_term = required_field(term, "lifetime")?;
+    let lifetime = if is_nil(lifetime_term)? {
+        None
+    } else {
+        Some(super::atom_or_string(lifetime_term)?)
+    };
+    super::parse_callable_impl(
+        super::decode_optional_type_field(term, "callable")?,
+        super::atom_or_string(required_field(term, "kind")?)?,
+        required_type_list(term, "traits")?,
+        lifetime,
+        required_string_list(term, "bounds")?,
+    )
 }
 pub(crate) fn decode_type_tuple<'a>(term: Term<'a>) -> NifResult<Type> {
     super::parse_type_tuple(required_type_list(term, "items")?)
@@ -690,11 +704,15 @@ pub(crate) fn decode_arm<'a>(term: Term<'a>) -> NifResult<Arm> {
     let pat_term = required_field(term, "pattern")?;
     let guard = super::decode_optional_expr_field(term, "guard")?;
     let block = super::decode_block(required_field(term, "body")?)?;
-    if struct_name(pat_term)? == "Elixir.RustQ.Rust.AST.PatAtomGuard" {
-        super::decode_atom_guard_arm(pat_term, block)
+    let arm = if struct_name(pat_term)? == "Elixir.RustQ.Rust.AST.PatAtomGuard" {
+        super::decode_atom_guard_arm(pat_term, block)?
     } else {
-        super::parse_guarded_block_arm(super::decode_pat(pat_term)?, guard, block)
-    }
+        super::parse_guarded_block_arm(super::decode_pat(pat_term)?, guard, block)?
+    };
+    super::arm_with_attrs(
+        arm,
+        super::decode_attribute_list(required_field(term, "attrs")?)?,
+    )
 }
 pub(crate) fn decode_expr_var<'a>(term: Term<'a>) -> NifResult<Expr> {
     let ident = super::format_ident_value(atom_key(term, "name")?);
@@ -819,9 +837,10 @@ pub(crate) fn decode_expr_macro_repeat_expr<'a>(term: Term<'a>) -> NifResult<Exp
     )
 }
 pub(crate) fn decode_expr_closure<'a>(term: Term<'a>) -> NifResult<Expr> {
-    super::parse_closure_expr(
-        super::decode_ident_list(required_field(term, "args")?)?,
+    super::parse_pattern_closure_expr(
+        super::decode_closure_args(required_field(term, "args")?)?,
         required_expr(term, "body")?,
+        required_field(term, "move")?.decode::<bool>()?,
     )
 }
 pub(crate) fn decode_expr_macro_call<'a>(term: Term<'a>) -> NifResult<Expr> {

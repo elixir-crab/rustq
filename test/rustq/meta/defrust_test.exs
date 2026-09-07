@@ -54,8 +54,8 @@ defmodule RustQ.Meta.DefrustTest do
     test "renders structural event patterns" do
       source = rust_source!(Generated, :handle_event)
 
-      assert source =~ "Event::Click(Click { name: name }) =>"
-      assert source =~ "Event::Resize(Resize { width: width, height: height }) =>"
+      assert source =~ "Event::Click(Click { name }) =>"
+      assert source =~ "Event::Resize(Resize { width, height }) =>"
     end
 
     test "renders a syntactically valid generated module" do

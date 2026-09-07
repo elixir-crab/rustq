@@ -96,7 +96,16 @@ defmodule RustQ.Codegen.Decoders.Type do
 
   @spec decode_type_impl_trait(term()) :: R.nif_result(R.path(:Type))
   defrust decode_type_impl_trait(term) do
-    Super.parse_type_impl_trait(required_string_list(term, "bounds"))
+    lifetime_term = required_field(term, "lifetime")
+    lifetime = if is_nil(lifetime_term), do: nil, else: some(Super.atom_or_string(lifetime_term))
+
+    Super.parse_callable_impl(
+      Super.decode_optional_type_field(term, "callable"),
+      Super.atom_or_string(required_field(term, "kind")),
+      required_type_list(term, "traits"),
+      lifetime,
+      required_string_list(term, "bounds")
+    )
   end
 
   @spec decode_type_tuple(term()) :: R.nif_result(R.path(:Type))

@@ -9,6 +9,7 @@ defmodule RustQ.Meta.Lower do
   alias RustQ.Meta.Pattern
   alias RustQ.Meta.RustMacro
   alias RustQ.Meta.Semantics
+  alias RustQ.Meta.StandardPointer
   alias RustQ.Meta.Type
   alias RustQ.Meta.Typing
   alias RustQ.Rust
@@ -423,11 +424,19 @@ defmodule RustQ.Meta.Lower do
        do: lower_with(clauses, %{context | position: :expr}, expected_type)
 
   defp lower_expected_expr_context(
+         {:move, _, [{:fn, _, [{:->, _, [args, body]}]}]},
+         %Type{} = expected_type,
+         %Context{} = context
+       ) do
+    %{lower_expected_closure(args, body, context, expected_type) | move: true}
+  end
+
+  defp lower_expected_expr_context(
          {:fn, _, [{:->, _, [args, body]}]},
          %Type{} = expected_type,
          %Context{} = context
        ),
-       do: lower_closure_args(args, body, context, closure_return_type(expected_type))
+       do: lower_expected_closure(args, body, context, expected_type)
 
   defp lower_expected_expr_context(
          {{:., _, [receiver, :decode]}, meta, []} = expression,
@@ -638,6 +647,9 @@ defmodule RustQ.Meta.Lower do
 
   defp lower_expr_context({:token_macro, _, [path, tokens]}, %Context{}),
     do: %AST.TokenMacro{path: lower_token_macro_path(path), tokens: tokens}
+
+  defp lower_expr_context({:move, _, [{:fn, _, [{:->, _, [args, body]}]}]}, %Context{} = context),
+    do: %{lower_closure_args(args, body, context) | move: true}
 
   defp lower_expr_context({:fn, _, [{:->, _, [args, body]}]}, %Context{} = context),
     do: lower_closure_args(args, body, context)
@@ -984,7 +996,7 @@ defmodule RustQ.Meta.Lower do
         {pattern, guard} = split_guarded_pattern(pattern)
         body_context = context_with_match_pattern(pattern, case_type, context)
         body = lower_clause_body(body, body_context, expected_type)
-        mutable_vars = body |> collect_mut_refs() |> MapSet.new()
+        mutable_vars = body |> collect_pattern_mutations(body_context) |> MapSet.new()
 
         %AST.Arm{
           pattern:
@@ -1224,6 +1236,35 @@ defmodule RustQ.Meta.Lower do
   end
 
   defp lower_option_if_let_statement(expression, clauses, %Context{} = context) do
+    lower_result_if_let_statement(expression, clauses, context) ||
+      lower_some_if_let_statement(expression, clauses, context)
+  end
+
+  defp lower_result_if_let_statement(
+         expression,
+         [{:->, _, [[{:ok, _} = pattern], body]}, {:->, _, [[{:error, {:_, _, _}}], fallback]}],
+         context
+       ) do
+    if unit_body?(fallback) do
+      type = Typing.synth(expression, typing_env(context))
+      context = context_with_match_pattern(pattern, type, context)
+      body = lower_clause_body(body, context)
+      mutable = body |> collect_pattern_mutations(context) |> MapSet.new()
+
+      %AST.IfLet{
+        pattern:
+          pattern
+          |> lower_match_pattern(%Type{kind: :result})
+          |> mark_mutable_pattern_vars(mutable),
+        expr: lower_expr(expression, context),
+        then: body
+      }
+    end
+  end
+
+  defp lower_result_if_let_statement(_expression, _clauses, _context), do: nil
+
+  defp lower_some_if_let_statement(expression, clauses, %Context{} = context) do
     with [{:some, some_pattern, some_body}, {:none, none_body}] <- option_if_let_clauses(clauses),
          true <- unit_body?(none_body) do
       expression_type = Typing.synth(expression, typing_env(context)) || %Type{kind: :option}
@@ -1992,9 +2033,61 @@ defmodule RustQ.Meta.Lower do
     end
   end
 
-  defp lower_method_call_args(_receiver_type, target, function, args, %Context{} = context) do
-    lower_call_args(target, function, args, context)
+  defp lower_method_call_args(receiver_type, target, function, args, %Context{} = context) do
+    arity = length(args)
+    expected = callable_argument_types(target, function, arity, context)
+    callable = BindingIndex.get(context.callables, target, function, arity)
+    expected = specialize_method_args(callable, receiver_type, args, expected, context)
+    lower_args_with_expected(expected, args, context)
   end
+
+  defp specialize_method_args(
+         %{target_type: %Type{} = target_type, syn: %{type_parameters: [_ | _] = parameters}},
+         %Type{} = receiver_type,
+         args,
+         expected,
+         context
+       )
+       when is_list(expected) do
+    alias RustQ.Binding.Substitution
+    actual = Enum.map(args, &infer_expr_type(&1, context.vars))
+    pairs = Enum.zip(expected, actual)
+    formal_receiver = target_type.ast
+    receiver = Type.ref_inner(receiver_type) || receiver_type
+
+    bindings =
+      case Substitution.infer(formal_receiver, receiver.ast, parameters) do
+        {:ok, bindings} -> bindings
+        _ -> %{}
+      end
+
+    result =
+      Enum.reduce_while(pairs, {:ok, bindings}, fn
+        {%Type{} = formal, %Type{} = actual}, {:ok, bindings} ->
+          case Substitution.infer(formal.ast, actual.ast, parameters, bindings) do
+            {:ok, bindings} -> {:cont, {:ok, bindings}}
+            {:error, {:conflict, _, _, _}} = error -> {:halt, error}
+            _ -> {:cont, {:ok, bindings}}
+          end
+
+        _, result ->
+          {:cont, result}
+      end)
+
+    case result do
+      {:ok, bindings} ->
+        Enum.map(expected, &Substitution.apply(&1, bindings))
+
+      {:error, {:conflict, parameter, _, _}} ->
+        Diagnostic.lower(
+          :conflicting_generic_parameter,
+          nil,
+          "conflicting types inferred for generic parameter #{parameter}"
+        )
+    end
+  end
+
+  defp specialize_method_args(_callable, _receiver, _args, expected, _context), do: expected
 
   defp lower_args_with_expected(nil, args, %Context{} = context),
     do: Enum.map(args, &lower_expr(&1, context))
@@ -2214,8 +2307,40 @@ defmodule RustQ.Meta.Lower do
   defp operator_op(:bsr), do: :shr
   defp operator_op(:band), do: :bitand
 
+  defp lower_expected_closure(args, body, context, expected_type) do
+    expected_args = Map.get(expected_type.meta, :args, [])
+
+    context = %{
+      closure_context(args, context)
+      | return_type: closure_return_type(expected_type),
+        position: :expr
+    }
+
+    context =
+      Enum.zip(args, expected_args)
+      |> Enum.reduce(context, fn {pattern, type}, acc ->
+        context_with_match_pattern(pattern, type, acc)
+      end)
+
+    %AST.Closure{
+      args: Enum.map(args, &closure_arg!/1),
+      body: lower_closure_body(body, closure_return_type(expected_type), context)
+    }
+  end
+
+  defp closure_context(args, context) do
+    names = Enum.flat_map(args, &binding_pattern_names/1)
+
+    %{
+      context
+      | vars: Map.drop(context.vars, names),
+        lexical_vars: Map.drop(context.lexical_vars, names)
+    }
+  end
+
   defp lower_closure_args(args, body, %Context{} = context, expected_return_type \\ nil)
        when is_list(args) do
+    context = closure_context(args, context)
     context = %{context | return_type: expected_return_type, position: :expr}
 
     %AST.Closure{
@@ -2276,17 +2401,13 @@ defmodule RustQ.Meta.Lower do
 
   defp closure_arg!({name, _, context}) when is_atom(name) and is_atom(context), do: name
 
-  defp closure_arg!(other) do
-    Diagnostic.lower(
-      :unsupported_closure_argument,
-      other,
-      "unsupported defrust closure argument",
-      suggestion: "Use a plain variable as the closure argument."
-    )
-  end
+  defp closure_arg!(other), do: lower_binding_pattern(other)
 
   defp closure_body_expr([expression]), do: expression
   defp closure_body_expr(expression), do: expression
+
+  defp closure_return_type(%Type{kind: :impl_trait, meta: %{returns: %Type{} = returns}}),
+    do: returns
 
   defp closure_return_type(%Type{kind: :fn, meta: %{returns: %Type{} = returns}}), do: returns
 
@@ -2682,12 +2803,58 @@ defmodule RustQ.Meta.Lower do
     mutable_vars = body |> collect_mutable_let_refs() |> MapSet.new()
 
     Walk.postwalk(body, fn
+      %AST.Let{pattern: %AST.PatVar{name: name}, expr: %AST.Ref{}} = let ->
+        %{let | mutable: rebound_or_borrowed?(body, name)}
+
       %AST.Let{pattern: %AST.PatVar{name: name}} = let ->
         %{let | mutable: MapSet.member?(mutable_vars, name)}
 
       other ->
         other
     end)
+  end
+
+  defp rebound_or_borrowed?(body, name) do
+    Walk.reduce(body, false, fn
+      %AST.Assign{target: %AST.Var{name: ^name}}, _ -> true
+      %AST.Ref{mutable: true, expr: %AST.Var{name: ^name}}, _ -> true
+      _, found -> found
+    end)
+  end
+
+  defp collect_pattern_mutations(term, context) do
+    Walk.reduce(term, collect_mut_refs(term), fn
+      %AST.ExprStmt{
+        expr: %AST.MethodCall{receiver: %AST.Var{name: name}, method: method, args: args}
+      },
+      acc ->
+        if mutable_method?(context, name, method, length(args)), do: [name | acc], else: acc
+
+      _, acc ->
+        acc
+    end)
+  end
+
+  defp mutable_method?(context, name, method, arity) do
+    targets =
+      case Map.get(context.vars, name) do
+        %Type{} = type ->
+          case type |> StandardPointer.receiver() |> Type.callable_target() do
+            nil -> []
+            target -> [target]
+          end
+
+        nil ->
+          []
+      end
+
+    targets != [] and
+      Enum.all?(targets, fn target ->
+        match?(
+          %{args: [%{type: %Type{kind: :mut_ref}} | _]},
+          BindingIndex.get(context.callables, target, method, arity)
+        )
+      end)
   end
 
   defp collect_mut_refs(term) do

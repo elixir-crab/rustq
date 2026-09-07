@@ -349,7 +349,9 @@ defmodule RustQ.Rust.AST.Builder do
   def vec(values), do: %VecLiteral{values: Enum.map(values, &expr/1)}
   def array(values), do: %ArrayLiteral{values: Enum.map(values, &expr/1)}
   def slice(values), do: ref(array(values))
-  def closure(args, body), do: %Closure{args: args, body: expr(body)}
+
+  def closure(args, body, opts \\ []),
+    do: %Closure{args: args, body: expr(body), move: Keyword.get(opts, :move, false)}
 
   def call(name, args \\ []) when is_atom(name) do
     if name |> Atom.to_string() |> String.ends_with?("!") do

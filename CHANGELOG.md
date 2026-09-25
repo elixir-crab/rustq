@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Fixed
+
+- Resolve local type alias references regardless of declaration order. An
+  alias referenced inside a list, tuple, or map value from an alias that sorts
+  before it, such as `[plugin()]` in `lint_input`, was emitted as the raw
+  Elixir name (`Vec<plugin>`) instead of its Rust type (`Vec<Plugin>`).
+
 ## 1.0.0-rc.9 - 2026-09-06
 
 ### Added

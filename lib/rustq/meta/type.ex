@@ -629,17 +629,47 @@ defmodule RustQ.Meta.Type do
   defp type_alias_arity(args) when is_list(args), do: length(args)
   defp type_alias_arity(_context), do: 0
 
-  defp resolve_alias(key, raw, aliases) do
+  defp resolve_alias(key, raw, aliases), do: resolve_alias(key, raw, aliases, [])
+
+  # Resolve the aliases an alias references before parsing it, so references
+  # nested in lists, tuples, and maps see them whatever the declaration order.
+  # `path` is the chain of aliases being resolved; references back into it are
+  # recursive and are left to the parser.
+  defp resolve_alias(key, raw, aliases, path) do
     case Map.fetch(aliases, key) do
       {:ok, type} ->
         {type, aliases}
 
       :error ->
         {name, ast, rust_name} = Map.fetch!(raw, key)
+        path = [key | path]
+
+        aliases =
+          ast
+          |> referenced_aliases(raw)
+          |> Enum.reject(&(&1 in path))
+          |> Enum.reduce(aliases, fn dependency, aliases ->
+            elem(resolve_alias(dependency, raw, aliases, path), 1)
+          end)
+
         type = parse_type_alias(name, ast, rust_name, raw, aliases)
-        aliases = Map.put(aliases, key, type)
-        {type, aliases}
+        {type, Map.put(aliases, key, type)}
     end
+  end
+
+  defp referenced_aliases(ast, raw) do
+    ast
+    |> Macro.prewalk([], fn
+      {name, _meta, args} = node, references when is_atom(name) and is_list(args) ->
+        key = {name, length(args)}
+        {node, if(Map.has_key?(raw, key), do: [key | references], else: references)}
+
+      node, references ->
+        {node, references}
+    end)
+    |> elem(1)
+    |> Enum.reverse()
+    |> Enum.uniq()
   end
 
   defp parse_type_alias(name, ast, rust_name, raw, aliases) do

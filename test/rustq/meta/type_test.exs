@@ -127,6 +127,38 @@ defmodule RustQ.Meta.TypeTest do
              "skia_safe::path_1d_path_effect::Style"
   end
 
+  test "resolves alias references regardless of declaration order" do
+    # `plugin` and `rule_severity` sort after `lint_input`, and are referenced
+    # inside a list and a tuple rather than directly.
+    %{aliases: aliases} =
+      Spec.declarations(
+        quote do
+          @type lint_input :: %{
+                  required(:plugins) => [plugin()],
+                  required(:rules) => [{String.t(), rule_severity()}],
+                  required(:access) => global_access()
+                }
+          @type global_access :: :readonly | :writable
+          @type plugin :: :react | :vue
+          @type rule_severity :: :allow | :warn | :deny
+        end
+      )
+
+    assert %Type{kind: :struct, meta: %{fields: fields}} = aliases[{:lint_input, 0}]
+
+    assert [
+             {:plugins, %Type{ast: %AST.TypeVec{inner: %AST.TypePath{parts: ["Plugin"]}}},
+              :required},
+             {:rules,
+              %Type{
+                ast: %AST.TypeVec{
+                  inner: %AST.TypeTuple{items: [_string, %AST.TypePath{parts: ["RuleSeverity"]}]}
+                }
+              }, :required},
+             {:access, %Type{ast: %AST.TypePath{parts: ["GlobalAccess"]}}, :required}
+           ] = fields
+  end
+
   test "enriches explicit Rust paths from matching local aliases" do
     %{aliases: aliases} =
       Spec.declarations(

@@ -8,6 +8,8 @@
   alias referenced inside a list, tuple, or map value from an alias that sorts
   before it, such as `[plugin()]` in `lint_input`, was emitted as the raw
   Elixir name (`Vec<plugin>`) instead of its Rust type (`Vec<Plugin>`).
+- Stop passing `fast_path:` to JSONCodec, which json_codec 0.3 deprecates, so
+  RustQ compiles without warnings on json_codec 0.1 through 0.3.
 
 ## 1.0.0-rc.9 - 2026-09-06
 

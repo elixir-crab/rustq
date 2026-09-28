@@ -12,7 +12,7 @@ defmodule RustQ.Cargo do
   defmodule Package do
     @moduledoc "Package entry from `cargo metadata`."
 
-    use JSONCodec, fast_path: :json
+    use JSONCodec
 
     defstruct [:name, :version, :manifest_path, :source, :repository]
 
@@ -28,7 +28,7 @@ defmodule RustQ.Cargo do
   defmodule Metadata do
     @moduledoc "Decoded subset of `cargo metadata` used by RustQ."
 
-    use JSONCodec, fast_path: :json
+    use JSONCodec
 
     defstruct packages: []
 

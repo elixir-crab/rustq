@@ -306,6 +306,66 @@ defmodule RustQ.Syn.MetadataTest do
              ~s|fn install(callback: for<'a> unsafe extern "C" fn(value: &'a u8, count: usize, ...) -> bool)|
   end
 
+  test "describes enum variant payloads and generics" do
+    source = """
+    pub enum Node<'a, T> {
+        /// Empty docs.
+        Empty,
+        Leaf(Box<'a, T>, usize),
+        Branch { children: Vec<'a, Node<'a, T>>, label: Option<&'a str> },
+    }
+    """
+
+    assert [
+             %Syn.Enum{
+               name: "Node",
+               variants: ["Empty", "Leaf", "Branch"],
+               lifetimes: ["a"],
+               type_parameters: ["T"],
+               variant_shapes: [
+                 %Syn.Variant{name: "Empty", kind: :unit, fields: [], docs: ["Empty docs."]},
+                 %Syn.Variant{
+                   name: "Leaf",
+                   kind: :tuple,
+                   fields: [
+                     %Syn.Field{name: nil, type_ast: %Type.Path{name: "Box"}},
+                     %Syn.Field{name: nil, type: "usize"}
+                   ]
+                 },
+                 %Syn.Variant{
+                   name: "Branch",
+                   kind: :named,
+                   fields: [
+                     %Syn.Field{name: "children", type_ast: %Type.Path{name: "Vec"}},
+                     %Syn.Field{name: "label", type_ast: %Type.Option{}}
+                   ]
+                 }
+               ]
+             }
+           ] = source |> Syn.parse!() |> Syn.enums()
+  end
+
+  test "describes struct generics" do
+    source = """
+    pub struct Borrowed<'a, 'b, T: Clone> {
+        pub value: &'a T,
+        pub name: &'b str,
+    }
+
+    pub struct Pair(pub u8, pub u8);
+    """
+
+    assert [
+             %Syn.Struct{name: "Borrowed", lifetimes: ["a", "b"], type_parameters: ["T"]},
+             %Syn.Struct{
+               name: "Pair",
+               lifetimes: [],
+               type_parameters: [],
+               fields: [%Syn.Field{name: nil, type: "u8"}, %Syn.Field{name: nil, type: "u8"}]
+             }
+           ] = source |> Syn.parse!() |> Syn.structs()
+  end
+
   test "returns variants for a named enum" do
     source = """
     enum Hidden { A, B }

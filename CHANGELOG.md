@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Describe enum variant payloads in `RustQ.Syn.Enum.variant_shapes`, a list of
+  `RustQ.Syn.Variant` structs with the variant name, its kind (`:unit`,
+  `:tuple`, or `:named`), its fields, and its doc comments. `variants` still
+  lists variant names.
+- Report `lifetimes` and `type_parameters` for `RustQ.Syn.Struct` and
+  `RustQ.Syn.Enum`, matching the existing function and method metadata.
+
 ## 1.0.0-rc.10 - 2026-09-28
 
 ### Fixed

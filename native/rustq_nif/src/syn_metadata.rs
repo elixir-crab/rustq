@@ -177,9 +177,16 @@ fn item_terms<'a>(env: Env<'a>, item: Item, module_path: Vec<String>) -> Vec<Ter
             line(item.ident.span()),
             docs(&item.attrs),
             item.variants
-                .into_iter()
+                .iter()
                 .map(|variant| variant.ident.to_string())
                 .collect::<Vec<_>>(),
+            (
+                item.variants
+                    .into_iter()
+                    .map(|variant| variant_shape(env, variant))
+                    .collect::<Vec<_>>(),
+                generics(&item.generics),
+            ),
         )
             .encode(env)],
         Item::Struct(item) => vec![(
@@ -189,6 +196,7 @@ fn item_terms<'a>(env: Env<'a>, item: Item, module_path: Vec<String>) -> Vec<Ter
             line(item.ident.span()),
             docs(&item.attrs),
             fields(env, item.fields),
+            generics(&item.generics),
         )
             .encode(env)],
         Item::Fn(item) => vec![(
@@ -373,6 +381,31 @@ fn impl_method_term<'a>(
 
 fn line(span: proc_macro2::Span) -> usize {
     span.start().line
+}
+
+fn variant_shape<'a>(env: Env<'a>, variant: syn::Variant) -> Term<'a> {
+    let kind = match &variant.fields {
+        Fields::Named(_) => "named",
+        Fields::Unnamed(_) => "tuple",
+        Fields::Unit => "unit",
+    };
+    (
+        variant.ident.to_string(),
+        kind,
+        fields(env, variant.fields),
+        docs(&variant.attrs),
+    )
+        .encode(env)
+}
+
+fn generics(generics: &syn::Generics) -> (Vec<String>, Vec<String>) {
+    (
+        generics
+            .lifetimes()
+            .map(|param| param.lifetime.ident.to_string())
+            .collect(),
+        type_parameters(generics),
+    )
 }
 
 fn fields<'a>(env: Env<'a>, fields: Fields) -> Vec<(Option<String>, String, Term<'a>)> {

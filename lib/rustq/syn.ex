@@ -247,8 +247,23 @@ defmodule RustQ.Syn do
   end
 
   defmodule Enum do
-    @moduledoc "Rust enum metadata, including doc comments and variant names."
-    defstruct [:name, :visibility, :source_line, :source_path, docs: [], variants: []]
+    @moduledoc """
+    Rust enum metadata, including doc comments, variant names, and variant shapes.
+
+    `variants` lists variant names. `variant_shapes` describes each variant's
+    payload in the same order.
+    """
+    defstruct [
+      :name,
+      :visibility,
+      :source_line,
+      :source_path,
+      docs: [],
+      variants: [],
+      variant_shapes: [],
+      lifetimes: [],
+      type_parameters: []
+    ]
 
     @type t :: %__MODULE__{
             name: String.t(),
@@ -256,7 +271,27 @@ defmodule RustQ.Syn do
             source_line: pos_integer() | nil,
             source_path: Path.t() | nil,
             docs: [String.t()],
-            variants: [String.t()]
+            variants: [String.t()],
+            variant_shapes: [RustQ.Syn.Variant.t()],
+            lifetimes: [String.t()],
+            type_parameters: [String.t()]
+          }
+  end
+
+  defmodule Variant do
+    @moduledoc """
+    Rust enum variant metadata.
+
+    `kind` is `:unit`, `:tuple`, or `:named`. Tuple variant fields have a `nil`
+    name.
+    """
+    defstruct [:name, :kind, fields: [], docs: []]
+
+    @type t :: %__MODULE__{
+            name: String.t(),
+            kind: :unit | :tuple | :named,
+            fields: [RustQ.Syn.Field.t()],
+            docs: [String.t()]
           }
   end
 
@@ -338,7 +373,16 @@ defmodule RustQ.Syn do
 
   defmodule Struct do
     @moduledoc "Rust struct metadata."
-    defstruct [:name, :visibility, :source_line, :source_path, docs: [], fields: []]
+    defstruct [
+      :name,
+      :visibility,
+      :source_line,
+      :source_path,
+      docs: [],
+      fields: [],
+      lifetimes: [],
+      type_parameters: []
+    ]
 
     @type t :: %__MODULE__{
             name: String.t(),
@@ -346,7 +390,9 @@ defmodule RustQ.Syn do
             source_line: pos_integer() | nil,
             source_path: Path.t() | nil,
             docs: [String.t()],
-            fields: [RustQ.Syn.Field.t()]
+            fields: [RustQ.Syn.Field.t()],
+            lifetimes: [String.t()],
+            type_parameters: [String.t()]
           }
   end
 
@@ -840,13 +886,19 @@ defmodule RustQ.Syn do
     %RustQ.Syn.MethodCall{receiver: receiver, method: method}
   end
 
-  defp decode_item!({"enum", name, visibility, source_line, docs, variants}) do
+  defp decode_item!(
+         {"enum", name, visibility, source_line, docs, variants,
+          {shapes, {lifetimes, type_parameters}}}
+       ) do
     %RustQ.Syn.Enum{
       name: name,
       visibility: decode_visibility!(visibility),
       source_line: source_line,
       docs: docs,
-      variants: variants
+      variants: variants,
+      variant_shapes: Elixir.Enum.map(shapes, &decode_variant!/1),
+      lifetimes: lifetimes,
+      type_parameters: type_parameters
     }
   end
 
@@ -902,13 +954,17 @@ defmodule RustQ.Syn do
     }
   end
 
-  defp decode_item!({"struct", name, visibility, source_line, docs, fields}) do
+  defp decode_item!(
+         {"struct", name, visibility, source_line, docs, fields, {lifetimes, type_parameters}}
+       ) do
     %RustQ.Syn.Struct{
       name: name,
       visibility: decode_visibility!(visibility),
       source_line: source_line,
       docs: docs,
-      fields: Elixir.Enum.map(fields, &decode_field!/1)
+      fields: Elixir.Enum.map(fields, &decode_field!/1),
+      lifetimes: lifetimes,
+      type_parameters: type_parameters
     }
   end
 
@@ -989,6 +1045,19 @@ defmodule RustQ.Syn do
       methods: Elixir.Enum.map(methods, &decode_method!/1)
     }
   end
+
+  defp decode_variant!({name, kind, fields, docs}) do
+    %RustQ.Syn.Variant{
+      name: name,
+      kind: decode_variant_kind!(kind),
+      fields: Elixir.Enum.map(fields, &decode_field!/1),
+      docs: docs
+    }
+  end
+
+  defp decode_variant_kind!("unit"), do: :unit
+  defp decode_variant_kind!("tuple"), do: :tuple
+  defp decode_variant_kind!("named"), do: :named
 
   defp decode_field!({name, type, type_ast}) do
     %RustQ.Syn.Field{name: name, type: type, type_ast: decode_type!(type_ast)}

@@ -29,6 +29,8 @@ defmodule RustQ.Rust.AST.PatternBuilder do
   def ok(pattern), do: %AST.PatOk{pattern: pattern(pattern)}
   def err(pattern), do: %AST.PatErr{pattern: pattern(pattern)}
 
+  def tuple(patterns), do: %AST.PatTuple{patterns: Enum.map(patterns, &pattern/1)}
+
   def path_tuple(path, patterns),
     do: %AST.PatPathTuple{path: A.expr_path(path), patterns: Enum.map(patterns, &pattern/1)}
 

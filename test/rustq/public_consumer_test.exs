@@ -29,9 +29,20 @@ defmodule RustQ.PublicConsumerTest do
     run!(consumer, "mix", ["test"], env)
     run!(consumer, "cargo", ["check", "--manifest-path", "native/Cargo.toml"], env)
 
+    run!(
+      consumer,
+      "cargo",
+      ["clippy", "--manifest-path", "native/Cargo.toml", "--", "-D", "warnings"],
+      env
+    )
+
     generated = File.read!(Path.join(consumer, "native/src/generated.rs"))
     assert generated =~ "fn increment_all"
     assert generated =~ "struct Input"
+
+    encoders = File.read!(Path.join(consumer, "native/src/generated_ir_encoders.rs"))
+    assert encoders =~ "fn encode_op<'a>(env: rustler::Env<'a>, value: &Op<'_>)"
+    assert encoders =~ ~S|r#type = "type"|
   end
 
   test "the packaged zero-Rust APIs build a formatted, lint-clean native crate", context do

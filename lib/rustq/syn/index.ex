@@ -14,6 +14,8 @@ defmodule RustQ.Syn.Index do
   over internal module names.
   """
 
+  import Kernel, except: [struct: 2]
+
   alias RustQ.SourceFingerprint
   alias RustQ.Syn.Type
   alias RustQ.Syn.TypeAlias
@@ -292,6 +294,32 @@ defmodule RustQ.Syn.Index do
     case enum(index, name) do
       {:ok, enum} -> enum
       :error -> raise "cannot find Rust enum #{name}"
+    end
+  end
+
+  @doc "Returns all indexed top-level structs."
+  @spec structs(t()) :: [RustQ.Syn.Struct.t()]
+  def structs(%__MODULE__{files: files}) do
+    files
+    |> Map.values()
+    |> Enum.flat_map(&RustQ.Syn.structs/1)
+  end
+
+  @doc "Fetches a struct by name."
+  @spec struct(t(), String.t()) :: {:ok, RustQ.Syn.Struct.t()} | :error
+  def struct(%__MODULE__{} = index, name) when is_binary(name) do
+    case Enum.find(structs(index), &(&1.name == name)) do
+      nil -> :error
+      struct -> {:ok, struct}
+    end
+  end
+
+  @doc "Fetches a struct by name, raising if missing."
+  @spec struct!(t(), String.t()) :: RustQ.Syn.Struct.t()
+  def struct!(%__MODULE__{} = index, name) when is_binary(name) do
+    case struct(index, name) do
+      {:ok, struct} -> struct
+      :error -> raise "cannot find Rust struct #{name}"
     end
   end
 

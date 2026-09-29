@@ -10,6 +10,20 @@
   lists variant names.
 - Report `lifetimes` and `type_parameters` for `RustQ.Syn.Struct` and
   `RustQ.Syn.Enum`, matching the existing function and method metadata.
+- Add `RustQ.Rustler.Term.encoders_from_source/3` and
+  `encoder_atoms_from_source/3`, which build `Term` encoder functions and their
+  atom declarations for structs and enums read from Rust source. They support
+  types owned by another crate and without `serde`. Any reachable type that is
+  not indexed, a wrapper, a scalar, or mapped as external fails generation with
+  a list of the unmapped types.
+- Add `RustQ.Syn.Index.structs/1`, `struct/2`, and `struct!/2`.
+- Add `RustQ.Rust.AST.PatternBuilder.tuple/1`.
+
+### Fixed
+
+- Render Rust keywords used as field names, struct literal and struct pattern
+  fields, and macro item arguments as raw identifiers (`r#type`). Field access
+  such as `value.type` previously failed to render.
 
 ## 1.0.0-rc.10 - 2026-09-28
 

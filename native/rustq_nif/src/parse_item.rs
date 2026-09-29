@@ -205,13 +205,13 @@ pub(crate) fn decode_macro_item_arg_list(term: Term) -> NifResult<Vec<MacroItemA
 fn decode_macro_item_arg(term: Term) -> NifResult<MacroItemArg> {
     if let Ok((name, value)) = term.decode::<(Term, String)>() {
         return Ok(MacroItemArg {
-            name: format_ident!("{}", crate::atom_or_string(name)?),
+            name: crate::ident_from_part(&crate::atom_or_string(name)?),
             value: Some(value),
         });
     }
 
     Ok(MacroItemArg {
-        name: format_ident!("{}", crate::atom_or_string(term)?),
+        name: crate::ident_from_part(&crate::atom_or_string(term)?),
         value: None,
     })
 }

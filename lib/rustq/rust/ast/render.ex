@@ -271,8 +271,8 @@ defmodule RustQ.Rust.AST.Render do
   end
 
   defp render_macro_arg({:literal, value}), do: inspect(value)
-  defp render_macro_arg({name, value}), do: [to_string(name), " = ", inspect(value)]
-  defp render_macro_arg(value), do: to_string(value)
+  defp render_macro_arg({name, value}), do: [render_path_part(name), " = ", inspect(value)]
+  defp render_macro_arg(value), do: render_path_part(value)
 
   def render_impl(%Impl{} = impl) do
     items = impl.items |> Elixir.Enum.map(&render_impl_item/1) |> Elixir.Enum.join("\n")

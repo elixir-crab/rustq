@@ -542,7 +542,7 @@ pub(crate) fn parse_field_expr(receiver: Expr, field: Term) -> NifResult<Expr> {
         return parse_syn::<Expr>(quote!(#receiver.#index));
     }
 
-    let field = format_ident!("{}", atom_or_string(field)?);
+    let field = ident_from_part(&atom_or_string(field)?);
     parse_syn::<Expr>(quote!(#receiver.#field))
 }
 
@@ -806,7 +806,7 @@ pub(crate) fn decode_named_field_list<T>(
         .into_iter()
         .map(|(name, value)| {
             Ok(NamedField {
-                name: format_ident!("{}", atom_or_string(name)?),
+                name: ident_from_part(&atom_or_string(name)?),
                 value: decoder(value)?,
             })
         })

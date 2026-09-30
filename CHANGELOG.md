@@ -15,7 +15,9 @@
   atom declarations for structs and enums read from Rust source. They support
   types owned by another crate and without `serde`. Any reachable type that is
   not indexed, a wrapper, a scalar, or mapped as external fails generation with
-  a list of the unmapped types.
+  a list of the unmapped types, as does a variant tag that would replace a
+  payload field with the same key. Per-type policy covers excluded fields, key
+  and variant renames, `with:` helpers, and `transparent: true` structs.
 - Add `RustQ.Syn.Index.structs/1`, `struct/2`, and `struct!/2`.
 - Add `RustQ.Rust.AST.PatternBuilder.tuple/1`.
 

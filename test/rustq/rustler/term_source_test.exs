@@ -6,6 +6,9 @@ defmodule RustQ.RustlerTermSourceTest do
 
   @moduletag :tmp_dir
 
+  # SetProp has its own `kind` field, which a `kind` tag would replace.
+  @set_prop_kind [fields: [kind: [key: :prop_kind]]]
+
   @ir """
   use std::collections::HashMap;
 
@@ -57,7 +60,7 @@ defmodule RustQ.RustlerTermSourceTest do
   end
 
   test "tags data-carrying variants and keeps unit-only enums as atoms", %{tmp_dir: tmp_dir} do
-    code = render!(tmp_dir, @ir, ["Op"], tag: :kind)
+    code = render!(tmp_dir, @ir, ["Op"], tag: :kind, types: [SetProp: @set_prop_kind])
 
     assert code =~ ".map_put(atoms::kind().encode(env), atoms::set_prop().encode(env))"
     assert code =~ "Op::Text { element, values } =>"
@@ -84,7 +87,7 @@ defmodule RustQ.RustlerTermSourceTest do
         types: [
           SetProp: [
             except: [:attrs],
-            fields: [element: [key: :el], loc: [with: [:locs, :encode]]]
+            fields: [element: [key: :el], loc: [with: [:locs, :encode]], kind: [key: :prop_kind]]
           ],
           Op: [variants: [Clear: :reset]],
           Kind: [tag: false]
@@ -102,7 +105,9 @@ defmodule RustQ.RustlerTermSourceTest do
 
   test "returns atom declarations derived from the same source", %{tmp_dir: tmp_dir} do
     path = write!(tmp_dir, @ir)
-    atoms = Term.encoder_atoms_from_source([path], ["Op"], tag: :kind)
+
+    atoms =
+      Term.encoder_atoms_from_source([path], ["Op"], tag: :kind, types: [SetProp: @set_prop_kind])
 
     assert {:type, "type"} in atoms
     assert "set_prop" in atoms
@@ -144,6 +149,7 @@ defmodule RustQ.RustlerTermSourceTest do
       assert_raise ArgumentError, fn -> Term.encoders_from_source([path], ["Holder"]) end
 
     assert message.message =~ "Span (used by Holder) is not in the index"
+    refute message.message =~ "already has"
     assert message.message =~ "Generic has type parameters (T)"
     assert message.message =~ ~r/\(u8 ?, u8\) \(used by Holder\) has no encoding/
 
@@ -157,6 +163,65 @@ defmodule RustQ.RustlerTermSourceTest do
     assert_raise ArgumentError, ~r/Holder is defined in several sources/, fn ->
       Term.encoders_from_source([path, other], ["Holder"])
     end
+  end
+
+  test "rejects a tag that would replace a payload field", %{tmp_dir: tmp_dir} do
+    path =
+      write!(tmp_dir, """
+      pub struct Component { pub kind: u8 }
+      pub enum Op { Create(Component), Named { kind: u8 } }
+      """)
+
+    error =
+      assert_raise ArgumentError, fn -> Term.encoders_from_source([path], ["Op"], tag: :kind) end
+
+    assert error.message =~ "Op::Create already has a kind field"
+    assert error.message =~ "Op::Named already has a kind field"
+
+    code =
+      [path]
+      |> Term.encoders_from_source(["Op"],
+        tag: :kind,
+        types: [
+          Component: [fields: [kind: [key: :value]]],
+          Op: [fields: [kind: [key: :component_kind]]]
+        ]
+      )
+      |> render!()
+
+    assert code =~ "atoms::value().encode(env)"
+    assert code =~ "atoms::component_kind().encode(env)"
+  end
+
+  test "encodes a transparent struct as its only field", %{tmp_dir: tmp_dir} do
+    source = """
+    pub struct Effect { pub operations: Vec<u32> }
+    pub struct Pair { pub left: u32, pub right: u32 }
+    pub struct Block { pub effects: Vec<Effect>, pub pair: Pair }
+    """
+
+    path = write!(tmp_dir, source)
+    opts = [types: [Effect: [transparent: true]]]
+    code = [path] |> Term.encoders_from_source(["Block"], opts) |> render!()
+
+    assert code =~ ~r/fn encode_effect<'a>\(\s*env: rustler::Env<'a>,\s*value: &Effect,?\s*\)/
+    assert code =~ ~r/fn encode_effect.*\{\s*value\s*\.operations\s*\.iter\(\)/s
+    refute "operations" in Term.encoder_atoms_from_source([path], ["Block"], opts)
+
+    assert_raise ArgumentError, ~r/Pair is transparent but has 2 fields/, fn ->
+      Term.encoders_from_source([path], ["Block"], types: [Pair: [transparent: true]])
+    end
+  end
+
+  test "lists every user of an unmapped type once", %{tmp_dir: tmp_dir} do
+    path =
+      write!(tmp_dir, """
+      pub struct First { pub span: Span }
+      pub struct Second { pub span: Span, pub first: First }
+      """)
+
+    error = assert_raise ArgumentError, fn -> Term.encoders_from_source([path], ["Second"]) end
+    assert error.message =~ "Span (used by First, Second) is not in the index"
   end
 
   defp render!(tmp_dir, source, roots, opts \\ []) do

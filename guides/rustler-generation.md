@@ -168,10 +168,11 @@ The traversal is closed. Every reachable type must be indexed, a wrapper, a
 scalar, or mapped in `:external`; otherwise generation fails and lists the
 unmapped types. An upstream change therefore appears as a generation error or a
 `rustq.gen --check` diff, not as handwritten Rust to update. Names defined in
-several sources and generic types are reported the same way.
+several sources, generic types, and a `:tag` that would replace a payload field
+with the same key are reported the same way; rename the field with `:fields`.
 
-Tags, key and variant renames, excluded fields, and external helpers are
-explicit policy. Keep them in the consumer's generator, not in RustQ.
+Tags, key and variant renames, excluded fields, `transparent: true` structs
+that encode as their only field, and external helpers are explicit policy. Keep them in the consumer's generator, not in RustQ.
 
 ## Resources, options, and schemas
 

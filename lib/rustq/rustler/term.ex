@@ -386,7 +386,8 @@ defmodule RustQ.Rustler.Term do
   - `:wrappers` — type names added to the `:pointer`, `:sequence`, `:set`,
     `:map`, and `:string` roles, for example allocator-aware `Vec` types.
   - `:types` — per-type policy: `:except` field names, `:fields` with `:key`
-    renames or `:with` helpers, `:variants` atom renames, and `:tag`.
+    renames or `:with` helpers, `:variants` atom renames, `:tag`, and
+    `transparent: true` to encode a struct with one field as that field.
   - `:vis` — function visibility, `:crate` by default.
   """
   @spec encoders_from_source(RustQ.Syn.Index.t() | [Path.t()], [atom() | String.t()], keyword()) ::

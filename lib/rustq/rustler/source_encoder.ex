@@ -64,12 +64,59 @@ defmodule RustQ.Rustler.SourceEncoder do
       |> Enum.map(&{&1, :root})
       |> resolve(items, config, %{}, [], [])
 
+    plan = %Plan{config: config, types: types, order: Enum.reverse(order)}
+    errors = if errors == [], do: transparency_errors(plan) ++ tag_collisions(plan), else: errors
+
     if errors != [] do
       raise ArgumentError, error_message(errors)
     end
 
-    %Plan{config: config, types: types, order: Enum.reverse(order)}
+    plan
   end
+
+  defp transparency_errors(plan) do
+    for name <- plan.order,
+        item = Map.fetch!(plan.types, name),
+        match?(%Syn.Struct{}, item),
+        transparent?(plan, item),
+        (count = length(item_fields(item, plan.config))) != 1,
+        do: {:transparent, item.name, count}
+  end
+
+  # A tag must not replace a payload field with the same key.
+  defp tag_collisions(plan) do
+    for name <- plan.order,
+        item = Map.fetch!(plan.types, name),
+        match?(%Syn.Enum{}, item),
+        tag = tag(plan, item),
+        tag != nil,
+        variant <- item.variant_shapes,
+        tag in payload_keys(plan, item, variant),
+        do: {:tag_collision, item.name, variant.name, tag}
+  end
+
+  defp payload_keys(plan, item, %Syn.Variant{kind: :named} = variant),
+    do: item.name |> selected_fields(variant.fields, plan.config) |> field_keys()
+
+  defp payload_keys(plan, item, %Syn.Variant{kind: :tuple} = variant) do
+    case selected_fields(item.name, variant.fields, plan.config) do
+      [{_index, type, opts}] -> payload_shape_keys(plan, field_shape(type, opts, plan.config))
+      _fields -> []
+    end
+  end
+
+  defp payload_keys(_plan, _item, _variant), do: []
+
+  defp payload_shape_keys(plan, {wrapper, inner}) when wrapper in [:pointer, :ref],
+    do: payload_shape_keys(plan, inner)
+
+  defp payload_shape_keys(plan, {:type, name} = shape) do
+    if map_shape?(plan, shape),
+      do: plan |> item_atoms(Map.fetch!(plan.types, name)),
+      else: []
+  end
+
+  defp payload_shape_keys(_plan, _shape), do: []
 
   defp index(%Index{} = index), do: index
   defp index(paths) when is_list(paths), do: Index.from_paths(paths)
@@ -250,18 +297,30 @@ defmodule RustQ.Rustler.SourceEncoder do
   end
 
   defp body(plan, %Syn.Struct{} = item) do
-    case item_fields(item, plan.config) do
-      [{0, type, opts}] ->
-        encode(A.ref(A.field(:value, 0)), field_shape(type, opts, plan.config), 0)
+    case transparent_field(plan, item) do
+      {:ok, {name, type, opts}} ->
+        encode(A.ref(A.field(:value, field_ident(name))), field_shape(type, opts, plan.config), 0)
 
-      fields ->
-        map(Enum.map(fields, &struct_entry(plan, &1)))
+      :error ->
+        map(Enum.map(item_fields(item, plan.config), &struct_entry(plan, &1)))
     end
   end
 
   defp body(plan, %Syn.Enum{} = item) do
     A.match_expr(:value, Enum.map(item.variant_shapes, &variant_arm(plan, item, &1)))
   end
+
+  # A newtype, or a struct marked `transparent: true`, encodes as its only field.
+  defp transparent_field(plan, %Syn.Struct{} = item) do
+    case {item_fields(item, plan.config), transparent?(plan, item)} do
+      {[{0, _type, _opts} = field], _transparent} -> {:ok, field}
+      {[field], true} -> {:ok, field}
+      _other -> :error
+    end
+  end
+
+  defp transparent?(plan, item),
+    do: plan.config.types |> Map.get(item.name, []) |> Keyword.get(:transparent, false)
 
   defp struct_entry(plan, {name, type, opts}) do
     {key(name, opts),
@@ -350,12 +409,19 @@ defmodule RustQ.Rustler.SourceEncoder do
 
   defp map_shape?(plan, {:type, name}) do
     case Map.fetch!(plan.types, name) do
-      %Syn.Struct{} = item -> not match?([{0, _, _}], item_fields(item, plan.config))
+      %Syn.Struct{} = item -> struct_map_shape?(plan, item)
       %Syn.Enum{} -> false
     end
   end
 
   defp map_shape?(_plan, _shape), do: false
+
+  defp struct_map_shape?(plan, item) do
+    case transparent_field(plan, item) do
+      {:ok, {_name, type, opts}} -> map_shape?(plan, field_shape(type, opts, plan.config))
+      :error -> true
+    end
+  end
 
   # `value` is an expression that evaluates to a reference to the encoded value.
   defp encode(value, :scalar, _depth), do: A.method(receiver(value), :encode, [:env])
@@ -491,9 +557,9 @@ defmodule RustQ.Rustler.SourceEncoder do
   ## Atoms
 
   defp item_atoms(plan, %Syn.Struct{} = item) do
-    case item_fields(item, plan.config) do
-      [{0, _type, _opts}] -> []
-      fields -> Enum.map(fields, fn {name, _type, opts} -> key(name, opts) end)
+    case transparent_field(plan, item) do
+      {:ok, _field} -> []
+      :error -> item |> item_fields(plan.config) |> field_keys()
     end
   end
 
@@ -536,12 +602,17 @@ defmodule RustQ.Rustler.SourceEncoder do
 
   defp error_message(errors) do
     lines =
-      Enum.map(errors, fn
+      errors
+      |> group_owners()
+      |> Enum.map(fn
         {:unmapped, name, :root} ->
           "  root type #{name} is not in the index"
 
-        {:unmapped, name, owner} ->
-          "  #{name} (used by #{owner}) is not in the index; add it to :external or :wrappers, or exclude the field"
+        {:unmapped, name, owners} ->
+          "  #{name} (used by #{Enum.join(owners, ", ")}) is not in the index; add it to :external or :wrappers, or exclude the field"
+
+        {:transparent, name, count} ->
+          "  #{name} is transparent but has #{count} fields; it needs exactly one"
 
         {:ambiguous, name, paths} ->
           "  #{name} is defined in several sources: #{Enum.join(paths, ", ")}"
@@ -549,10 +620,32 @@ defmodule RustQ.Rustler.SourceEncoder do
         {:generic, name, params} ->
           "  #{name} has type parameters (#{Enum.join(params, ", ")}), which are not supported; map it in :external"
 
-        {:unsupported, code, owner} ->
-          "  #{code} (used by #{owner}) has no encoding; map it in :external or exclude the field"
+        {:tag_collision, enum, variant, tag} ->
+          "  #{enum}::#{variant} already has a #{tag} field; rename it with :fields or choose another :tag"
+
+        {:unsupported, code, owners} ->
+          "  #{code} (used by #{Enum.join(owners, ", ")}) has no encoding; map it in :external or exclude the field"
       end)
 
     Enum.join(["cannot build Term encoders from source:" | Enum.uniq(lines)], "\n")
+  end
+
+  # Reports each unmapped or unsupported type once, with every type that uses it.
+  defp group_owners(errors) do
+    {grouped, others} =
+      Enum.split_with(errors, fn error ->
+        match?({:unmapped, _name, owner} when owner != :root, error) or
+          match?({:unsupported, _code, _owner}, error)
+      end)
+
+    owners =
+      grouped
+      |> Enum.group_by(fn {kind, name, _owner} -> {kind, name} end, &elem(&1, 2))
+      |> Enum.map(fn {{kind, name}, owners} ->
+        {kind, name, owners |> Enum.uniq() |> Enum.sort()}
+      end)
+      |> Enum.sort()
+
+    others ++ owners
   end
 end

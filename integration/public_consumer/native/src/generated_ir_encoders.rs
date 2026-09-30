@@ -3,7 +3,7 @@
 mod atoms {
     rustler::atoms! {
         anchor, attrs, clear, content, element, end, is_static, keep_alive, kind, loc,
-        regular, set_prop, start, text, r#type = "type", value, values
+        prop_kind, regular, set_prop, start, text, r#type = "type", value, values
     }
 }
 pub(crate) fn encode_op<'a>(env: rustler::Env<'a>, value: &Op<'_>) -> rustler::Term<'a> {
@@ -61,7 +61,7 @@ pub(crate) fn encode_set_prop<'a>(
                 atoms::element().encode(env),
                 atoms::values().encode(env),
                 atoms::loc().encode(env),
-                atoms::kind().encode(env),
+                atoms::prop_kind().encode(env),
                 atoms::r#type().encode(env),
                 atoms::attrs().encode(env),
             ],

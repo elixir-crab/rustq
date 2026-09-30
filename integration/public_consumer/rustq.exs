@@ -19,7 +19,7 @@ rust "native/src/generated.rs" do
 end
 
 ir_sources = ["native/src/ir.rs"]
-ir_opts = [tag: :kind]
+ir_opts = [tag: :kind, types: [SetProp: [fields: [kind: [key: :prop_kind]]]]]
 
 rust "native/src/generated_ir_encoders.rs" do
   [

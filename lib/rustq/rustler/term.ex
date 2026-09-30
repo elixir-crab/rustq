@@ -17,6 +17,7 @@ defmodule RustQ.Rustler.Term do
   alias RustQ.Rust.AST.TypeBuilder, as: T
   alias RustQ.Rust.Identifier
   alias RustQ.Rustler.HelperSelection
+  alias RustQ.Rustler.SourceEncoder
   alias RustQ.Type, as: R
 
   require A
@@ -356,6 +357,57 @@ defmodule RustQ.Rustler.Term do
       items: [function]
     )
   end
+
+  @doc """
+  Builds `Term` encoder functions for Rust structs and enums read from source.
+
+  `source` is a `RustQ.Syn.Index` or a list of Rust source paths. Starting from
+  `roots`, RustQ follows field and variant payload types through the index and
+  builds one function per reachable type:
+
+      pub(crate) fn encode_set_prop_ir_node<'a>(env: Env<'a>, value: &SetPropIRNode<'_>) -> Term<'a>
+
+  Free functions keep the encoders usable for types owned by another crate.
+  Structs encode as atom-keyed maps. A newtype struct encodes as its single
+  field. Unit variants encode as atoms, tuple variants as their payload, and
+  named variants as maps. `Option` encodes `None` as `nil`, sequences and sets
+  as lists, and maps as maps.
+
+  Every reachable type must be indexed, a wrapper, a scalar, or mapped in
+  `:external`. Otherwise the call raises and lists the unmapped types, so a
+  change in the source shows up at generation time.
+
+  Options:
+
+  - `:tag` — key added to data-carrying enum variants, with the variant atom
+    (`SetProp` becomes `:set_prop`) as its value.
+  - `:external` — `[{type_name, helper}]`; the helper is called with the
+    environment and a reference to the value instead of generating an encoder.
+  - `:wrappers` — type names added to the `:pointer`, `:sequence`, `:set`,
+    `:map`, and `:string` roles, for example allocator-aware `Vec` types.
+  - `:types` — per-type policy: `:except` field names, `:fields` with `:key`
+    renames or `:with` helpers, `:variants` atom renames, `:tag`, and
+    `transparent: true` to encode a struct with one field as that field.
+  - `:vis` — function visibility, `:crate` by default.
+  """
+  @spec encoders_from_source(RustQ.Syn.Index.t() | [Path.t()], [atom() | String.t()], keyword()) ::
+          [AST.Function.t()]
+  def encoders_from_source(source, roots, opts \\ []),
+    do: SourceEncoder.functions(source, roots, opts)
+
+  @doc """
+  Returns the atom declarations used by `encoders_from_source/3`.
+
+  Pass the result to `RustQ.Rustler.Atom.declaration/2` so the atom registry is
+  derived from the same source as the encoders.
+  """
+  @spec encoder_atoms_from_source(
+          RustQ.Syn.Index.t() | [Path.t()],
+          [atom() | String.t()],
+          keyword()
+        ) :: [String.t() | {atom(), String.t()}]
+  def encoder_atoms_from_source(source, roots, opts \\ []),
+    do: SourceEncoder.atoms(source, roots, opts)
 
   @doc "Builds common map access and term decoding helpers."
   @spec helpers(keyword()) :: [AST.Function.t()]

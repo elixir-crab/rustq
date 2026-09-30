@@ -17,3 +17,13 @@ rust "native/src/generated.rs" do
     )
   ]
 end
+
+ir_sources = ["native/src/ir.rs"]
+ir_opts = [tag: :kind, types: [SetProp: [fields: [kind: [key: :prop_kind]]]]]
+
+rust "native/src/generated_ir_encoders.rs" do
+  [
+    Atom.declaration(Term.encoder_atoms_from_source(ir_sources, ["Op"], ir_opts)),
+    Term.encoders_from_source(ir_sources, ["Op"], ir_opts)
+  ]
+end

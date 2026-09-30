@@ -73,6 +73,10 @@ pub(crate) fn path_from_parts(parts: Vec<String>) -> NifResult<syn::Path> {
 }
 
 pub(crate) fn ident_from_part(part: &str) -> syn::Ident {
+    if let Some(raw) = part.strip_prefix("r#") {
+        return syn::Ident::new_raw(raw, proc_macro2::Span::call_site());
+    }
+
     if rust_keyword(part) {
         syn::Ident::new_raw(part, proc_macro2::Span::call_site())
     } else {

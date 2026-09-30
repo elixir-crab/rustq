@@ -112,8 +112,14 @@ defmodule RustQ.Syn.IndexTest do
 
     assert [%SynEnum{name: "ClipOp"}] = Index.enums(index)
 
-    assert {:ok, %SynEnum{variants: ["Intersect", "Difference"]}} =
-             Index.enum(index, "ClipOp")
+    assert {:ok,
+            %SynEnum{
+              variants: ["Intersect", "Difference"],
+              variant_shapes: [
+                %RustQ.Syn.Variant{name: "Intersect", kind: :unit},
+                %RustQ.Syn.Variant{name: "Difference", kind: :unit}
+              ]
+            }} = Index.enum(index, "ClipOp")
 
     assert %SynEnum{name: "ClipOp"} = Index.enum!(index, "ClipOp")
   end

@@ -130,6 +130,50 @@ These options represent typed operations. If a transformation becomes domain
 logic, move it to a named Rust or Rusty-Elixir helper rather than embedding raw
 expressions in field metadata.
 
+## Encoders for types from Rust source
+
+Types owned by another crate cannot implement `rustler::Encoder` in yours, and
+may not implement `serde::Serialize` either. `Term.encoders_from_source/3` reads
+their definitions through `RustQ.Syn` and builds one encoder function per
+reachable type, so the Rust source stays the only owner of fields and variants:
+
+```elixir
+index = RustQ.Syn.Index.cached_package("my_ir", manifest_path: "native/my_nif/Cargo.toml")
+roots = ["BlockIRNode", "OperationNode"]
+
+opts = [
+  tag: :kind,
+  wrappers: [sequence: [:ArenaVec], pointer: [:ArenaBox]],
+  external: [SimpleExpressionNode: :encode_simple_expr],
+  types: [SetPropIRNode: [except: [:loc]]]
+]
+
+rust "native/my_nif/src/generated_ir_encoders.rs" do
+  [
+    RustQ.Rustler.Atom.declaration(Term.encoder_atoms_from_source(index, roots, opts)),
+    Term.encoders_from_source(index, roots, opts)
+  ]
+end
+```
+
+Each function has the form
+`fn encode_set_prop_ir_node<'a>(env: Env<'a>, value: &SetPropIRNode<'_>) -> Term<'a>`.
+Structs encode as atom-keyed maps and newtype structs as their field. Unit
+variants encode as atoms, tuple variants as their payload, and named variants as
+maps. With `:tag`, data-carrying variants also carry the variant atom under that
+key. `Option` encodes `None` as `nil`, sequences and sets as lists, and maps as
+maps.
+
+The traversal is closed. Every reachable type must be indexed, a wrapper, a
+scalar, or mapped in `:external`; otherwise generation fails and lists the
+unmapped types. An upstream change therefore appears as a generation error or a
+`rustq.gen --check` diff, not as handwritten Rust to update. Names defined in
+several sources, generic types, and a `:tag` that would replace a payload field
+with the same key are reported the same way; rename the field with `:fields`.
+
+Tags, key and variant renames, excluded fields, `transparent: true` structs
+that encode as their only field, and external helpers are explicit policy. Keep them in the consumer's generator, not in RustQ.
+
 ## Resources, options, and schemas
 
 `RustQ.Rustler.Resource`, `RustQ.Rustler.Opts`, and

@@ -87,6 +87,37 @@ defmodule RustQ.Rust.AST.BuilderTest do
     assert Rust.render(A.path([:atoms, :type])) == "atoms::r#type"
   end
 
+  test "renders Rust keywords in fields, named fields, and macro items as raw identifiers" do
+    code =
+      RustQ.render!("__rq_items!();", "keyword_fields.rs",
+        splice: [
+          items: [
+            A.macro_item_call([:rustler, :atoms], [{:type, "type"}, :value]),
+            %Function{
+              name: :keyword_fields,
+              args: [A.arg(:node, A.type_path(:Node))],
+              returns: A.type_path(:Node),
+              body: [
+                A.let(:kind, A.field(:node, :type)),
+                A.return(
+                  A.match_expr(:node, [
+                    %Arm{
+                      pattern: P.struct([:Node], type: P.var(:kind)),
+                      body: [A.return(A.struct_expr(A.path([:Node]), type: :kind))]
+                    }
+                  ])
+                )
+              ]
+            }
+          ]
+        ]
+      )
+
+    assert code =~ ~S|r#type = "type"|
+    assert code =~ "let kind = node.r#type;"
+    assert code =~ "Node { r#type: kind }"
+  end
+
   test "renders token macro expressions through native AST" do
     function = %Function{
       name: :pat_none,

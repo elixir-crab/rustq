@@ -25,5 +25,8 @@ defmodule RustQ.Rust.AST.PatternBuilderTest do
              path: %AST.Path{parts: [:Click]},
              fields: [name: %AST.PatVar{name: :name}]
            } = P.struct([:Click], name: :name)
+
+    assert %AST.PatTuple{patterns: [%AST.PatVar{name: :key}, %AST.PatWildcard{}]} =
+             P.tuple([:key, P.wildcard()])
   end
 end

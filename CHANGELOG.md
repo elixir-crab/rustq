@@ -26,6 +26,9 @@
 - Render Rust keywords used as field names, struct literal and struct pattern
   fields, and macro item arguments as raw identifiers (`r#type`). Field access
   such as `value.type` previously failed to render.
+- Type a literal atom such as `:if_node` in a typespec as `Atom`, like a union
+  of atoms. It was emitted as a Rust type named after the atom, which does not
+  compile.
 
 ## 1.0.0-rc.10 - 2026-09-28
 

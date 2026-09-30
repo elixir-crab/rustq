@@ -9,6 +9,7 @@ defmodule RustQ.NativeExternalFixture do
   @type point :: %{required(:x) => integer(), required(:y) => integer()}
   @type state :: %{required(:value) => R.raw(:ExternalState)}
   @type state_resource :: R.resource(state())
+  @type tagged :: %{required(:kind) => :tagged, required(:mode) => :fast | :slow}
 
   @spec env_echo(term()) :: R.nif_result(term())
   defnif(env_echo(value), do: external_env_echo(nif_env(), value))
@@ -33,6 +34,12 @@ defmodule RustQ.NativeExternalTest do
     assert source =~ "fn env_echo<'a>(env: Env<'a>, value: Term<'a>)"
     refute source =~ "rustler::init!"
     refute function_exported?(RustQ.NativeExternalFixture, :__rustq_load_nif__, 0)
+  end
+
+  test "types literal atoms and atom unions in map fields as atoms" do
+    source = RustQ.Native.source(RustQ.NativeExternalFixture)
+
+    assert source =~ ~r/pub struct Tagged \{\s*pub kind: Atom,\s*pub mode: Atom,\s*\}/
   end
 
   test "implicit Rustler Env does not change the public BEAM arity" do

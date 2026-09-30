@@ -851,7 +851,9 @@ defmodule RustQ.Meta.Type do
     tuple_type(tuple_types)
   end
 
-  def parse(atom, _aliases) when is_atom(atom), do: type(:type, path(atom))
+  def parse(atom, _aliases) when is_atom(atom) do
+    if literal_atom?(atom), do: type(:enum, path(:Atom)), else: type(:type, path(atom))
+  end
 
   defp parse_remote(module, function, args, aliases) do
     if type_module?(module),
@@ -1260,6 +1262,17 @@ defmodule RustQ.Meta.Type do
   defp collect_union_members(other, acc), do: [other | acc]
 
   defp atom_union?(ast), do: ast |> union_members() |> Enum.all?(&is_atom/1)
+
+  @rust_primitives ~w(bool char str u8 u16 u32 u64 u128 usize i8 i16 i32 i64 i128 isize f32 f64)
+
+  # A lowercase atom such as `:if_node` in a typespec is an Elixir literal, not a
+  # Rust type name.
+  defp literal_atom?(atom) when atom in [nil, true, false], do: false
+
+  defp literal_atom?(atom) do
+    name = Atom.to_string(atom)
+    String.match?(name, ~r/^[a-z_]/) and name not in @rust_primitives
+  end
 
   defp option_union?(ast), do: ast |> union_members() |> option_members?()
 

@@ -1,6 +1,6 @@
 # RustQ roadmap
 
-Last reviewed 2026-09-30, at 1.0.0-rc.11. The [changelog](CHANGELOG.md) records
+Last reviewed 2026-10-02, at 1.0.0-rc.11. The [changelog](CHANGELOG.md) records
 what shipped; this file covers where RustQ stands and what comes next.
 
 ## Where things stand
@@ -66,6 +66,13 @@ next one, add two generated tests: one that renders every identifier-bearing AST
 position with every Rust keyword, and one over the typespec forms that the
 codecs accept.
 
+**Duplicate type declarations.** A module with two `@type encoded_binding`
+declarations generates Rust from one of them without a word. RustQ reads `@type`
+attributes before Elixir rejects the duplicate, and `Type.type_aliases/1` keeps
+the later declaration. Report a `RustQ.Diagnostic` naming both locations, and
+add the duplicate to the typespec matrix. vize_ex hit this in
+`codegen/vize/codegen/native_types.ex`.
+
 **Consumer upgrades.** Move the consumers to rc.11 and note any API friction
 here.
 
@@ -92,6 +99,34 @@ specs to `Syn` types, and better fidelity for generics and lifetimes.
 **Codecs from Rust source.** Decoders to mirror `Term.encoders_from_source`,
 then move oxc_ex's lint types and vize_ex's remaining handwritten shapes onto
 them.
+
+**One contract for precompiled NIFs.** Crates that keep their own Cargo and
+release setup, such as vize_ex and oxc_ex, write each NIF's contract down
+several times: the Rust `*_nif_impl` signatures, the `@spec`s in the
+RustlerPrecompiled module, the `@type`s in the codegen module that derive the
+Rust structs, and the public `@type`s describing the same maps. Nothing checks
+that they agree. The codegen module should be the one source, with both sides
+generated, committed, and checked by `mix rustq.gen --check`:
+
+- Elixir stubs with specs from `defnif` in `build: false, load: false` mode, as
+  `RustQ.Native.stubs(module, as: ...)` mirroring `Nif.stubs_from_source/4`.
+  Specs take their Elixir-facing form: `R.u32` becomes `non_neg_integer()`,
+  `R.nif_result(t)` becomes `t`, and `nif_env()` is dropped. One table maps
+  `R.*` types to Elixir types for specs and public types alike.
+- Wrappers that delegate to handwritten `*_impl` functions, with a diagnostic at
+  generation time when a wrapper and its `*_impl` signature in `rust_sources`
+  disagree, instead of a Cargo error later.
+- Public types from the codegen module's `@type`s and `@typedoc`s, as
+  `RustQ.Native.types_source(module, as: ...)`, so the library references
+  `Vize.Types.sfc_result()` instead of restating the map.
+
+Types flow one way, from the codegen module outward. Deriving Rust from
+documented `@type`s in `lib/` was considered and set aside: `non_neg_integer()`
+or `String.t()` doesn't say which Rust type to use, `lib/` can't use `R.*`
+markers because Hex source builds have no RustQ, and the gaps would move into a
+separate table of overrides. All three are additive. Prove them on vize_ex,
+replacing `vapor_split_nif` and `compile_sfc_nif`'s positional booleans with a
+typed options map, and on oxc_ex's lint types.
 
 **Multi-file generation for existing crates.** `RustQ.Native` covers crates
 RustQ owns. Crates that keep Cargo ownership still hand-roll their target lists,

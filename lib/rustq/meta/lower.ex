@@ -148,7 +148,10 @@ defmodule RustQ.Meta.Lower do
 
     %AST.Let{
       pattern: lower_binding_pattern(pattern),
-      expr: lower_expr(expression, expected_type, expression_context),
+      expr:
+        expression
+        |> lower_expr(expected_type, expression_context)
+        |> collect_as(collect_target(expected_type)),
       type: empty_collection_type(expression, expected_type)
     }
   end
@@ -1553,6 +1556,9 @@ defmodule RustQ.Meta.Lower do
 
   defp collect_as(lowered, _type), do: lowered
 
+  defp collect_target(%Type{ast: ast} = type), do: if(slice_type?(type), do: @any_vec, else: ast)
+  defp collect_target(nil), do: @any_vec
+
   defp comprehension_parts({:for, _, args}) do
     {opts, qualifiers} = args |> Enum.reverse() |> Enum.split_while(&Keyword.keyword?/1)
     {Enum.reverse(qualifiers), opts |> Enum.reverse() |> Enum.concat()}
@@ -2652,15 +2658,14 @@ defmodule RustQ.Meta.Lower do
   # in Elixir; piping into any other name calls a method on the value.
   defp lower_pipe(left, {name, meta, args}, expected_type, %Context{} = context)
        when is_atom(name) and is_list(args) and name not in [:cast] do
-    if BindingIndex.get(context.callables, nil, name, length(args) + 1) do
-      call = {name, meta, [left | args]}
+    call =
+      if BindingIndex.get(context.callables, nil, name, length(args) + 1),
+        do: {name, meta, [left | args]},
+        else: {{:., meta, [left, name]}, meta, args}
 
-      if expected_type,
-        do: lower_expr(call, expected_type, context),
-        else: lower_expr(call, context)
-    else
-      lower_pipe_call(lower_expr(left, context), {name, meta, args}, context)
-    end
+    if expected_type,
+      do: lower_expr(call, expected_type, context),
+      else: lower_expr(call, context)
   end
 
   defp lower_pipe(left, right, expected_type, %Context{} = context) do

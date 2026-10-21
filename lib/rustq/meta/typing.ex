@@ -241,9 +241,11 @@ defmodule RustQ.Meta.Typing do
       %Type{} = type ->
         inner = Type.ref_inner(type) || type
 
-        case inner.ast do
-          %AST.TypePath{parts: [:String], generics: []} -> inner
-          %AST.TypeVec{} -> inner
+        case inner do
+          %Type{ast: %AST.TypePath{parts: [:String], generics: []}} -> inner
+          %Type{ast: %AST.TypeVec{}} -> inner
+          # Cloning a borrowed struct or option gives an owned one.
+          %Type{kind: kind} when kind in [:struct, :option, :tuple, :enum, :alias] -> inner
           _ -> nil
         end
 
@@ -273,6 +275,16 @@ defmodule RustQ.Meta.Typing do
 
   defp synth_method_call({{:., _, [_receiver, :to_string]}, _meta, []}, %Env{}),
     do: RustQ.Spec.type(quote(do: String.t()))
+
+  defp synth_method_call({{:., _, [receiver, :to_vec]}, _meta, []}, %Env{} = env) do
+    with %Type{} = type <- synth(receiver, env),
+         %Type{} = item <-
+           Type.slice_inner(type) || Type.vec_inner(type) || borrowed_vec_inner(type) do
+      Type.vec(item)
+    else
+      _unknown -> nil
+    end
+  end
 
   defp synth_method_call({{:., _, [receiver, method]}, _meta, []}, %Env{} = env)
        when method in [:copied, :cloned] do

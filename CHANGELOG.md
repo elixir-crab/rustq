@@ -39,6 +39,14 @@
 
 - Elements of a tuple pattern are full patterns, so `{{:some, Kind.PLAIN}, _}`
   matches the constant inside the option.
+- A pipe into a name the module does not define lowers as that method call,
+  with the same argument types and borrows; a `let` bound to a `collect()`
+  states what it collects into, a `Vec` unless known.
+- A binding used through option methods such as `is_some` keeps its option
+  type, a vector's items are not taken for its success type, and methods
+  every collection has, such as `is_empty`, no longer type a binding as
+  whichever source type also defines them. `clone` of a borrowed struct and
+  `to_vec` are typed.
 - Keep the grouping of nested operators: `a and (b or c)` rendered as
   `a && b || c`, and `not (a or b)` as `!a || b`. Operands are parenthesized
   by Rust's precedence.

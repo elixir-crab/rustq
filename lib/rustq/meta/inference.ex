@@ -81,16 +81,73 @@ defmodule RustQ.Meta.Inference do
 
   defp rhs_success_type({:unwrap!, _, [call]}, callbacks), do: rhs_success_type(call, callbacks)
 
+  # Only an option or result has a success type; a vector's items are not one.
   defp rhs_success_type(call, %{return_type: return_type}) when is_function(return_type, 1) do
     case return_type.(call) do
-      %Type{} = type -> Type.inner(type)
+      %Type{} = type -> if Type.propagates?(type), do: Type.inner(type)
       nil -> nil
     end
   end
 
   defp rhs_success_type(_call, _callbacks), do: nil
 
+  # A binding used through option or result methods, as in `swap.is_some()`, keeps the wrapper
+  # its value comes in, unless that value is itself an option or result.
+  @wrapper_methods [
+    :and_then,
+    :as_mut,
+    :as_ref,
+    :cloned,
+    :copied,
+    :expect,
+    :filter,
+    :flatten,
+    :is_err,
+    :is_none,
+    :is_none_or,
+    :is_ok,
+    :is_some,
+    :is_some_and,
+    :map,
+    :map_err,
+    :map_or,
+    :map_or_else,
+    :ok_or,
+    :ok_or_else,
+    :or,
+    :or_else,
+    :unwrap,
+    :unwrap_or,
+    :unwrap_or_default,
+    :unwrap_or_else,
+    :xor,
+    :zip
+  ]
+
   defp expected_type_for_var(expressions, name, vars, callbacks, rhs_success_type) do
+    if not wrapper?(rhs_success_type) and Enum.any?(expressions, &wrapper_receiver?(&1, name)),
+      do: nil,
+      else: downstream_type_for_var(expressions, name, vars, callbacks, rhs_success_type)
+  end
+
+  defp wrapper?(%Type{} = type), do: Type.propagates?(type)
+  defp wrapper?(_type), do: false
+
+  defp wrapper_receiver?(ast, name) do
+    {_ast, found} =
+      Macro.prewalk(ast, false, fn
+        {{:., _, [{^name, _, context}, method]}, _, args} = call, _found
+        when is_atom(context) and method in @wrapper_methods and is_list(args) ->
+          {call, true}
+
+        other, found ->
+          {other, found}
+      end)
+
+    found
+  end
+
+  defp downstream_type_for_var(expressions, name, vars, callbacks, rhs_success_type) do
     call_expected_type_for_var(expressions, name, vars, callbacks) ||
       Enum.find_value(expressions, &expected_comparison_type_for_var(name, &1, rhs_success_type)) ||
       Enum.find_value(
@@ -310,6 +367,44 @@ defmodule RustQ.Meta.Inference do
       _receiver_type, acc -> {:cont, acc}
     end)
   end
+
+  # Methods every collection has say a binding holds a plain value, not which type it is.
+  @collection_methods [
+    :as_slice,
+    :clear,
+    :clone,
+    :contains,
+    :contains_key,
+    :extend,
+    :first,
+    :get,
+    :get_mut,
+    :insert,
+    :into_iter,
+    :is_empty,
+    :iter,
+    :iter_mut,
+    :keys,
+    :last,
+    :len,
+    :pop,
+    :push,
+    :remove,
+    :retain,
+    :sort,
+    :to_vec,
+    :values
+  ]
+
+  defp collect_downstream_receiver_type(
+         {{:., _, [{var_name, _, context}, function]}, _meta, args} = ast,
+         receiver_types,
+         name,
+         _callbacks
+       )
+       when name == var_name and is_atom(context) and function in @collection_methods and
+              is_list(args),
+       do: {ast, [:unknown_receiver | receiver_types]}
 
   defp collect_downstream_receiver_type(
          {{:., _, [{var_name, _, context}, function]}, _meta, args} = ast,

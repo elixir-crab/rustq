@@ -203,6 +203,26 @@ defmodule RustQ.Meta.DefrustLoweringTest do
       end
     end
 
+    @typep holder :: %{required(:items) => R.vec(R.u32()), required(:first) => R.option(R.u32())}
+
+    @spec total(R.slice(R.u32())) :: R.u32()
+    defrust(total(values), do: values.iter().sum())
+
+    # The binding is used through option methods and a collection method, never as a value
+    # of its own type.
+    @spec held(R.ref(index()), R.u32()) :: R.option(holder())
+    defrust held(index, id) do
+      items = children_of(index, id) |> iter() |> copied() |> collect()
+      first = first_child(index, id)
+
+      if items.is_empty() or first.is_none(),
+        do: nil,
+        else: some(struct_literal(Holder, items: items, first: first))
+    end
+
+    @spec summed(R.ref(index()), R.u32()) :: R.u32()
+    defrust(summed(index, id), do: children_of(index, id) |> to_vec() |> total())
+
     @spec sample() :: index()
     defrust sample() do
       children = HashMap.new()
@@ -916,6 +936,7 @@ defmodule RustQ.Meta.DefrustLoweringTest do
           let mut leaves = Vec::new();
           collect_leaves(&index, 1, &mut leaves);
           println!("{:?} {:?} {:?} {:?}", leaves, first_child(&index, 1), large(Some(1)), children_of(&index, 9));
+          println!("{:?} {:?} {}", held(&index, 1).map(|h| h.items), held(&index, 4).is_none(), summed(&index, 1));
       }
       """
 
@@ -928,7 +949,7 @@ defmodule RustQ.Meta.DefrustLoweringTest do
                stderr_to_stdout: true
              )
 
-    assert {"[2, 4] Some(2) None []\n", 0} = System.cmd(executable, [])
+    assert {"[2, 4] Some(2) None []\nSome([2, 3]) true 5\n", 0} = System.cmd(executable, [])
   end
 
   @tag :tmp_dir

@@ -573,6 +573,17 @@ defmodule RustQ.Meta.AST do
             {call, acc}
           end
 
+        # A field changed in place, as in `record.claims.push(claim)`.
+        {{:., _, [{{:., _, [_, field]}, _, []} = receiver, method]}, _, method_args} = call, acc
+        when is_atom(field) and is_atom(method) and is_list(method_args) ->
+          {call, put_owned_root(acc, receiver, types, Lower.mutating_method?(method))}
+
+        {:mut_ref, _, [target]} = call, acc ->
+          {call, put_owned_root(acc, target, types, true)}
+
+        {:assign!, _, [target, _value]} = call, acc ->
+          {call, put_owned_root(acc, target, types, true)}
+
         ast, acc ->
           {ast, acc}
       end)
@@ -580,6 +591,32 @@ defmodule RustQ.Meta.AST do
 
     Enum.map(args, fn arg -> %{arg | mutable: MapSet.member?(mutable, arg.name)} end)
   end
+
+  # The owned argument a field path or variable starts from, when the access changes it.
+  defp put_owned_root(acc, _target, _types, false), do: acc
+
+  defp put_owned_root(acc, target, types, true) do
+    case access_root(target) do
+      nil ->
+        acc
+
+      name ->
+        case Map.get(types, name) do
+          %Type{rust: "&" <> _borrowed} -> acc
+          %Type{} -> MapSet.put(acc, name)
+          nil -> acc
+        end
+    end
+  end
+
+  defp access_root({name, _, context})
+       when is_atom(name) and (is_atom(context) or is_nil(context)),
+       do: name
+
+  defp access_root({{:., _, [receiver, field]}, _, []}) when is_atom(field),
+    do: access_root(receiver)
+
+  defp access_root(_expression), do: nil
 
   defp mutable_receiver?(%Type{} = type, method, arity, callables) do
     target = type.rust

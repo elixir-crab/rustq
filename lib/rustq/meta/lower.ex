@@ -17,6 +17,9 @@ defmodule RustQ.Meta.Lower do
   alias RustQ.Rust.AST.Walk
   alias RustQ.Rust.Identifier
 
+  # A vector whose item type Rust infers, for collecting where none is known.
+  @any_vec %AST.TypeVec{inner: %AST.TypeRaw{source: "_"}}
+
   defguardp macro_call_tuple?(tuple)
             when tuple_size(tuple) == 3 and is_atom(elem(tuple, 0)) and is_list(elem(tuple, 1)) and
                    is_list(elem(tuple, 2))
@@ -431,6 +434,23 @@ defmodule RustQ.Meta.Lower do
     }
   end
 
+  # `ok(value)` where a result is expected lowers the value as its success type.
+  defp lower_expected_expr_context(
+         {:ok, _, [value]},
+         %Type{kind: kind} = expected_type,
+         %Context{} = context
+       )
+       when kind in [:result, :nif_result] do
+    case Type.inner(expected_type) do
+      %Type{} = inner -> %AST.Ok{expr: lower_expr(value, inner, context)}
+      nil -> %AST.Ok{expr: lower_expr(value, context)}
+    end
+  end
+
+  # `:ok` where nothing is expected is the unit value, as in `ok(:ok)`.
+  defp lower_expected_expr_context(:ok, %Type{kind: :unit}, %Context{}),
+    do: %AST.Tuple{values: []}
+
   # An atom where an atom-union enum is expected names its variant.
   defp lower_expected_expr_context(
          atom,
@@ -613,6 +633,17 @@ defmodule RustQ.Meta.Lower do
       {:ok, lowered} -> lowered
       :unsupported -> lower_remote_or_method_call(receiver, function, args, context)
     end
+  end
+
+  # Collected where a slice is expected, values are collected into a vector and borrowed.
+  defp lower_expected_expr_context(
+         {{:., _, [_receiver, :collect]}, _, []} = expression,
+         %Type{} = expected_type,
+         %Context{} = context
+       ) do
+    if slice_type?(Type.expected_value(expected_type)),
+      do: %AST.Ref{expr: expression |> lower_expr(context) |> collect_as(@any_vec)},
+      else: lower_checked_expr(expression, expected_type, context)
   end
 
   defp lower_expected_expr_context(expression, %Type{} = expected_type, %Context{} = context) do
@@ -1515,8 +1546,6 @@ defmodule RustQ.Meta.Lower do
   # iterator pipeline: each generator filters and binds in one `filter_map`, its filters as the
   # match guard; later generators nest through `flat_map`, collecting each inner pipeline so
   # its closures never outlive the outer item they borrow.
-  @any_vec %AST.TypeVec{inner: %AST.TypeRaw{source: "_"}}
-
   defp lower_comprehension(expression, expected_type, %Context{} = context) do
     {qualifiers, opts} = comprehension_parts(expression)
 
@@ -2241,8 +2270,15 @@ defmodule RustQ.Meta.Lower do
           List.duplicate(nil, length(values))
       end
 
-    %AST.PatTuple{patterns: Enum.zip_with(values, types, &lower_match_pattern/2)}
+    %AST.PatTuple{patterns: Enum.zip_with(values, types, &lower_tuple_element_pattern/2)}
   end
+
+  # A variable binds the whole element, whatever its type.
+  defp lower_tuple_element_pattern({name, _, context} = pattern, _type)
+       when is_atom(name) and is_atom(context),
+       do: lower_match_pattern(pattern, nil)
+
+  defp lower_tuple_element_pattern(pattern, type), do: lower_match_pattern(pattern, type)
 
   defp mark_mutable_pattern_vars(%AST.PatVar{name: name} = pattern, mutable_vars) do
     if MapSet.member?(mutable_vars, name), do: %{pattern | mutable: true}, else: pattern
@@ -2439,9 +2475,14 @@ defmodule RustQ.Meta.Lower do
 
     case Type.vec_inner(receiver_type) do
       %Type{} = inner -> lower_args_with_expected([inner], [arg], context)
-      nil -> [lower_expr(arg, context)]
+      nil -> [lower_wrapper_arg_expr(arg, context)]
     end
   end
+
+  # Pushing a call that fails as the function does keeps its value, as Elixir would, when the
+  # vector's item type is not known yet.
+  defp lower_method_call_args(nil, _target, :push, [arg], %Context{} = context),
+    do: [lower_wrapper_arg_expr(arg, context)]
 
   defp lower_method_call_args(
          %Type{} = receiver_type,
@@ -3291,6 +3332,9 @@ defmodule RustQ.Meta.Lower do
 
       %AST.Let{pattern: %AST.PatVar{name: name}} = let ->
         %{let | mutable: MapSet.member?(mutable_vars, name)}
+
+      %AST.Let{pattern: %AST.PatTuple{} = pattern} = let ->
+        %{let | pattern: mark_mutable_pattern_vars(pattern, mutable_vars)}
 
       %AST.Closure{args: args, body: closure_body} = closure ->
         %{closure | args: mutable_closure_args(args, closure_body)}

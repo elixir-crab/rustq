@@ -126,6 +126,13 @@ defmodule RustQ.Meta.Typing do
     end
   end
 
+  # A tuple of expressions whose types are all known, such as a `case` on `{left, right}`.
+  def synth({left, right}, %Env{} = env) when not is_atom(left),
+    do: synth_tuple([left, right], env)
+
+  def synth({:{}, _meta, [first | _rest] = elements}, %Env{} = env) when not is_atom(first),
+    do: synth_tuple(elements, env)
+
   def synth(call_ast, %Env{} = env) do
     case synth_stdlib(call_ast, env) do
       {:ok, %Type{} = type} ->
@@ -197,7 +204,24 @@ defmodule RustQ.Meta.Typing do
         {name, inferred_binding_type(type, Map.get(rhs_types, name))}
       end)
 
-    Map.merge(rhs_types, inferred_types)
+    # An option or result nothing downstream unwraps stays one, unless the binding's type is
+    # already known.
+    wrapped_types =
+      expressions
+      |> Enum.flat_map(&let_rhs_type(&1, env))
+      |> Map.new()
+      |> Map.filter(fn {name, type} ->
+        Type.propagates?(type) and not Map.has_key?(env.vars, name)
+      end)
+
+    wrapped_types
+    |> Map.merge(rhs_types)
+    |> Map.merge(inferred_types)
+  end
+
+  defp synth_tuple(elements, %Env{} = env) do
+    types = Enum.map(elements, &synth(&1, env))
+    if Enum.all?(types, &match?(%Type{}, &1)), do: Type.tuple(types)
   end
 
   defp stdlib_type_context(%Env{} = env) do

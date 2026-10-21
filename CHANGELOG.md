@@ -47,6 +47,15 @@
   every collection has, such as `is_empty`, no longer type a binding as
   whichever source type also defines them. `clone` of a borrowed struct and
   `to_vec` are typed.
+- `ok(value)` lowers the value as the expected success type, so `ok(:ok)` is
+  `Ok(())`; tuple literals are typed when their elements are, so atom and
+  constant patterns match inside them.
+- Mark `mut` a tuple-destructured binding that changes, and an owned argument
+  changed through a field or borrowed with `mut_ref`.
+- Pushing a call that fails as the function does onto a vector of unknown
+  items propagates it; collecting where a slice is expected collects into a
+  vector and borrows it; an option or result binding nothing downstream
+  unwraps keeps its type.
 - Keep the grouping of nested operators: `a and (b or c)` rendered as
   `a && b || c`, and `not (a or b)` as `!a || b`. Operands are parenthesized
   by Rust's precedence.

@@ -246,6 +246,59 @@ defmodule RustQ.Meta.DefrustLoweringTest do
     defrust(arith(a, b, c), do: a - (b - c) + (a + b) * c)
   end
 
+  defmodule MutationCase do
+    use RustQ.Meta
+    alias RustQ.Type, as: R
+
+    @typep tally :: %{required(:seen) => R.vec(R.u32()), required(:count) => R.u32()}
+
+    @spec checked(R.u32()) :: R.nif_result(R.u32())
+    defrust(checked(value), do: if(value > 0, do: ok(value), else: err(badarg())))
+
+    @spec ensure(R.bool()) :: R.nif_result(R.unit())
+    defrust(ensure(flag), do: if(flag, do: ok(:ok), else: err(badarg())))
+
+    @spec halves(R.slice(R.u32())) :: {R.vec(R.u32()), R.vec(R.u32())}
+    defrust(halves(values),
+      do: values.iter().copied().partition(fn value -> deref(value) < 10 end)
+    )
+
+    @spec split(R.slice(R.u32())) :: {R.vec(R.u32()), R.vec(R.u32())}
+    defrust split(values) do
+      {small, large} = halves(values)
+      small.sort()
+      large.reverse()
+      {small, large}
+    end
+
+    @spec record(tally(), R.u32()) :: tally()
+    defrust record(tally, value) do
+      tally.seen.push(value)
+      assign!(tally.count, tally.count + 1)
+      tally
+    end
+
+    @spec all_checked(R.slice(R.u32())) :: R.nif_result(R.vec(R.u32()))
+    defrust all_checked(values) do
+      ensure(not values.is_empty())
+      checked_values = Vec.new()
+
+      for value <- values do
+        checked_values.push(checked(deref(value)))
+      end
+
+      ok(checked_values)
+    end
+
+    @spec sum(R.slice(R.u32())) :: R.u32()
+    defrust(sum(values), do: values.iter().sum())
+
+    @spec doubled_sum(R.slice(R.u32())) :: R.u32()
+    defrust(doubled_sum(values),
+      do: sum(values.iter().map(fn value -> deref(value) * 2 end).collect())
+    )
+  end
+
   defmodule CaptureIndexCase do
     use RustQ.Meta
     alias RustQ.Type, as: R
@@ -950,6 +1003,36 @@ defmodule RustQ.Meta.DefrustLoweringTest do
              )
 
     assert {"[2, 4] Some(2) None []\nSome([2, 3]) true 5\n", 0} = System.cmd(executable, [])
+  end
+
+  @tag :tmp_dir
+  test "marks changed bindings mut and propagates pushed results", %{tmp_dir: dir} do
+    program =
+      """
+      mod rustler {
+          #[derive(Debug)]
+          pub enum Error { BadArg }
+      }
+      type NifResult<T> = Result<T, rustler::Error>;
+      #{MutationCase.__rustq_source__()}
+      fn main() {
+          let tally = record(Tally { seen: vec![], count: 0 }, 4);
+          println!("{:?} {:?} {} {}", split(&[30, 2, 12, 1]), tally.seen, tally.count, doubled_sum(&[1, 2]));
+          println!("{:?} {:?} {:?}", all_checked(&[1, 2]), all_checked(&[1, 0]).is_err(), all_checked(&[]).is_err());
+      }
+      """
+
+    path = Path.join(dir, "mutation.rs")
+    executable = Path.join(dir, "mutation")
+    File.write!(path, program)
+
+    assert {_, 0} =
+             System.cmd("rustc", ["--edition", "2021", path, "-o", executable],
+               stderr_to_stdout: true
+             )
+
+    assert {"([1, 2], [12, 30]) [4] 1 6\nOk([1, 2]) true true\n", 0} =
+             System.cmd(executable, [])
   end
 
   @tag :tmp_dir

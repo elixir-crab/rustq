@@ -324,6 +324,57 @@ defmodule RustQ.Meta.DefrustLoweringTest do
     )
   end
 
+  defmodule TaggedEnumCase do
+    use RustQ.Meta
+    alias RustQ.Type, as: R
+
+    @typep color :: %{required(:r) => R.f64(), required(:a) => R.f64()}
+    @typep literal ::
+             R.enum(
+               float: [R.f64()],
+               boolean: [R.bool()],
+               text: [String.t()],
+               color: [color()],
+               missing: []
+             )
+    @typep operation :: %{required(:operator) => R.u32(), required(:operands) => R.vec(formula())}
+    @typep formula :: R.enum(literal: [literal()], alias: [R.u32()], operation: [operation()])
+
+    @spec halve(literal()) :: literal()
+    defrust halve(value) do
+      case value do
+        {:float, number} -> {:float, number / 2.0}
+        {:color, color} -> {:color, %{color | a: color.a / 2.0}}
+        :missing -> :missing
+        other -> other
+      end
+    end
+
+    @spec depth(R.ref(formula())) :: R.usize()
+    defrust depth(formula) do
+      case formula do
+        {:operation, operation} ->
+          1 +
+            (operation.operands.iter().map(fn operand -> depth(operand) end).max()
+             |> unwrap_or(0))
+
+        _ ->
+          0
+      end
+    end
+
+    @spec sample() :: formula()
+    defrust sample() do
+      nested = struct_literal(Operation, operator: 2, operands: [{:alias, 1}])
+
+      {:operation,
+       struct_literal(Operation,
+         operator: 1,
+         operands: [{:literal, {:float, 2.0}}, {:operation, nested}, {:alias, 7}]
+       )}
+    end
+  end
+
   defmodule CaptureIndexCase do
     use RustQ.Meta
     alias RustQ.Type, as: R
@@ -1069,6 +1120,28 @@ defmodule RustQ.Meta.DefrustLoweringTest do
 
     assert {"[1, 3, 0] [\"a\"] [1, 3]\n([1, 2], [12, 30]) [4] 1 6\nOk([1, 2]) true true\n", 0} =
              System.cmd(executable, [])
+  end
+
+  @tag :tmp_dir
+  test "builds and matches Rust enums from tagged tuples", %{tmp_dir: dir} do
+    program =
+      """
+      #{TaggedEnumCase.__rustq_source__()}
+      fn main() {
+          println!("{:?} {:?} {}", halve(Literal::Float(3.0)), halve(Literal::Missing), depth(&sample()));
+      }
+      """
+
+    path = Path.join(dir, "tagged_enum.rs")
+    executable = Path.join(dir, "tagged_enum")
+    File.write!(path, program)
+
+    assert {_, 0} =
+             System.cmd("rustc", ["--edition", "2021", path, "-o", executable],
+               stderr_to_stdout: true
+             )
+
+    assert {"Float(1.5) Missing 2\n", 0} = System.cmd(executable, [])
   end
 
   @tag :tmp_dir

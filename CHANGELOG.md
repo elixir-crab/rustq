@@ -16,6 +16,10 @@
 - Add `R.ref/2` and `R.mut_ref/2` for references with a named lifetime, as in
   `R.ref(Record.t(), R.lifetime(:a))`, which a function returning a reference
   borrowed from one of several reference arguments needs.
+- Build and match `R.enum` values with tagged tuples, as in Elixir:
+  `{:float, value}` is `Literal::Float(value)` and `:missing` is
+  `Literal::Missing` wherever the enum is expected or matched, including
+  through a reference and inside a type that refers to itself.
 - Generate Rust-only types from `@typep`: the struct, enum, or alias without
   the term decoder a `@type` gets, so it may hold values without a term codec.
 - Lower `%{value | field: new}` on a struct to Rust's struct update syntax,

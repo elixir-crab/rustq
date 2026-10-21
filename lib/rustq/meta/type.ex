@@ -681,6 +681,7 @@ defmodule RustQ.Meta.Type do
     end)
   end
 
+  # Lowering looks a stub up again by `recursive` once the declaration is resolved.
   defp recursive_stub(name, ast, rust_name) do
     if map_type?(ast),
       do:
@@ -688,9 +689,10 @@ defmodule RustQ.Meta.Type do
           elixir_name: name,
           rust_name: rust_name,
           representation: :map,
-          fields: []
+          fields: [],
+          recursive: name
         }),
-      else: type(:type, path(rust_name), %{elixir_name: name})
+      else: type(:type, path(rust_name), %{elixir_name: name, recursive: name})
   end
 
   defp referenced_aliases(ast, raw) do

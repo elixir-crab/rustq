@@ -316,7 +316,23 @@ defmodule RustQ.Meta.Lower do
   defp lower_expr(expression, %Context{} = context), do: lower_expr_context(expression, context)
 
   defp lower_expr(expression, expected_type, %Context{} = context),
-    do: lower_expected_expr_context(expression, expected_type, context)
+    do: lower_expected_expr_context(expression, declared_type(expected_type, context), context)
+
+  # A type a recursive declaration names inside itself, resolved to the whole declaration.
+  defp declared_type(%Type{meta: %{recursive: name}} = type, %Context{type_aliases: aliases}),
+    do: Map.get(aliases, {name, 0}, type)
+
+  defp declared_type(type, %Context{}), do: type
+
+  defp declared_case_type(%Type{kind: kind, meta: %{inner: %Type{} = inner}} = type, context)
+       when kind in [:ref, :mut_ref] do
+    case declared_type(inner, context) do
+      ^inner -> type
+      declared -> %{type | meta: Map.put(type.meta, :inner, declared)}
+    end
+  end
+
+  defp declared_case_type(type, context), do: declared_type(type, context)
 
   defp lower_expected_expr_context(
          {:__block__, _, [expression]},
@@ -432,6 +448,30 @@ defmodule RustQ.Meta.Lower do
       path: %AST.Path{parts: [:ResourceArc, :new]},
       args: [lower_expr(expression, inner, context)]
     }
+  end
+
+  # A tagged tuple or atom where a Rust enum is expected names its variant, as in
+  # `{:float, value}` for `Value::Float(value)`.
+  defp lower_expected_expr_context(
+         expression,
+         %Type{kind: :rust_enum, rust: rust_name} = type,
+         context
+       )
+       when is_atom(expression) or (is_tuple(expression) and tuple_size(expression) == 2) or
+              (is_tuple(expression) and elem(expression, 0) == :{}) do
+    case rust_enum_variant(expression, type) do
+      {variant, [], _types} ->
+        %AST.Path{parts: [rust_name, rust_variant(variant)]}
+
+      {variant, payloads, types} when length(payloads) == length(types) ->
+        %AST.PathCall{
+          path: %AST.Path{parts: [rust_name, rust_variant(variant)]},
+          args: Enum.zip_with(payloads, types, &lower_expr(&1, &2, context))
+        }
+
+      _other ->
+        lower_checked_expr(expression, type, context)
+    end
   end
 
   # `ok(value)` where a result is expected lowers the value as its success type.
@@ -1173,6 +1213,7 @@ defmodule RustQ.Meta.Lower do
       infer_expr_type(expression, context.vars) || Typing.synth(expression, typing_env(context))
 
     {case_type, match_expr} = case_scrutinee(expression, expression_type, clauses, context)
+    case_type = declared_case_type(case_type, context)
 
     arms =
       Enum.map(clauses, fn {:->, _, [[pattern], body]} ->
@@ -1469,6 +1510,7 @@ defmodule RustQ.Meta.Lower do
         infer_expr_type(expression, context.vars) || Typing.synth(expression, typing_env(context))
 
       {case_type, match_expr} = case_scrutinee(expression, expression_type, clauses, context)
+      case_type = declared_case_type(case_type, context)
       then_context = context_with_match_pattern(pattern, case_type, context)
       then_body = lower_clause_body(body, then_context)
       mutable_vars = then_body |> collect_pattern_mutations(then_context) |> MapSet.new()
@@ -2076,6 +2118,17 @@ defmodule RustQ.Meta.Lower do
     %{context | vars: Map.put(context.vars, name, type)}
   end
 
+  defp context_with_match_pattern(pattern, %Type{kind: :rust_enum} = type, %Context{} = context),
+    do: context_with_variant_pattern(pattern, type, & &1, context)
+
+  defp context_with_match_pattern(
+         pattern,
+         %Type{kind: kind, meta: %{inner: %Type{kind: :rust_enum} = inner}},
+         %Context{} = context
+       )
+       when kind in [:ref, :mut_ref],
+       do: context_with_variant_pattern(pattern, inner, &Type.ref/1, context)
+
   defp context_with_match_pattern(pattern, %Type{kind: :tuple, meta: %{elements: types}}, context) do
     case Pattern.tuple_elements(pattern) do
       elements when is_list(elements) and length(elements) == length(types) ->
@@ -2094,6 +2147,20 @@ defmodule RustQ.Meta.Lower do
   defp context_with_match_pattern(pattern, _type, %Context{} = context) do
     names = pattern |> pattern_variables() |> Enum.map(&elem(&1, 0))
     %{context | vars: Map.drop(context.vars, names)}
+  end
+
+  defp context_with_variant_pattern(pattern, type, payload_type, %Context{} = context) do
+    case rust_enum_variant(pattern, type) do
+      {_variant, payloads, types} when length(payloads) == length(types) ->
+        payloads
+        |> Enum.zip(types)
+        |> Enum.reduce(context, fn {payload, type}, acc ->
+          context_with_match_pattern(payload, payload_type.(type), acc)
+        end)
+
+      _other ->
+        context
+    end
   end
 
   defp context_with_struct_pattern(fields, %Type{} = type, %Context{} = context) do
@@ -2288,6 +2355,31 @@ defmodule RustQ.Meta.Lower do
   defp lower_match_pattern({name, _, context}, _case_type)
        when is_atom(name) and is_atom(context),
        do: %AST.PatVar{name: name}
+
+  # A borrowed enum matches its variants as they are, binding payloads by reference.
+  defp lower_match_pattern(
+         pattern,
+         %Type{kind: kind, meta: %{inner: %Type{kind: :rust_enum} = inner}}
+       )
+       when kind in [:ref, :mut_ref] and (is_atom(pattern) or is_tuple(pattern)),
+       do: lower_match_pattern(pattern, inner)
+
+  defp lower_match_pattern(pattern, %Type{kind: :rust_enum, rust: rust_name} = type)
+       when is_atom(pattern) or is_tuple(pattern) do
+    case rust_enum_variant(pattern, type) do
+      {variant, [], _types} ->
+        %AST.PatPath{path: %AST.Path{parts: [rust_name, rust_variant(variant)]}}
+
+      {variant, payloads, types} when length(payloads) == length(types) ->
+        %AST.PatPathTuple{
+          path: %AST.Path{parts: [rust_name, rust_variant(variant)]},
+          patterns: Enum.zip_with(payloads, types, &lower_tuple_element_pattern/2)
+        }
+
+      _other ->
+        lower_match_pattern(pattern, nil)
+    end
+  end
 
   defp lower_match_pattern(atom, %Type{kind: :enum, rust: rust_name}) when is_atom(atom),
     do: %AST.PatPath{path: %AST.Path{parts: [rust_name, rust_variant(atom)]}}
@@ -2757,6 +2849,22 @@ defmodule RustQ.Meta.Lower do
   end
 
   defp borrowed_iteration(function, _args, _receiver_type), do: function
+
+  # The variant a tagged tuple or atom names, with its payloads and their declared types.
+  defp rust_enum_variant(pattern, %Type{meta: %{variants: variants}}) do
+    {tag, payloads} =
+      case pattern do
+        tag when is_atom(tag) -> {tag, []}
+        {:{}, _, [tag | payloads]} -> {tag, payloads}
+        {tag, payload} -> {tag, [payload]}
+        _other -> {nil, []}
+      end
+
+    case is_atom(tag) && List.keyfind(variants, tag, 0) do
+      {^tag, types} -> {tag, payloads, types}
+      _missing -> nil
+    end
+  end
 
   defp callable_target_from_type(%Type{} = type), do: Type.callable_target(type)
   defp callable_target_from_type(_type), do: nil

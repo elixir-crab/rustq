@@ -57,6 +57,15 @@ defmodule RustQ.Meta.DefrustLoweringTest do
       end
     end
 
+    @spec pair_label(R.option(R.u32()), R.option(R.u32())) :: R.u32()
+    defrust pair_label(left, right) do
+      case {left, right} do
+        {{:some, Kind.FANCY}, {:some, value}} -> value
+        {_left, {:some, Kind.PLAIN}} -> 100
+        _ -> 0
+      end
+    end
+
     @spec listed(R.u32()) :: R.bool()
     defrust(listed(value), do: ref([Kind.PLAIN, Kind.FANCY]).contains(ref(value)))
 
@@ -137,6 +146,10 @@ defmodule RustQ.Meta.DefrustLoweringTest do
     @typep forest :: R.vec(StructUpdateCase.tree())
 
     @typep size :: :small | :large
+    @typep sized :: %{required(:size) => size()}
+
+    @spec large() :: sized()
+    defrust(large(), do: struct_literal(Sized, size: :large))
 
     @spec size(R.ref(StructUpdateCase.tree())) :: size()
     defrust(size(node), do: if(node.scale < 1.0, do: :small, else: :large))
@@ -872,6 +885,7 @@ defmodule RustQ.Meta.DefrustLoweringTest do
           let forest = forest();
           println!("{} {}", forest[0].scale, forest[1].scale);
           println!("{} {}", size_label(size(&forest[0])), size_label(size(&forest[1])));
+          println!("{}", size_label(large().size));
       }
       """
 
@@ -884,7 +898,7 @@ defmodule RustQ.Meta.DefrustLoweringTest do
                stderr_to_stdout: true
              )
 
-    assert {"0.5 2\n1 2\n", 0} = System.cmd(executable, [])
+    assert {"0.5 2\n1 2\n2\n", 0} = System.cmd(executable, [])
   end
 
   @tag :tmp_dir
@@ -959,6 +973,7 @@ defmodule RustQ.Meta.DefrustLoweringTest do
           println!("{} {} {}", label(Some(3)), label(Some(0)), label(None));
           println!("{:?} {:?} {:?}", checked(Some(4), true), checked(Some(4), false), checked(None, true));
           println!("{} {}", listed(3), listed(7));
+          println!("{} {} {}", pair_label(Some(3), Some(9)), pair_label(None, Some(0)), pair_label(None, None));
           println!("{:?} {:?} {:?} {:?}", doubled(2), doubled(-1), bumped(Some(1)), bumped(None));
           println!("{:?}", other_kinds(vec![Some(3), None, Some(0)], 3));
       }
@@ -979,6 +994,7 @@ defmodule RustQ.Meta.DefrustLoweringTest do
              "1 2 0",
              "Some(8) None None",
              "true false",
+             "9 100 0",
              "Ok(4) Err(0) Some(2) None",
              "[None, Some(0)]"
            ]

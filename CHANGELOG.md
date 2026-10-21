@@ -22,7 +22,8 @@
   `Struct { field: new, ..value }`.
 - Add `R.slice(type, R.lifetime(:a))` for a slice with a named lifetime.
 - An atom where an atom-union type such as `:small | :large` is expected names
-  the enum variant, as patterns already did.
+  the enum variant, as patterns already did, including fields of a
+  `struct_literal` whose struct the module declares.
 - A module may use the types its `callable_modules` declare, written remotely
   as `Other.tree()` since Elixir checks local types; they keep their single
   Rust declaration in the module that declares them.
@@ -36,6 +37,8 @@
 
 ### Fixed
 
+- Elements of a tuple pattern are full patterns, so `{{:some, Kind.PLAIN}, _}`
+  matches the constant inside the option.
 - Keep the grouping of nested operators: `a and (b or c)` rendered as
   `a && b || c`, and `not (a or b)` as `!a || b`. Operands are parenthesized
   by Rust's precedence.

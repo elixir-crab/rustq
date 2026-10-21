@@ -271,6 +271,9 @@ defmodule RustQ.Meta.Typing do
     |> option_unwrap_type()
   end
 
+  defp synth_method_call({{:., _, [_receiver, :to_string]}, _meta, []}, %Env{}),
+    do: RustQ.Spec.type(quote(do: String.t()))
+
   defp synth_method_call({{:., _, [receiver, method]}, _meta, []}, %Env{} = env)
        when method in [:copied, :cloned] do
     with %Type{kind: :option} = option <- synth(receiver, env),

@@ -775,11 +775,18 @@ defmodule RustQ.Meta.Lower do
        when is_list(fields),
        do: lower_struct_update(base, fields, context)
 
-  defp lower_expr_context({:struct_literal, _, [path, fields]}, %Context{} = context),
-    do: %AST.StructLiteral{
-      path: lower_struct_literal_path(path, context),
-      fields: lower_named_fields(fields, context)
-    }
+  defp lower_expr_context({:struct_literal, _, [path, fields]} = literal, %Context{} = context) do
+    case declared_struct_type(path, context) do
+      %Type{} = type ->
+        lower_expected_expr_context(literal, type, context)
+
+      nil ->
+        %AST.StructLiteral{
+          path: lower_struct_literal_path(path, context),
+          fields: lower_named_fields(fields, context)
+        }
+    end
+  end
 
   defp lower_expr_context({:enum_variant, _, [path, variant]}, %Context{} = context),
     do: enum_variant_path(path, variant, context)
@@ -2181,13 +2188,11 @@ defmodule RustQ.Meta.Lower do
 
   defp lower_match_pattern(atom, _case_type) when is_atom(atom), do: %AST.PatAtomGuard{name: atom}
 
-  defp lower_match_pattern({:{}, _, values}, _case_type) do
-    %AST.PatTuple{patterns: Enum.map(values, &lower_tuple_pattern/1)}
-  end
+  defp lower_match_pattern({:{}, _, values}, case_type),
+    do: lower_tuple_match_pattern(values, case_type)
 
-  defp lower_match_pattern({left, right}, _case_type) do
-    %AST.PatTuple{patterns: Enum.map([left, right], &lower_tuple_pattern/1)}
-  end
+  defp lower_match_pattern({left, right}, case_type),
+    do: lower_tuple_match_pattern([left, right], case_type)
 
   defp lower_match_pattern(other, _case_type) do
     Diagnostic.lower(
@@ -2218,22 +2223,20 @@ defmodule RustQ.Meta.Lower do
     }
   end
 
-  defp lower_tuple_pattern({name, _, context}) when is_atom(name) and is_atom(context),
-    do: %AST.PatVar{name: name}
+  # Each element is a pattern of its own, such as `{:some, Kind.PLAIN}`.
+  defp lower_tuple_match_pattern(values, case_type) do
+    types =
+      case case_type && Type.expected_value(case_type) do
+        %Type{kind: :tuple, meta: %{elements: elements}}
+        when length(elements) == length(values) ->
+          elements
 
-  defp lower_tuple_pattern({:{}, _, patterns}),
-    do: %AST.PatTuple{patterns: Enum.map(patterns, &lower_tuple_pattern/1)}
+        _unknown ->
+          List.duplicate(nil, length(values))
+      end
 
-  defp lower_tuple_pattern({:_, _, _}), do: %AST.PatWildcard{}
-
-  defp lower_tuple_pattern(patterns) when is_tuple(patterns),
-    do: %AST.PatTuple{patterns: patterns |> Tuple.to_list() |> Enum.map(&lower_tuple_pattern/1)}
-
-  defp lower_tuple_pattern(value) when is_binary(value) or is_integer(value),
-    do: %AST.PatLiteral{value: value}
-
-  defp lower_tuple_pattern(nil), do: %AST.PatNone{}
-  defp lower_tuple_pattern(atom) when is_atom(atom), do: %AST.PatAtomGuard{name: atom}
+    %AST.PatTuple{patterns: Enum.zip_with(values, types, &lower_match_pattern/2)}
+  end
 
   defp mark_mutable_pattern_vars(%AST.PatVar{name: name} = pattern, mutable_vars) do
     if MapSet.member?(mutable_vars, name), do: %{pattern | mutable: true}, else: pattern
@@ -3110,6 +3113,21 @@ defmodule RustQ.Meta.Lower do
     %AST.Path{parts: parts} = lower_expr(path, context)
     %AST.Path{parts: parts ++ [rust_variant(semantic_atom!(variant))]}
   end
+
+  # The struct a type declaration of this module, or of a callable module, names `name`.
+  defp declared_struct_type({:__aliases__, _, [name]}, %Context{type_aliases: aliases}) do
+    rust_name = Atom.to_string(name)
+
+    Enum.find_value(aliases, fn
+      {_key, %Type{kind: :struct, ast: %AST.TypePath{parts: [part]}} = type} ->
+        if to_string(part) == rust_name, do: type
+
+      _other ->
+        nil
+    end)
+  end
+
+  defp declared_struct_type(_path, %Context{}), do: nil
 
   # `%{value | field: new}` copies the struct with the listed fields replaced.
   defp lower_struct_update(base, fields, %Context{} = context) do

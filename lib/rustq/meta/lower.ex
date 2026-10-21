@@ -931,6 +931,9 @@ defmodule RustQ.Meta.Lower do
        when is_list(fields),
        do: lower_struct_update(base, fields, context)
 
+  defp lower_expr_context({:__rustq_typed__, _, [expression, %Type{} = type]}, %Context{} = context),
+    do: lower_expr(expression, type, context)
+
   defp lower_expr_context({:struct_literal, _, [path, fields]} = literal, %Context{} = context) do
     case declared_struct_type(path, context) do
       %Type{} = type ->
@@ -1723,10 +1726,8 @@ defmodule RustQ.Meta.Lower do
       )
     end
 
-    pipeline =
-      quote(
-        do: unquote(comprehension_pipeline(qualifiers, Keyword.fetch!(opts, :do))) |> collect()
-      )
+    body = typed_body(Keyword.fetch!(opts, :do), expected_type && collection_item_type(expected_type))
+    pipeline = quote(do: unquote(comprehension_pipeline(qualifiers, body)) |> collect())
 
     case expected_type do
       %Type{} = type ->
@@ -1789,14 +1790,23 @@ defmodule RustQ.Meta.Lower do
     )
   end
 
+  # A comprehension body lowers as the item type of the collection it builds, when known.
+  defp typed_body(body, %Type{} = item_type), do: {:__rustq_typed__, [], [body, item_type]}
+  defp typed_body(body, _item_type), do: body
+
+  defp untyped({:__rustq_typed__, _, [body, _type]}), do: body
+  defp untyped(body), do: body
+
   # An item the body returns as it is needs no mapping, and one it clones is `cloned()`.
   defp comprehension_map(stage, binder, body) do
+    plain = untyped(body)
+
     cond do
-      same_variables?(binder, body) ->
+      same_variables?(binder, plain) ->
         stage
 
-      match?({{:., _, [_, :clone]}, _, []}, body) and
-          same_variables?(binder, body |> elem(0) |> elem(2) |> hd()) ->
+      match?({{:., _, [_, :clone]}, _, []}, plain) and
+          same_variables?(binder, plain |> elem(0) |> elem(2) |> hd()) ->
         quote(do: unquote(stage) |> cloned())
 
       true ->
@@ -2783,6 +2793,16 @@ defmodule RustQ.Meta.Lower do
     case Type.vec_inner(receiver_type) do
       %Type{} = inner -> lower_args_with_expected([inner], [arg], context)
       nil -> [lower_wrapper_arg_expr(arg, context)]
+    end
+  end
+
+  # Extending a vector takes items of its type.
+  defp lower_method_call_args(%Type{} = receiver_type, _target, :extend, [arg], context) do
+    vec_type = Type.ref_inner(receiver_type) || receiver_type
+
+    case Type.vec_inner(vec_type) do
+      %Type{} = inner -> lower_args_with_expected([Type.vec(inner)], [arg], context)
+      nil -> [lower_expr(arg, context)]
     end
   end
 

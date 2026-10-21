@@ -81,6 +81,9 @@
   expected is copied out with `*`, and arithmetic on borrowed numbers is typed
   as a number; `ref(value)` is typed as a reference, and `try_fold` in an
   option-returning position is not wrapped in `Some`.
+- A comprehension whose collection type is known lowers its body as the item
+  type, so tagged tuples and atoms in it name variants, and `extend` on a
+  vector takes items of its type.
 - Keep the grouping of nested operators: `a and (b or c)` rendered as
   `a && b || c`, and `not (a or b)` as `!a || b`. Operands are parenthesized
   by Rust's precedence.

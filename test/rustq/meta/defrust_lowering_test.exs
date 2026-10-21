@@ -665,6 +665,7 @@ defmodule RustQ.Meta.DefrustLoweringTest do
     end
 
     source = RustNamesCase.__rustq_source__()
+    assert MetaAST.function!(RustNamesCase, :positive?).name == :positive?
     assert source =~ "fn positive(value: i64) -> bool"
     assert source =~ "fn shift(r#override: i64) -> i64"
     assert source =~ "let r#type = r#override + 1;"

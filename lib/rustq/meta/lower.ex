@@ -619,6 +619,10 @@ defmodule RustQ.Meta.Lower do
   defp lower_expr_context({:decode_as, _, [expression, type_ast]}, %Context{} = context),
     do: decode_as_expr(expression, type_ast, context)
 
+  # A borrowed list literal is a slice of an array, not of a vector built for the borrow.
+  defp lower_expr_context({:ref, _, [values]}, %Context{} = context) when is_list(values),
+    do: %AST.Ref{expr: %AST.ArrayLiteral{values: Enum.map(values, &lower_expr(&1, context))}}
+
   defp lower_expr_context({:ref, _, [expression]}, %Context{} = context),
     do: %AST.Ref{expr: lower_expr(expression, context)}
 
@@ -1223,12 +1227,24 @@ defmodule RustQ.Meta.Lower do
             }
           ]
         },
-        %AST.Arm{
-          pattern: %AST.PatVar{name: with_value},
-          body: [
-            %AST.Return{expr: lower_with_else(with_value, else_clauses, context, expected_type)}
-          ]
-        }
+        with_fallback_arm(with_value, else_clauses, context, expected_type)
+      ]
+    }
+  end
+
+  # A lone catch-all `else` is the fallback arm itself, not a match on the unmatched value.
+  defp with_fallback_arm(_value_name, [{:->, _, [[{:_, _, _}], body]}], context, expected_type) do
+    %AST.Arm{
+      pattern: %AST.PatWildcard{},
+      body: lower_clause_body(body, %{context | position: :return}, expected_type)
+    }
+  end
+
+  defp with_fallback_arm(value_name, else_clauses, context, expected_type) do
+    %AST.Arm{
+      pattern: %AST.PatVar{name: value_name},
+      body: [
+        %AST.Return{expr: lower_with_else(value_name, else_clauses, context, expected_type)}
       ]
     }
   end

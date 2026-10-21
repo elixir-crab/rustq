@@ -57,6 +57,9 @@ defmodule RustQ.Meta.DefrustLoweringTest do
       end
     end
 
+    @spec listed(R.u32()) :: R.bool()
+    defrust(listed(value), do: ref([Kind.PLAIN, Kind.FANCY]).contains(ref(value)))
+
     @spec checked(R.option(R.i64()), R.bool()) :: R.option(R.i64())
     defrust checked(value, enabled) do
       with {:some, value} <- value,
@@ -679,6 +682,9 @@ defmodule RustQ.Meta.DefrustLoweringTest do
     source = PatternPathCase.__rustq_source__()
     assert source =~ "Some(kinds::FANCY) => 1"
     assert source =~ "true => Some(value * 2)"
+    assert source =~ "_ => None"
+    refute source =~ "__rustq_with_value"
+    assert source =~ "(&[kinds::PLAIN, kinds::FANCY]).contains(&value)"
 
     program =
       """
@@ -690,6 +696,7 @@ defmodule RustQ.Meta.DefrustLoweringTest do
       fn main() {
           println!("{} {} {}", label(Some(3)), label(Some(0)), label(None));
           println!("{:?} {:?} {:?}", checked(Some(4), true), checked(Some(4), false), checked(None, true));
+          println!("{} {}", listed(3), listed(7));
       }
       """
 
@@ -703,7 +710,7 @@ defmodule RustQ.Meta.DefrustLoweringTest do
              )
 
     assert {output, 0} = System.cmd(executable, [])
-    assert String.split(output, "\n", trim: true) == ["1 2 0", "Some(8) None None"]
+    assert String.split(output, "\n", trim: true) == ["1 2 0", "Some(8) None None", "true false"]
   end
 
   @tag :tmp_dir

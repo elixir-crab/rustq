@@ -37,6 +37,9 @@
   uses it, and a closure argument its body changes, such as a fold accumulator.
   An empty map or set bound with a known type states it, as Rust cannot infer
   its value type through `entry(key).or_default()`.
+- Lower a `with` whose `else` is a lone catch-all to that fallback arm, rather
+  than a single-arm match on the unmatched value, and a borrowed list literal
+  to a borrowed array rather than a vector built for the borrow.
 - Patterns of unknown type drop the old types of the names they rebind, and a
   `with` clause takes the type of a plain variable it matches, so a rebound
   value is no longer propagated as the option it came from.

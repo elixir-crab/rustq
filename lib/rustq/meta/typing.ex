@@ -122,7 +122,7 @@ defmodule RustQ.Meta.Typing do
   def synth({:|>, _meta, [left, right]}, %Env{} = env) do
     case Call.pipe_remote(left, right) do
       {:ok, call} -> synth(call, env)
-      :unsupported -> nil
+      :unsupported -> synth_piped_call(left, right, env)
     end
   end
 
@@ -271,6 +271,17 @@ defmodule RustQ.Meta.Typing do
     |> option_unwrap_type()
   end
 
+  defp synth_method_call({{:., _, [receiver, method]}, _meta, []}, %Env{} = env)
+       when method in [:copied, :cloned] do
+    with %Type{kind: :option} = option <- synth(receiver, env),
+         %Type{} = inner <- Type.inner(option),
+         %Type{} = value <- Type.ref_inner(inner) do
+      option_type(value)
+    else
+      _unknown -> nil
+    end
+  end
+
   defp synth_method_call({{:., _, [receiver, :as_ref]}, _meta, []}, %Env{} = env) do
     receiver
     |> synth(env)
@@ -287,9 +298,26 @@ defmodule RustQ.Meta.Typing do
     do: result_type(RustQ.Spec.type(quote(do: String.t())))
 
   defp synth_method_call({{:., _, [receiver, :get]}, _meta, [_index]}, %Env{} = env) do
-    receiver
-    |> synth(env)
-    |> slice_get_type()
+    case synth(receiver, env) do
+      %Type{} = type -> slice_get_type(type) || map_get_type(type)
+      nil -> nil
+    end
+  end
+
+  defp synth_method_call(
+         {{:., _, [receiver, :and_then]}, _meta,
+          [{:fn, _, [{:->, _, [[{name, _, context}], body]}]}]},
+         %Env{} = env
+       )
+       when is_atom(name) and is_atom(context) do
+    with %Type{kind: :option} = option <- synth(receiver, env),
+         %Type{} = inner <- Type.inner(option),
+         %Type{kind: :option} = chained <-
+           synth(body, %{env | vars: Map.put(env.vars, name, inner)}) do
+      chained
+    else
+      _unknown -> nil
+    end
   end
 
   defp synth_method_call({{:., _, [receiver, :first]}, _meta, []}, %Env{} = env) do
@@ -365,13 +393,48 @@ defmodule RustQ.Meta.Typing do
 
   defp field_receiver_type(%Type{} = type), do: Type.ref_inner(type) || type
 
+  # A pipe into a call that is not the module's own function calls the method on the value, as
+  # lowering does.
+  defp synth_piped_call(left, {name, meta, args}, %Env{} = env)
+       when is_atom(name) and is_list(args) do
+    Lower.callable_return_type(
+      {name, meta, [left | args]},
+      callables: env.callables,
+      rust_modules: env.rust_modules,
+      vars: env.vars
+    ) || synth_method_call({{:., meta, [left, name]}, meta, args}, env)
+  end
+
+  defp synth_piped_call(_left, _right, %Env{}), do: nil
+
+  defp map_get_type(%Type{} = type) do
+    case Type.expected_value(Type.ref_inner(type) || type) do
+      %Type{ast: %AST.TypePath{parts: [map], generics: [_key, value]}}
+      when map in [:HashMap, :BTreeMap] ->
+        option_type(ref_type(Type.ast_type(value)))
+
+      _other ->
+        nil
+    end
+  end
+
   defp slice_get_type(%Type{} = type) do
     cond do
       inner = Type.vec_inner(type) -> option_type(ref_type(inner))
+      inner = borrowed_vec_inner(type) -> option_type(ref_type(inner))
       inner = Type.slice_inner(type) -> option_type(ref_type(inner))
       true -> nil
     end
   end
+
+  defp borrowed_vec_inner(%Type{kind: kind} = type) when kind in [:ref, :mut_ref] do
+    case Type.ref_inner(type) do
+      %Type{} = vec -> Type.vec_inner(vec)
+      nil -> nil
+    end
+  end
+
+  defp borrowed_vec_inner(%Type{}), do: nil
 
   defp ref_type(%Type{} = inner), do: Type.ref(inner)
   defp option_type(%Type{} = inner), do: Type.option(inner)

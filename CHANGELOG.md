@@ -20,6 +20,7 @@
   the term decoder a `@type` gets, so it may hold values without a term codec.
 - Lower `%{value | field: new}` on a struct to Rust's struct update syntax,
   `Struct { field: new, ..value }`.
+- Add `R.slice(type, R.lifetime(:a))` for a slice with a named lifetime.
 - An atom where an atom-union type such as `:small | :large` is expected names
   the enum variant, as patterns already did.
 - A module may use the types its `callable_modules` declare, written remotely
@@ -57,6 +58,12 @@
   the function's own `Err` or `None`, as Elixir returns the unmatched value.
 - Never propagate with `?` in a function or closure returning a plain value
   such as a vector; the value stays wrapped there.
+- Type `get` on maps and on borrowed vectors, `and_then`, `copied`, `cloned`,
+  and methods reached through a pipe, so an option they return is no longer
+  wrapped in a second `Some`.
+- A function returning nothing runs its last expression as a statement, so a
+  trailing `if` or `for` no longer becomes a value such as a collected vector.
+- `ref([])` where a slice is expected borrows an empty array.
 - A type that refers to itself, such as a tree whose children are trees, names
   its Rust type in its own fields.
 - Mark an owned argument `mut` for any method that changes it in place, such

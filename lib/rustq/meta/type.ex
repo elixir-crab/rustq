@@ -994,6 +994,11 @@ defmodule RustQ.Meta.Type do
     type(:slice, %AST.TypeRef{inner: %AST.TypeSlice{inner: inner.ast}}, %{inner: inner})
   end
 
+  defp parse_rust_type(:slice, [inner, lifetime], aliases) do
+    %__MODULE__{ast: ast} = type = parse_rust_type(:slice, [inner], aliases)
+    %{type | ast: %{ast | lifetime: reference_lifetime!(lifetime)}}
+  end
+
   defp parse_rust_type(:raw, [type], _aliases), do: type(:type, raw_type!(type))
 
   defp parse_rust_type(:enum, [variants], aliases) when is_list(variants) do

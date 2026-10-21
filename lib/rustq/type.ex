@@ -198,6 +198,10 @@ defmodule RustQ.Type do
   @spec slice(term()) :: no_return()
   def slice(_type), do: type_only!()
 
+  @doc "A slice with a named lifetime: `R.slice(Record.t(), R.lifetime(:a))` is `&'a [Record]`."
+  @spec slice(term(), term()) :: no_return()
+  def slice(_type, _lifetime), do: type_only!()
+
   @spec raw(term()) :: no_return()
   def raw(_name), do: type_only!()
 

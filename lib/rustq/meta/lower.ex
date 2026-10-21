@@ -92,8 +92,16 @@ defmodule RustQ.Meta.Lower do
     return_context = %{context | position: :return}
 
     Enum.map(statements, &lower_statement(&1, statement_context)) ++
-      [lower_return(final, return_context)]
+      [lower_final(final, statement_context, return_context)]
   end
+
+  # A body returning nothing runs its last expression for its effects, as a statement.
+  defp lower_final(final, statement_context, %Context{return_type: %Type{kind: :unit}})
+       when final not in [:ok, nil],
+       do: lower_statement(final, statement_context)
+
+  defp lower_final(final, _statement_context, return_context),
+    do: lower_return(final, return_context)
 
   defp lower_expected_block(expressions, %Context{} = context, %Type{} = expected_type) do
     context = context_with_downstream_let_types(expressions, context)
@@ -308,6 +316,23 @@ defmodule RustQ.Meta.Lower do
        )
        when is_binary(value),
        do: %AST.MethodCall{receiver: %AST.Literal{value: value}, method: :to_string, args: []}
+
+  # A borrowed list literal is a borrowed array, which coerces to the slice expected.
+  defp lower_expected_expr_context({:ref, _, [values]}, %Type{} = expected_type, context)
+       when is_list(values) do
+    item_type = Type.slice_inner(Type.expected_value(expected_type))
+
+    %AST.Ref{
+      expr: %AST.ArrayLiteral{
+        values:
+          Enum.map(values, fn value ->
+            if item_type,
+              do: lower_expr(value, item_type, context),
+              else: lower_expr(value, context)
+          end)
+      }
+    }
+  end
 
   defp lower_expected_expr_context(
          {:ref, _, [expression]},

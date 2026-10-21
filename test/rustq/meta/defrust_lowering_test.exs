@@ -156,6 +156,49 @@ defmodule RustQ.Meta.DefrustLoweringTest do
     defrust(forest(), do: [shrink(sample()), grow(sample())])
   end
 
+  defmodule OptionMethodsCase do
+    use RustQ.Meta
+    alias RustQ.Type, as: R
+
+    @typep index :: %{required(:children) => HashMap.t(R.u32(), R.vec(R.u32()))}
+
+    @spec children_of(R.ref(index(), R.lifetime(:a)), R.u32()) ::
+            R.slice(R.u32(), R.lifetime(:a))
+    defrust children_of(index, id) do
+      case index.children.get(ref(id)) do
+        {:some, children} -> children.as_slice()
+        :none -> ref([])
+      end
+    end
+
+    @spec first_child(R.ref(index()), R.u32()) :: R.option(R.u32())
+    defrust first_child(index, id) do
+      index.children.get(ref(id)) |> and_then(fn children -> children.first().copied() end)
+    end
+
+    @spec large(R.option(R.u32())) :: R.option(R.u32())
+    defrust(large(value), do: value |> filter(fn value -> deref(value) > 1 end))
+
+    @spec collect_leaves(R.ref(index()), R.u32(), R.mut_ref(R.vec(R.u32()))) :: R.unit()
+    defrust collect_leaves(index, id, leaves) do
+      if children_of(index, id).is_empty() do
+        leaves.push(id)
+      else
+        for child <- children_of(index, id) do
+          collect_leaves(index, deref(child), leaves)
+        end
+      end
+    end
+
+    @spec sample() :: index()
+    defrust sample() do
+      children = HashMap.new()
+      children.insert(1, [2, 3])
+      children.insert(3, [4])
+      struct_literal(Index, children: children)
+    end
+  end
+
   defmodule CaptureIndexCase do
     use RustQ.Meta
     alias RustQ.Type, as: R
@@ -828,6 +871,36 @@ defmodule RustQ.Meta.DefrustLoweringTest do
              )
 
     assert {"0.5 2\n1 2\n", 0} = System.cmd(executable, [])
+  end
+
+  @tag :tmp_dir
+  test "types option and map methods and runs unit bodies for their effects", %{tmp_dir: dir} do
+    source = OptionMethodsCase.__rustq_source__()
+    refute source =~ "Some(index.children.get"
+    assert source =~ "None => &[],"
+
+    program =
+      """
+      use std::collections::HashMap;
+      #{source}
+      fn main() {
+          let index = sample();
+          let mut leaves = Vec::new();
+          collect_leaves(&index, 1, &mut leaves);
+          println!("{:?} {:?} {:?} {:?}", leaves, first_child(&index, 1), large(Some(1)), children_of(&index, 9));
+      }
+      """
+
+    path = Path.join(dir, "option_methods.rs")
+    executable = Path.join(dir, "option_methods")
+    File.write!(path, program)
+
+    assert {_, 0} =
+             System.cmd("rustc", ["--edition", "2021", path, "-o", executable],
+               stderr_to_stdout: true
+             )
+
+    assert {"[2, 4] Some(2) None []\n", 0} = System.cmd(executable, [])
   end
 
   @tag :tmp_dir

@@ -199,6 +199,20 @@ defmodule RustQ.Meta.DefrustLoweringTest do
     end
   end
 
+  defmodule PrecedenceCase do
+    use RustQ.Meta
+    alias RustQ.Type, as: R
+
+    @spec logic(R.bool(), R.bool(), R.bool()) :: R.bool()
+    defrust(logic(a, b, c), do: a and (b or c))
+
+    @spec negated(R.bool(), R.bool()) :: R.bool()
+    defrust(negated(a, b), do: not (a or b))
+
+    @spec arith(R.i64(), R.i64(), R.i64()) :: R.i64()
+    defrust(arith(a, b, c), do: a - (b - c) + (a + b) * c)
+  end
+
   defmodule CaptureIndexCase do
     use RustQ.Meta
     alias RustQ.Type, as: R
@@ -901,6 +915,28 @@ defmodule RustQ.Meta.DefrustLoweringTest do
              )
 
     assert {"[2, 4] Some(2) None []\n", 0} = System.cmd(executable, [])
+  end
+
+  @tag :tmp_dir
+  test "keeps the grouping of nested operators", %{tmp_dir: dir} do
+    program =
+      """
+      #{PrecedenceCase.__rustq_source__()}
+      fn main() {
+          println!("{} {} {}", logic(false, true, true), negated(false, true), arith(5, 3, 1, ));
+      }
+      """
+
+    path = Path.join(dir, "precedence.rs")
+    executable = Path.join(dir, "precedence")
+    File.write!(path, program)
+
+    assert {_, 0} =
+             System.cmd("rustc", ["--edition", "2021", path, "-o", executable],
+               stderr_to_stdout: true
+             )
+
+    assert {"false false 11\n", 0} = System.cmd(executable, [])
   end
 
   @tag :tmp_dir

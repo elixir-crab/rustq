@@ -164,6 +164,10 @@ defmodule RustQ.Meta.Lower do
     %AST.ExprStmt{expr: lower_if(condition, branches, context)}
   end
 
+  # Run for its effects, a `cond` is a chain of `if`s; a final branch doing nothing is left out.
+  defp lower_statement({:cond, _, [[do: clauses]]}, %Context{} = context),
+    do: lower_statement(cond_statement(clauses), context)
+
   defp lower_statement({:with, _, clauses}, %Context{} = context) do
     %AST.ExprStmt{expr: lower_with(clauses, context)}
   end
@@ -184,11 +188,26 @@ defmodule RustQ.Meta.Lower do
   end
 
   defp lower_statement(:ok, %Context{}), do: %AST.ExprStmt{expr: %AST.Tuple{values: []}}
+
+  defp lower_statement({:__block__, _, [expression]}, context),
+    do: lower_statement(expression, context)
+
   defp lower_statement(nil, %Context{}), do: %AST.ExprStmt{expr: %AST.Tuple{values: []}}
 
   defp lower_statement(expression, %Context{} = context) do
     %AST.ExprStmt{expr: lower_statement_expr(expression, context)}
   end
+
+  defp cond_statement([{:->, _, [[true], body]} | _rest]), do: body
+
+  defp cond_statement([{:->, meta, [[condition], body]} | rest]) do
+    case cond_statement(rest) do
+      nothing when nothing in [:ok, nil] -> {:if, meta, [condition, [do: body]]}
+      other -> {:if, meta, [condition, [do: body, else: other]]}
+    end
+  end
+
+  defp cond_statement([]), do: nil
 
   defp lower_return({:case, _, [expression, [do: clauses]]}, %Context{} = context) do
     %AST.Return{expr: lower_case(expression, clauses, context, context.return_type)}
@@ -1049,6 +1068,15 @@ defmodule RustQ.Meta.Lower do
     end
   end
 
+  # An expression the author already borrowed is not borrowed again.
+  defp lower_checked_coercion(
+         %Typing.Check{coercion: coercion},
+         {borrow, _, [_]} = expression,
+         context
+       )
+       when coercion in [:borrow, :mut_borrow] and borrow in [:ref, :mut_ref],
+       do: lower_expr(expression, context)
+
   defp lower_checked_coercion(%Typing.Check{coercion: :borrow}, expression, context),
     do: %AST.Ref{expr: lower_expr(expression, context)}
 
@@ -1477,6 +1505,8 @@ defmodule RustQ.Meta.Lower do
   # iterator pipeline: each generator filters and binds in one `filter_map`, its filters as the
   # match guard; later generators nest through `flat_map`, collecting each inner pipeline so
   # its closures never outlive the outer item they borrow.
+  @any_vec %AST.TypeVec{inner: %AST.TypeRaw{source: "_"}}
+
   defp lower_comprehension(expression, expected_type, %Context{} = context) do
     {qualifiers, opts} = comprehension_parts(expression)
 
@@ -1495,10 +1525,26 @@ defmodule RustQ.Meta.Lower do
       )
 
     case expected_type do
-      %Type{} = type -> lower_expr(pipeline, type, context)
-      nil -> lower_expr(pipeline, context)
+      %Type{} = type ->
+        lowered = lower_expr(pipeline, type, context)
+
+        cond do
+          slice_type?(type) -> collect_as(lowered, @any_vec)
+          context.position == :statement -> collect_as(lowered, type.ast)
+          true -> lowered
+        end
+
+      nil ->
+        pipeline |> lower_expr(context) |> collect_as(@any_vec)
     end
   end
+
+  # A comprehension bound in a statement states what it collects into, since Rust may only
+  # learn it from a later borrow; without a collection, it makes a list, as in Elixir.
+  defp collect_as(%AST.MethodCall{method: :collect, generics: []} = call, type),
+    do: %{call | generics: [type]}
+
+  defp collect_as(lowered, _type), do: lowered
 
   defp comprehension_parts({:for, _, args}) do
     {opts, qualifiers} = args |> Enum.reverse() |> Enum.split_while(&Keyword.keyword?/1)
@@ -3363,6 +3409,13 @@ defmodule RustQ.Meta.Lower do
 
       %AST.Ref{mutable: true, expr: %AST.Var{name: name}}, acc ->
         [name | acc]
+
+      # A changing method used as a value, as in `if seen.insert(key)`.
+      %AST.MethodCall{} = call, acc ->
+        case mutated_chain_root(call) do
+          nil -> acc
+          name -> [name | acc]
+        end
 
       _other, acc ->
         acc

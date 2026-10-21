@@ -367,6 +367,7 @@ pub(crate) fn parse_ident_expr(ident: proc_macro2::Ident) -> NifResult<Expr> {
 }
 
 pub(crate) fn parse_ref_expr(expr: Expr, mutable: bool) -> NifResult<Expr> {
+    let expr = prefix_operand(expr);
     if mutable {
         parse_syn::<Expr>(quote!(&mut #expr))
     } else {
@@ -404,7 +405,68 @@ pub(crate) fn parse_raise_atom_expr(name: String) -> NifResult<Expr> {
     parse_syn::<Expr>(quote!(rustler::Error::RaiseAtom(#name)))
 }
 
+/// How tightly an expression binds as an operand, by Rust's operator precedence; `None` for
+/// expressions that never need parentheses.
+fn operand_precedence(expr: &Expr) -> Option<u8> {
+    use syn::BinOp::*;
+    match expr {
+        Expr::Binary(binary) => Some(match binary.op {
+            Mul(_) | Div(_) | Rem(_) => 10,
+            Add(_) | Sub(_) => 9,
+            Shl(_) | Shr(_) => 8,
+            BitAnd(_) => 7,
+            BitXor(_) => 6,
+            BitOr(_) => 5,
+            Eq(_) | Ne(_) | Lt(_) | Le(_) | Gt(_) | Ge(_) => 4,
+            And(_) => 3,
+            Or(_) => 2,
+            _ => 1,
+        }),
+        Expr::Cast(_) => Some(11),
+        Expr::Range(_) | Expr::Assign(_) | Expr::Closure(_) | Expr::Let(_) => Some(0),
+        _ => None,
+    }
+}
+
+fn parenthesized(expr: Expr) -> Expr {
+    Expr::Paren(syn::ExprParen {
+        attrs: Vec::new(),
+        paren_token: Default::default(),
+        expr: Box::new(expr),
+    })
+}
+
+/// An operand of an operator binding at `precedence`, parenthesized when it binds more
+/// loosely, or as tightly on the right, since Rust's binary operators group to the left and
+/// comparisons do not chain.
+fn operand(expr: Expr, precedence: u8, right: bool) -> Expr {
+    match operand_precedence(&expr) {
+        Some(inner) if inner < precedence || (inner == precedence && (right || inner == 4)) => {
+            parenthesized(expr)
+        }
+        _ => expr,
+    }
+}
+
+/// The operand of a prefix operator, which binds more tightly than any binary one.
+fn prefix_operand(expr: Expr) -> Expr {
+    operand(expr, 12, true)
+}
+
 pub(crate) fn parse_binary_expr(left: Expr, op: String, right: Expr) -> NifResult<Expr> {
+    let precedence = match op.as_str() {
+        "mul" | "div" | "rem" => 10,
+        "add" | "sub" => 9,
+        "shr" => 8,
+        "bitand" => 7,
+        "eq" | "ne" | "lt" | "lte" | "gt" | "gte" => 4,
+        "and" => 3,
+        "or" => 2,
+        _ => return Err(rustler::Error::BadArg),
+    };
+    let left = operand(left, precedence, false);
+    let right = operand(right, precedence, true);
+
     match op.as_str() {
         "eq" => parse_syn::<Expr>(quote!(#left == #right)),
         "ne" => parse_syn::<Expr>(quote!(#left != #right)),
@@ -601,6 +663,7 @@ pub(crate) fn parse_cast_expr(expr: Expr, ty: Type) -> NifResult<Expr> {
 }
 
 pub(crate) fn parse_unary_expr(op: String, expr: Expr) -> NifResult<Expr> {
+    let expr = prefix_operand(expr);
     match op.as_str() {
         "not" => parse_syn::<Expr>(quote!( !#expr )),
         "neg" => parse_syn::<Expr>(quote!( -#expr )),

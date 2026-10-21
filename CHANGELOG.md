@@ -36,6 +36,13 @@
 
 ### Fixed
 
+- Keep the grouping of nested operators: `a and (b or c)` rendered as
+  `a && b || c`, and `not (a or b)` as `!a || b`. Operands are parenthesized
+  by Rust's precedence.
+- A `cond` run for its effects lowers to `if` statements, and a comprehension
+  bound in a statement states what it collects into, a `Vec` unless known.
+- An explicitly borrowed argument is not borrowed again, and a method that
+  changes its receiver marks it `mut` wherever it is called.
 - Render words Rust reserves for future use, such as `override` and `yield`, as
   raw identifiers, including function and closure arguments and local calls.
 - Compare two options or results without propagating either side, never

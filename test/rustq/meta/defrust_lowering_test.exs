@@ -127,6 +127,22 @@ defmodule RustQ.Meta.DefrustLoweringTest do
     end
   end
 
+  defmodule ImportedTypeCase do
+    use RustQ.Meta,
+      callable_modules: [RustQ.Meta.DefrustLoweringTest.StructUpdateCase]
+
+    alias RustQ.Meta.DefrustLoweringTest.StructUpdateCase
+    alias RustQ.Type, as: R
+
+    @typep forest :: R.vec(StructUpdateCase.tree())
+
+    @spec shrink(StructUpdateCase.tree()) :: StructUpdateCase.tree()
+    defrust(shrink(node), do: %{node | scale: node.scale / 2.0})
+
+    @spec forest() :: forest()
+    defrust(forest(), do: [shrink(sample()), grow(sample())])
+  end
+
   defmodule CaptureIndexCase do
     use RustQ.Meta
     alias RustQ.Type, as: R
@@ -770,6 +786,34 @@ defmodule RustQ.Meta.DefrustLoweringTest do
              )
 
     assert {"7 2 2\n", 0} = System.cmd(executable, [])
+  end
+
+  @tag :tmp_dir
+  test "uses the types its callable modules declare", %{tmp_dir: dir} do
+    source = ImportedTypeCase.__rustq_source__()
+    refute source =~ "struct Tree"
+    assert source =~ "pub type Forest = Vec<Tree>;"
+
+    program =
+      """
+      #{StructUpdateCase.__rustq_source__()}
+      #{source}
+      fn main() {
+          let forest = forest();
+          println!("{} {}", forest[0].scale, forest[1].scale);
+      }
+      """
+
+    path = Path.join(dir, "imported_types.rs")
+    executable = Path.join(dir, "imported_types")
+    File.write!(path, program)
+
+    assert {_, 0} =
+             System.cmd("rustc", ["--edition", "2021", path, "-o", executable],
+               stderr_to_stdout: true
+             )
+
+    assert {"0.5 2\n", 0} = System.cmd(executable, [])
   end
 
   @tag :tmp_dir

@@ -610,7 +610,7 @@ defmodule RustQ.Meta.Type do
 
   @doc false
   @spec parse(Macro.t(), map()) :: t()
-  def type_aliases(types) do
+  def type_aliases(types, imported \\ %{}) do
     types = types |> List.wrap() |> Enum.reverse()
 
     raw =
@@ -626,9 +626,11 @@ defmodule RustQ.Meta.Type do
           into: MapSet.new(),
           do: {name, type_alias_arity(args)}
 
-    raw
-    |> Map.keys()
-    |> Enum.reduce(%{}, fn key, aliases -> elem(resolve_alias(key, raw, aliases), 1) end)
+    keys = Map.keys(raw)
+
+    keys
+    |> Enum.reduce(imported, fn key, aliases -> elem(resolve_alias(key, raw, aliases), 1) end)
+    |> Map.take(keys)
     |> Map.new(fn {key, type} ->
       if MapSet.member?(private, key), do: {key, private_type(type)}, else: {key, type}
     end)

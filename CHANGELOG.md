@@ -20,6 +20,9 @@
   the term decoder a `@type` gets, so it may hold values without a term codec.
 - Lower `%{value | field: new}` on a struct to Rust's struct update syntax,
   `Struct { field: new, ..value }`.
+- A module may use the types its `callable_modules` declare, written remotely
+  as `Other.tree()` since Elixir checks local types; they keep their single
+  Rust declaration in the module that declares them.
 
 ### Changed
 

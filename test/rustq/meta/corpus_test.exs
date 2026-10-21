@@ -17,6 +17,7 @@ defmodule RustQ.Meta.CorpusInventoryTest do
              unsupported_diagnostics: [
                :unsupported_alias_path,
                :unsupported_binding_pattern,
+               :unsupported_comprehension,
                :unsupported_cond,
                :unsupported_expression,
                :unsupported_for_reduce,

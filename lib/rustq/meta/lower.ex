@@ -150,17 +150,11 @@ defmodule RustQ.Meta.Lower do
     %AST.ExprStmt{expr: lower_statement_expr(expression, context)}
   end
 
-  defp lower_statement(
-         {:for, _, [{:<-, _, [pattern, expression]}, [do: body]]},
-         %Context{} = context
-       ) do
-    body_context = context_with_for_pattern(pattern, expression, context)
-
-    %AST.For{
-      pattern: lower_binding_pattern(pattern),
-      expr: lower_expr(expression, context),
-      body: lower_clause_body(body, body_context)
-    }
+  defp lower_statement({:for, _, args} = expression, %Context{} = context) when is_list(args) do
+    case comprehension_parts(expression) do
+      {qualifiers, [do: body]} -> lower_for_loop(qualifiers, body, context)
+      _other -> %AST.ExprStmt{expr: lower_comprehension(expression, nil, context)}
+    end
   end
 
   defp lower_statement(:ok, %Context{}), do: %AST.ExprStmt{expr: %AST.Tuple{values: []}}
@@ -326,11 +320,12 @@ defmodule RustQ.Meta.Lower do
   end
 
   defp lower_expected_expr_context(
-         {:for, _, [{:<-, _, [pattern, collection]}, [do: body]]},
-         %Type{} = _expected_type,
+         {:for, _, args} = expression,
+         %Type{} = expected_type,
          %Context{} = context
-       ),
-       do: lower_for_map(pattern, collection, body, context)
+       )
+       when is_list(args),
+       do: lower_comprehension(expression, expected_type, context)
 
   defp lower_expected_expr_context(
          {:struct_literal, _, [path, fields]},
@@ -786,11 +781,9 @@ defmodule RustQ.Meta.Lower do
        ),
        do: lower_for_reduce_expr(expression, context)
 
-  defp lower_expr_context(
-         {:for, _, [{:<-, _, [pattern, collection]}, [do: body]]},
-         %Context{} = context
-       ),
-       do: lower_for_map(pattern, collection, body, context)
+  defp lower_expr_context({:for, _, args} = expression, %Context{} = context)
+       when is_list(args),
+       do: lower_comprehension(expression, nil, context)
 
   defp lower_expr_context(
          {{:., _meta, [receiver, field_or_function]}, call_meta, []},
@@ -1325,14 +1318,200 @@ defmodule RustQ.Meta.Lower do
     |> Enum.all?(&(&1 in [:ok, nil]))
   end
 
-  defp lower_for_map(pattern, collection, body, %Context{} = context) do
-    closure = lower_closure_args([pattern], body, context)
+  # A comprehension with any generators, filters, and refutable patterns, lowered through an
+  # iterator pipeline: each generator filters and binds in one `filter_map`, its filters as the
+  # match guard; later generators nest through `flat_map`, collecting each inner pipeline so
+  # its closures never outlive the outer item they borrow.
+  defp lower_comprehension(expression, expected_type, %Context{} = context) do
+    {qualifiers, opts} = comprehension_parts(expression)
 
-    collection
-    |> lower_expr(context)
-    |> method_chain(:into_iter)
-    |> method_chain(:map, [closure])
-    |> method_chain(:collect)
+    if Keyword.has_key?(opts, :reduce) do
+      Diagnostic.lower(
+        :unsupported_for_reduce,
+        expression,
+        "unsupported defrust for/reduce expression",
+        suggestion: "Use `for pattern <- enumerable, reduce: initial do acc_pattern -> body end`."
+      )
+    end
+
+    pipeline =
+      quote(
+        do: unquote(comprehension_pipeline(qualifiers, Keyword.fetch!(opts, :do))) |> collect()
+      )
+
+    case expected_type do
+      %Type{} = type -> lower_expr(pipeline, type, context)
+      nil -> lower_expr(pipeline, context)
+    end
+  end
+
+  defp comprehension_parts({:for, _, args}) do
+    {opts, qualifiers} = args |> Enum.reverse() |> Enum.split_while(&Keyword.keyword?/1)
+    {Enum.reverse(qualifiers), opts |> Enum.reverse() |> Enum.concat()}
+  end
+
+  defp comprehension_pipeline([{:<-, _, [pattern, collection]} | rest], body) do
+    {filters, rest} = Enum.split_while(rest, &(not generator?(&1)))
+    {stage, binder} = generator_stage(pattern, collection, filters)
+
+    case rest do
+      [] ->
+        comprehension_map(stage, binder, body)
+
+      _ ->
+        quote(
+          do:
+            unquote(stage)
+            |> flat_map(fn unquote(binder) ->
+              Vec.from_iter(unquote(comprehension_pipeline(rest, body)))
+            end)
+        )
+    end
+  end
+
+  # An item the body returns as it is needs no mapping.
+  defp comprehension_map(stage, binder, body) do
+    if same_variables?(binder, body),
+      do: stage,
+      else: quote(do: unquote(stage) |> map(fn unquote(binder) -> unquote(body) end))
+  end
+
+  defp same_variables?({name, _, context}, {name, _, context}) when is_atom(context), do: true
+
+  defp same_variables?(left, right) do
+    case {Pattern.tuple_elements(left), Pattern.tuple_elements(right)} do
+      {lefts, rights}
+      when is_list(lefts) and is_list(rights) and length(lefts) == length(rights) ->
+        lefts |> Enum.zip_with(rights, &same_variables?/2) |> Enum.all?()
+
+      _different ->
+        false
+    end
+  end
+
+  defp comprehension_pipeline(qualifiers, _body) do
+    Diagnostic.lower(
+      :unsupported_comprehension,
+      qualifiers,
+      "unsupported defrust comprehension",
+      suggestion: "Start the comprehension with a `pattern <- enumerable` generator."
+    )
+  end
+
+  defp generator?({:<-, _, [_pattern, _collection]}), do: true
+  defp generator?(_qualifier), do: false
+
+  # A generator that cannot fail and has no filters iterates as it is; otherwise its items are
+  # matched, filtered, and reduced to the variables the pattern binds.
+  defp generator_stage(pattern, collection, filters) do
+    items = quote(do: unquote(collection) |> into_iter())
+
+    if filters == [] and binding_pattern?(pattern) do
+      {items, pattern}
+    else
+      binder = pattern_binder(pattern)
+      {filter_bind(items, guarded_pattern(pattern, filters), binder), binder}
+    end
+  end
+
+  defp filter_bind(items, guarded, binder) do
+    quote do
+      unquote(items)
+      |> filter_map(fn item ->
+        case item do
+          unquote(guarded) -> some(unquote(binder))
+          _ -> nil
+        end
+      end)
+    end
+  end
+
+  defp guarded_pattern(pattern, []), do: pattern
+
+  defp guarded_pattern(pattern, filters) do
+    guard =
+      Enum.reduce(filters, fn filter, guard -> quote(do: unquote(guard) and unquote(filter)) end)
+
+    quote(do: unquote(pattern) when unquote(guard))
+  end
+
+  defp binding_pattern?({name, _meta, context}) when is_atom(name) and is_atom(context), do: true
+
+  defp binding_pattern?(pattern) do
+    case Pattern.tuple_elements(pattern) do
+      elements when is_list(elements) -> Enum.all?(elements, &binding_pattern?/1)
+      _not_tuple -> false
+    end
+  end
+
+  # The variables a pattern binds, as one variable or a tuple of them.
+  defp pattern_binder(pattern) do
+    case pattern_variables(pattern) do
+      [] -> quote(do: {})
+      [variable] -> variable
+      variables -> {:{}, [], variables}
+    end
+  end
+
+  defp pattern_variables(pattern) do
+    {_pattern, variables} =
+      Macro.prewalk(pattern, [], fn
+        {:^, _meta, _args}, variables ->
+          {:pinned, variables}
+
+        {name, meta, context} = variable, variables when is_atom(name) and is_atom(context) ->
+          if name |> Atom.to_string() |> String.starts_with?("_"),
+            do: {variable, variables},
+            else: {variable, [{name, meta, context} | variables]}
+
+        other, variables ->
+          {other, variables}
+      end)
+
+    variables |> Enum.reverse() |> Enum.uniq_by(fn {name, _meta, context} -> {name, context} end)
+  end
+
+  # A comprehension evaluated for its effects: nested loops, `if let` for patterns that can fail,
+  # and `if` for filters, so the body may return early.
+  defp lower_for_loop([{:<-, _, [pattern, collection]} | rest], body, %Context{} = context) do
+    body_context = context_with_for_pattern(pattern, collection, context)
+
+    if binding_pattern?(pattern) do
+      %AST.For{
+        pattern: lower_binding_pattern(pattern),
+        expr: lower_expr(collection, context),
+        body: lower_for_loop_body(rest, body, body_context)
+      }
+    else
+      %AST.For{
+        pattern: %AST.PatVar{name: :__rustq_item},
+        expr: lower_expr(collection, context),
+        body: [
+          %AST.IfLet{
+            pattern: lower_match_pattern(pattern, nil),
+            expr: %AST.Var{name: :__rustq_item},
+            then:
+              lower_for_loop_body(rest, body, context_with_match_pattern(pattern, nil, context))
+          }
+        ]
+      }
+    end
+  end
+
+  defp lower_for_loop_body([], body, %Context{} = context), do: lower_clause_body(body, context)
+
+  defp lower_for_loop_body([{:<-, _, _} | _] = qualifiers, body, %Context{} = context),
+    do: [lower_for_loop(qualifiers, body, context)]
+
+  defp lower_for_loop_body([filter | rest], body, %Context{} = context) do
+    [
+      %AST.ExprStmt{
+        expr: %AST.If{
+          condition: lower_expr(filter, context),
+          then: lower_for_loop_body(rest, body, context)
+        }
+      }
+    ]
   end
 
   defp lower_for_reduce_expr(expression, %Context{return_type: %Type{} = return_type} = context),
@@ -2437,9 +2616,6 @@ defmodule RustQ.Meta.Lower do
         nil
     end
   end
-
-  defp method_chain(receiver, method, args \\ []),
-    do: %AST.MethodCall{receiver: receiver, method: method, args: args}
 
   defp macro_call_name?(name), do: name |> Atom.to_string() |> String.ends_with?("!")
 

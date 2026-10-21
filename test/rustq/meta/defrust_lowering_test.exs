@@ -5,6 +5,43 @@ defmodule RustQ.Meta.DefrustLoweringTest do
   alias RustQ.Meta.GeneratedCase, as: Generated
   alias RustQ.Native.Nif
 
+  defmodule FilteredComprehensionCase do
+    use RustQ.Meta
+    alias RustQ.Type, as: R
+
+    @spec evens(R.vec(R.i64())) :: R.vec(R.i64())
+    defrust(evens(values), do: for(value <- values, rem(value, 2) == 0, do: value * 10))
+
+    @spec present(R.vec(R.option(R.i64()))) :: R.vec(R.i64())
+    defrust(present(values), do: for({:some, value} <- values, do: value))
+
+    @spec pairs(R.vec(R.i64()), R.vec(R.i64())) :: R.vec({R.i64(), R.i64()})
+    defrust pairs(left, right) do
+      for x <- left, y <- right.clone(), x < y, do: {x, y}
+    end
+
+    @spec by_key(R.vec({R.i64(), R.i64()})) :: HashMap.t(R.i64(), R.i64())
+    defrust(by_key(pairs),
+      do: for({key, value} <- pairs, into: HashMap.new(), do: {key, value})
+    )
+  end
+
+  defmodule LoopComprehensionCase do
+    use RustQ.Meta
+    alias RustQ.Type, as: R
+
+    @spec positive(R.vec(R.option(R.i64()))) :: R.vec(R.i64())
+    defrust positive(values) do
+      found = Vec.new()
+
+      for {:some, value} <- values, value > 0 do
+        found.push(value)
+      end
+
+      found
+    end
+  end
+
   test "Meta returns rendered items" do
     functions = MetaAST.functions(RustQ.Meta.GeneratedCase)
     item = MetaAST.function!(RustQ.Meta.GeneratedCase, :draw_save)
@@ -435,6 +472,74 @@ defmodule RustQ.Meta.DefrustLoweringTest do
 
     assert source =~ "for (name, count) in pairs"
     assert source =~ "push_pair(name, count);"
+  end
+
+  test "lowers comprehensions with filters, refutable patterns, and nested generators" do
+    source = FilteredComprehensionCase.__rustq_source__() |> String.replace(~r/\s+/, " ")
+
+    assert source =~
+             "values .into_iter() .filter_map(|item| match item { value if value % 2 == 0 => Some(value), _ => None, }) .map(|value| value * 10) .collect()"
+
+    assert source =~ "match item { Some(value) => Some(value), _ => None, }) .collect()"
+    assert source =~ "left.into_iter() .flat_map(|x|"
+    assert source =~ "y if x < y => Some(y)"
+    assert source =~ ".map(|y| (x, y))"
+    assert source =~ "pairs.into_iter().collect()"
+  end
+
+  @tag :tmp_dir
+  test "compiled comprehensions return what Elixir comprehensions return", %{tmp_dir: dir} do
+    source =
+      FilteredComprehensionCase.__rustq_source__() <>
+        LoopComprehensionCase.__rustq_source__() <>
+        """
+        fn main() {
+            println!("{:?}", evens(vec![1, 2, 3, 4]));
+            println!("{:?}", present(vec![Some(1), None, Some(3)]));
+            println!("{:?}", pairs(vec![1, 2], vec![1, 2, 3]));
+            let mut keyed: Vec<_> = by_key(vec![(1, 10), (2, 20)]).into_iter().collect();
+            keyed.sort();
+            println!("{:?}", keyed);
+            println!("{:?}", positive(vec![Some(4), None, Some(-2), Some(5)]));
+        }
+        """
+
+    path = Path.join(dir, "comprehensions.rs")
+    executable = Path.join(dir, "comprehensions")
+    File.write!(path, "use std::collections::HashMap;\n" <> source)
+
+    assert {_, 0} =
+             System.cmd("rustc", ["--edition", "2021", path, "-o", executable],
+               stderr_to_stdout: true
+             )
+
+    assert {output, 0} = System.cmd(executable, [])
+
+    expected = [
+      for(value <- [1, 2, 3, 4], rem(value, 2) == 0, do: value * 10),
+      for({:some, value} <- [{:some, 1}, nil, {:some, 3}], do: value),
+      for(x <- [1, 2], y <- [1, 2, 3], x < y, do: {x, y}),
+      for({key, value} <- [{1, 10}, {2, 20}], into: %{}, do: {key, value}) |> Enum.sort(),
+      for({:some, value} <- [{:some, 4}, nil, {:some, -2}, {:some, 5}], value > 0, do: value)
+    ]
+
+    assert String.split(output, "\n", trim: true) == [
+             "[20, 40]",
+             "[1, 3]",
+             "[(1, 2), (1, 3), (2, 3)]",
+             "[(1, 10), (2, 20)]",
+             "[4, 5]"
+           ]
+
+    assert expected == [[20, 40], [1, 3], [{1, 2}, {1, 3}, {2, 3}], [{1, 10}, {2, 20}], [4, 5]]
+  end
+
+  test "lowers effect comprehensions with refutable patterns and filters to loops" do
+    source = LoopComprehensionCase.__rustq_source__()
+    assert source =~ "let mut found = Vec::new();"
+    assert source =~ "for __rustq_item in values"
+    assert source =~ "if let Some(value) = __rustq_item"
+    assert source =~ "if value > 0"
   end
 
   test "marks mutable lets inside if branches" do

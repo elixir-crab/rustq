@@ -739,20 +739,16 @@ defmodule RustQ.Meta.AST do
     ]
   end
 
+  defp type_items(%Type{kind: kind, rust: rust_name, meta: %{private: true, variants: variants}})
+       when kind in [:enum, :tuple_enum],
+       do: [private_enum_item(kind, rust_name, variants)]
+
   defp type_items(%Type{
          kind: :enum,
          rust: rust_name,
          meta: %{variants: variants, elixir_name: elixir_name}
        }) do
-    enum = %AST.Enum{
-      name: Identifier.atom!(rust_name),
-      vis: :pub,
-      derive: [:Clone, :Copy, :Debug, :Eq, :PartialEq],
-      variants:
-        variants
-        |> Enum.map(&Decoder.rust_variant/1)
-        |> Enum.map(&%AST.EnumVariant{name: Identifier.atom!(&1)})
-    }
+    enum = atom_enum_item(rust_name, variants)
 
     decoder = %AST.Function{
       name: Identifier.atom!("decode_#{elixir_name}_atom"),
@@ -804,8 +800,9 @@ defmodule RustQ.Meta.AST do
     [%AST.TypeAlias{name: Identifier.atom!(rust_name), type: target.ast, vis: :pub}]
   end
 
-  defp type_items(%Type{kind: :struct, meta: %{rust_name: rust_name, fields: fields}}) do
+  defp type_items(%Type{kind: :struct, meta: %{rust_name: rust_name, fields: fields} = meta}) do
     {lifetime?, decodable?} = struct_field_traits(fields)
+    decodable? = decodable? and not Map.get(meta, :private, false)
     lifetime = if lifetime?, do: :a
 
     struct = %AST.Struct{
@@ -842,6 +839,21 @@ defmodule RustQ.Meta.AST do
   end
 
   defp type_items(_type), do: []
+
+  defp private_enum_item(:tuple_enum, rust_name, variants), do: enum_item(rust_name, variants)
+  defp private_enum_item(:enum, rust_name, variants), do: atom_enum_item(rust_name, variants)
+
+  defp atom_enum_item(rust_name, variants) do
+    %AST.Enum{
+      name: Identifier.atom!(rust_name),
+      vis: :pub,
+      derive: [:Clone, :Copy, :Debug, :Eq, :PartialEq],
+      variants:
+        variants
+        |> Enum.map(&Decoder.rust_variant/1)
+        |> Enum.map(&%AST.EnumVariant{name: Identifier.atom!(&1)})
+    }
+  end
 
   defp enum_item(rust_name, variants) do
     %AST.Enum{

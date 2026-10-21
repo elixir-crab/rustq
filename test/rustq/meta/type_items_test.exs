@@ -6,11 +6,25 @@ defmodule RustQ.Meta.ResourceTypeCase do
   @type counter :: R.resource(counter_state())
 end
 
+defmodule RustQ.Meta.PrivateTypeCase do
+  use RustQ.Meta
+  alias RustQ.Type, as: R
+
+  @typep index :: %{required(:records) => R.vec(Record.t()), required(:size) => R.usize()}
+  @typep kind :: :plain | :fancy
+
+  @spec size(R.ref(index())) :: R.usize()
+  defrust(size(index), do: index.size)
+
+  @spec fancy(kind()) :: R.bool()
+  defrust(fancy(kind), do: kind == enum_variant(Kind, :fancy))
+end
+
 defmodule RustQ.Meta.TypeItemsTest do
   use ExUnit.Case, async: true
 
   alias RustQ.Meta.GeneratedCase, as: Generated
-  alias RustQ.Meta.{ResourceTypeCase, Type}
+  alias RustQ.Meta.{PrivateTypeCase, ResourceTypeCase, Type}
 
   test "resource aliases preserve their structural inner type" do
     assert %Type{kind: :resource} =
@@ -195,5 +209,15 @@ defmodule RustQ.Meta.TypeItemsTest do
                }
              ]
            } = Enum.find(type_asts, &match?(%RustQ.Rust.AST.Enum{name: :Event}, &1))
+  end
+
+  test "private types are Rust-only and get no term decoders" do
+    source = PrivateTypeCase.__rustq_source__()
+
+    assert source =~ "pub struct Index {"
+    assert source =~ "pub records: Vec<Record>,"
+    assert source =~ "pub enum Kind {"
+    refute source =~ "fn decode_index"
+    refute source =~ "fn decode_kind"
   end
 end

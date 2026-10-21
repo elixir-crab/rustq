@@ -379,7 +379,12 @@ defmodule RustQ.Meta do
 
     macro_defs = Module.get_attribute(env.module, :rustq_macros) |> List.wrap() |> Enum.reverse()
     specs = Module.get_attribute(env.module, :spec) |> List.wrap()
-    type_aliases = env.module |> Module.get_attribute(:type) |> Type.type_aliases()
+
+    type_aliases =
+      (List.wrap(Module.get_attribute(env.module, :type)) ++
+         List.wrap(Module.get_attribute(env.module, :typep)))
+      |> Type.type_aliases()
+
     rust_modules = env.module |> Module.get_attribute(:rustq_mod_aliases) |> rust_module_map()
     local_callables = AST.callables_from_specs(specs, type_aliases)
     external_callables = Source.external_callables(env.module)

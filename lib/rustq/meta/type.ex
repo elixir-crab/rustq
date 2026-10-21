@@ -611,20 +611,33 @@ defmodule RustQ.Meta.Type do
   @doc false
   @spec parse(Macro.t(), map()) :: t()
   def type_aliases(types) do
+    types = types |> List.wrap() |> Enum.reverse()
+
     raw =
-      types
-      |> List.wrap()
-      |> Enum.reverse()
-      |> Map.new(fn {:type, {:"::", _, [{name, _, args}, ast]}, _location} ->
+      Map.new(types, fn {_kind, {:"::", _, [{name, _, args}, ast]}, _location} ->
         arity = type_alias_arity(args)
         rust_name = name |> Atom.to_string() |> Macro.camelize()
         {{name, arity}, {name, ast, rust_name}}
       end)
 
+    # A private type (`@typep`) is Rust-only: it gets no term codec.
+    private =
+      for {:typep, {:"::", _, [{name, _, args}, _ast]}, _location} <- types,
+          into: MapSet.new(),
+          do: {name, type_alias_arity(args)}
+
     raw
     |> Map.keys()
     |> Enum.reduce(%{}, fn key, aliases -> elem(resolve_alias(key, raw, aliases), 1) end)
+    |> Map.new(fn {key, type} ->
+      if MapSet.member?(private, key), do: {key, private_type(type)}, else: {key, type}
+    end)
   end
+
+  defp private_type(%__MODULE__{meta: meta} = type),
+    do: %{type | meta: Map.put(meta, :private, true)}
+
+  defp private_type(type), do: type
 
   defp type_alias_arity(args) when is_list(args), do: length(args)
   defp type_alias_arity(_context), do: 0

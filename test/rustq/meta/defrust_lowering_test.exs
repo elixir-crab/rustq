@@ -271,6 +271,12 @@ defmodule RustQ.Meta.DefrustLoweringTest do
       {small, large}
     end
 
+    @typep pair :: %{required(:swap) => R.bool(), required(:sort) => R.u32()}
+
+    # Fields named like methods that change a vector are read, not called.
+    @spec flip(pair()) :: R.bool()
+    defrust(flip(pair), do: pair.swap and pair.sort > 0)
+
     @spec record(tally(), R.u32()) :: tally()
     defrust record(tally, value) do
       tally.seen.push(value)
@@ -1007,6 +1013,8 @@ defmodule RustQ.Meta.DefrustLoweringTest do
 
   @tag :tmp_dir
   test "marks changed bindings mut and propagates pushed results", %{tmp_dir: dir} do
+    assert MutationCase.__rustq_source__() =~ "fn flip(pair: Pair) -> bool"
+
     program =
       """
       mod rustler {

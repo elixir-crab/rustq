@@ -562,12 +562,14 @@ defmodule RustQ.Meta.AST do
 
     mutable =
       Macro.prewalk(body, MapSet.new(), fn
-        {{:., _, [{name, _, context}, method]}, _, method_args} = call, acc
+        {{:., _, [{name, _, context}, method]}, meta, method_args} = call, acc
         when is_atom(name) and (is_atom(context) or is_nil(context)) and is_atom(method) and
                is_list(method_args) ->
           type = Map.get(types, name)
 
-          if mutable_receiver?(type, method, length(method_args), callables) do
+          # A field such as `layer.swap` is not a call of the method of that name.
+          if not Keyword.get(meta, :no_parens, false) and
+               mutable_receiver?(type, method, length(method_args), callables) do
             {call, MapSet.put(acc, name)}
           else
             {call, acc}

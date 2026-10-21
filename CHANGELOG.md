@@ -51,7 +51,8 @@
   `Ok(())`; tuple literals are typed when their elements are, so atom and
   constant patterns match inside them.
 - Mark `mut` a tuple-destructured binding that changes, and an owned argument
-  changed through a field or borrowed with `mut_ref`.
+  changed through a field or borrowed with `mut_ref`. A field named like a
+  changing method, such as `layer.swap`, does not mark its struct `mut`.
 - Pushing a call that fails as the function does onto a vector of unknown
   items propagates it; collecting where a slice is expected collects into a
   vector and borrows it; an option or result binding nothing downstream

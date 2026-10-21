@@ -714,6 +714,37 @@ defmodule RustQ.Meta.Lower do
   defp lower_expr_context({:index, _, [receiver, index]}, %Context{} = context),
     do: %AST.Index{receiver: lower_expr(receiver, context), index: lower_expr(index, context)}
 
+  # `container[key]` indexes; a map is indexed by a reference to its key.
+  defp lower_expr_context({{:., _, [Access, :get]}, _, [receiver, key]}, %Context{} = context) do
+    index = lower_expr(key, context)
+
+    index =
+      if map_type?(infer_expr_type(receiver, context.vars)),
+        do: %AST.Ref{expr: index},
+        else: index
+
+    %AST.Index{receiver: lower_expr(receiver, context), index: index}
+  end
+
+  defp lower_expr_context({:&, _, [{:/, _, [function, arity]}]}, %Context{} = context)
+       when is_integer(arity),
+       do: lower_function_capture(function, context)
+
+  # `&(&1 + &2)` is a closure of its numbered arguments.
+  defp lower_expr_context({:&, meta, [body]}, %Context{} = context) do
+    {body, count} =
+      Macro.prewalk(body, 0, fn
+        {:&, _, [index]}, count when is_integer(index) ->
+          {Macro.var(:"__rustq_arg#{index}", nil), max(count, index)}
+
+        other, count ->
+          {other, count}
+      end)
+
+    args = for index <- 1..count//1, do: Macro.var(:"__rustq_arg#{index}", nil)
+    lower_expr({:fn, meta, [{:->, meta, [args, body]}]}, context)
+  end
+
   defp lower_expr_context({function, _, args} = call, %Context{} = context)
        when function in [
               :..,
@@ -2591,6 +2622,11 @@ defmodule RustQ.Meta.Lower do
     Enum.map(statements, &lower_statement(&1, %{context | position: :statement})) ++
       [%AST.Return{expr: lower_expr(final, %{context | position: :return})}]
   end
+
+  defp map_type?(%Type{rust: rust}) when is_binary(rust),
+    do: String.starts_with?(rust, ["HashMap<", "BTreeMap<"])
+
+  defp map_type?(_type), do: false
 
   defp lower_function_capture({name, _, capture_context}, %Context{})
        when is_atom(name) and is_atom(capture_context),

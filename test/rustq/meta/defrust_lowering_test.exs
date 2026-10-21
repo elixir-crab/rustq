@@ -68,6 +68,26 @@ defmodule RustQ.Meta.DefrustLoweringTest do
     end
   end
 
+  defmodule CaptureIndexCase do
+    use RustQ.Meta
+    alias RustQ.Type, as: R
+
+    @spec double(R.i64()) :: R.i64()
+    defrust(double(value), do: value * 2)
+
+    @spec doubled(R.vec(R.i64())) :: R.vec(R.i64())
+    defrust(doubled(values), do: values |> into_iter() |> map(&double/1) |> collect())
+
+    @spec shifted(R.vec(R.i64())) :: R.vec(R.i64())
+    defrust(shifted(values), do: values |> into_iter() |> map(&(&1 + 1)) |> collect())
+
+    @spec second(R.vec(R.i64())) :: R.i64()
+    defrust(second(values), do: values[1])
+
+    @spec lookup(HashMap.t(R.i64(), R.i64()), R.i64()) :: R.i64()
+    defrust(lookup(table, key), do: table[key])
+  end
+
   test "Meta returns rendered items" do
     functions = MetaAST.functions(RustQ.Meta.GeneratedCase)
     item = MetaAST.function!(RustQ.Meta.GeneratedCase, :draw_save)
@@ -638,6 +658,35 @@ defmodule RustQ.Meta.DefrustLoweringTest do
 
     assert {output, 0} = System.cmd(executable, [])
     assert String.split(output, "\n", trim: true) == ["1 2 0", "Some(8) None None"]
+  end
+
+  @tag :tmp_dir
+  test "captures functions and indexes lists and maps", %{tmp_dir: dir} do
+    source = CaptureIndexCase.__rustq_source__()
+    assert source =~ "values.into_iter().map(double).collect()"
+    assert source =~ "table[&key]"
+
+    program =
+      """
+      use std::collections::HashMap;
+      #{source}
+      fn main() {
+          println!("{:?} {:?} {}", doubled(vec![1, 2]), shifted(vec![1, 2]), second(vec![5, 6]));
+          println!("{}", lookup(HashMap::from([(1, 10)]), 1));
+      }
+      """
+
+    path = Path.join(dir, "captures.rs")
+    executable = Path.join(dir, "captures")
+    File.write!(path, program)
+
+    assert {_, 0} =
+             System.cmd("rustc", ["--edition", "2021", path, "-o", executable],
+               stderr_to_stdout: true
+             )
+
+    assert {output, 0} = System.cmd(executable, [])
+    assert String.split(output, "\n", trim: true) == ["[2, 4] [2, 3] 6", "10"]
   end
 
   test "marks mutable lets inside if branches" do

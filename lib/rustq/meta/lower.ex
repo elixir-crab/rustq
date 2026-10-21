@@ -981,6 +981,14 @@ defmodule RustQ.Meta.Lower do
     |> lower_checked_coercion(expression, context)
   end
 
+  # `?` needs a function returning an option or result; a plain value keeps it wrapped.
+  defp lower_checked_coercion(%Typing.Check{coercion: coercion}, expression, context)
+       when coercion in [:propagate, :propagate_borrow, :propagate_mut_borrow, :propagate_as_ref] and
+              not is_nil(context.return_type) and
+              not (is_struct(context.return_type, Type) and
+                     context.return_type.kind in [:option, :result, :nif_result, :unit]),
+       do: lower_expr(expression, context)
+
   defp lower_checked_coercion(%Typing.Check{coercion: :propagate} = check, expression, context) do
     if option_propagation_in_result_context?(check, context) do
       lower_expr(expression, context)
@@ -1227,20 +1235,36 @@ defmodule RustQ.Meta.Lower do
             }
           ]
         },
-        with_fallback_arm(with_value, else_clauses, context, expected_type)
+        with_fallback_arm(with_value, pattern, else_clauses, context, expected_type)
       ]
     }
   end
 
+  # Without `else`, an unmatched result or option passes its error or `None` on, as in Elixir.
+  defp with_fallback_arm(_value_name, {:ok, _value}, [], _context, _expected_type),
+    do:
+      passthrough_arm(%AST.PatErr{pattern: %AST.PatVar{name: :error}}, %AST.Err{
+        expr: %AST.Var{name: :error}
+      })
+
+  defp with_fallback_arm(_value_name, {:some, _value}, [], _context, _expected_type),
+    do: passthrough_arm(%AST.PatNone{}, %AST.None{})
+
   # A lone catch-all `else` is the fallback arm itself, not a match on the unmatched value.
-  defp with_fallback_arm(_value_name, [{:->, _, [[{:_, _, _}], body]}], context, expected_type) do
+  defp with_fallback_arm(
+         _value_name,
+         _pattern,
+         [{:->, _, [[{:_, _, _}], body]}],
+         context,
+         expected_type
+       ) do
     %AST.Arm{
       pattern: %AST.PatWildcard{},
       body: lower_clause_body(body, %{context | position: :return}, expected_type)
     }
   end
 
-  defp with_fallback_arm(value_name, else_clauses, context, expected_type) do
+  defp with_fallback_arm(value_name, _pattern, else_clauses, context, expected_type) do
     %AST.Arm{
       pattern: %AST.PatVar{name: value_name},
       body: [
@@ -1248,6 +1272,9 @@ defmodule RustQ.Meta.Lower do
       ]
     }
   end
+
+  defp passthrough_arm(pattern, expr),
+    do: %AST.Arm{pattern: pattern, body: [%AST.Return{expr: expr}]}
 
   defp lower_with_else(value_name, [], _context, _expected_type), do: %AST.Var{name: value_name}
 
@@ -3171,7 +3198,9 @@ defmodule RustQ.Meta.Lower do
     :truncate
   ]
 
-  defp mutating_method?(method),
+  @doc false
+  @spec mutating_method?(atom()) :: boolean()
+  def mutating_method?(method),
     do: method in @mutating_methods or String.ends_with?(Atom.to_string(method), "_mut")
 
   defp rebound_or_borrowed?(body, name) do

@@ -46,6 +46,12 @@
 - Patterns of unknown type drop the old types of the names they rebind, and a
   `with` clause takes the type of a plain variable it matches, so a rebound
   value is no longer propagated as the option it came from.
+- A `with` without `else` passes an unmatched `{:error, _}` or `nil` on as
+  the function's own `Err` or `None`, as Elixir returns the unmatched value.
+- Never propagate with `?` in a function returning a plain value such as a
+  vector; the value stays wrapped there.
+- Mark an owned argument `mut` for any method that changes it in place, such
+  as `retain` or `sort`, not only `push` and `insert`.
 
 ## 1.0.0-rc.11 - 2026-09-30
 

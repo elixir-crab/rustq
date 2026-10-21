@@ -69,6 +69,33 @@ defmodule RustQ.Meta.DefrustLoweringTest do
         _ -> nil
       end
     end
+
+    @spec parsed(R.i64()) :: R.result(R.i64(), R.u32())
+    defrust(parsed(value), do: if(value > 0, do: ok(value), else: err(0)))
+
+    @spec doubled(R.i64()) :: R.result(R.i64(), R.u32())
+    defrust doubled(value) do
+      with {:ok, value} <- parsed(value) do
+        ok(value * 2)
+      end
+    end
+
+    @spec bumped(R.option(R.i64())) :: R.option(R.i64())
+    defrust bumped(value) do
+      with {:some, value} <- value do
+        some(value + 1)
+      end
+    end
+
+    @spec lookup(R.u32()) :: R.option(R.u32())
+    defrust(lookup(kind), do: if(kind == Kind.FANCY, do: some(kind), else: nil))
+
+    @spec other_kinds(R.vec(R.option(R.u32())), R.u32()) :: R.vec(R.option(R.u32()))
+    defrust other_kinds(kinds, kind) do
+      found = lookup(kind)
+      kinds.retain(fn other -> other != ref(found) end)
+      kinds
+    end
   end
 
   defmodule CaptureIndexCase do
@@ -710,6 +737,8 @@ defmodule RustQ.Meta.DefrustLoweringTest do
           println!("{} {} {}", label(Some(3)), label(Some(0)), label(None));
           println!("{:?} {:?} {:?}", checked(Some(4), true), checked(Some(4), false), checked(None, true));
           println!("{} {}", listed(3), listed(7));
+          println!("{:?} {:?} {:?} {:?}", doubled(2), doubled(-1), bumped(Some(1)), bumped(None));
+          println!("{:?}", other_kinds(vec![Some(3), None, Some(0)], 3));
       }
       """
 
@@ -723,7 +752,14 @@ defmodule RustQ.Meta.DefrustLoweringTest do
              )
 
     assert {output, 0} = System.cmd(executable, [])
-    assert String.split(output, "\n", trim: true) == ["1 2 0", "Some(8) None None", "true false"]
+
+    assert String.split(output, "\n", trim: true) == [
+             "1 2 0",
+             "Some(8) None None",
+             "true false",
+             "Ok(4) Err(0) Some(2) None",
+             "[None, Some(0)]"
+           ]
   end
 
   @tag :tmp_dir

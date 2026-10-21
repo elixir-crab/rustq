@@ -136,6 +136,19 @@ defmodule RustQ.Meta.DefrustLoweringTest do
 
     @typep forest :: R.vec(StructUpdateCase.tree())
 
+    @typep size :: :small | :large
+
+    @spec size(R.ref(StructUpdateCase.tree())) :: size()
+    defrust(size(node), do: if(node.scale < 1.0, do: :small, else: :large))
+
+    @spec size_label(size()) :: R.i64()
+    defrust size_label(size) do
+      case size do
+        :small -> 1
+        :large -> 2
+      end
+    end
+
     @spec shrink(StructUpdateCase.tree()) :: StructUpdateCase.tree()
     defrust(shrink(node), do: %{node | scale: node.scale / 2.0})
 
@@ -801,6 +814,7 @@ defmodule RustQ.Meta.DefrustLoweringTest do
       fn main() {
           let forest = forest();
           println!("{} {}", forest[0].scale, forest[1].scale);
+          println!("{} {}", size_label(size(&forest[0])), size_label(size(&forest[1])));
       }
       """
 
@@ -813,7 +827,7 @@ defmodule RustQ.Meta.DefrustLoweringTest do
                stderr_to_stdout: true
              )
 
-    assert {"0.5 2\n", 0} = System.cmd(executable, [])
+    assert {"0.5 2\n1 2\n", 0} = System.cmd(executable, [])
   end
 
   @tag :tmp_dir

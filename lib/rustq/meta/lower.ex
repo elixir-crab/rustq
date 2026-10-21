@@ -384,6 +384,18 @@ defmodule RustQ.Meta.Lower do
     }
   end
 
+  # An atom where an atom-union enum is expected names its variant.
+  defp lower_expected_expr_context(
+         atom,
+         %Type{kind: :enum, rust: rust_name, meta: %{variants: variants}},
+         %Context{} = context
+       )
+       when is_atom(atom) and atom not in [nil, true, false] and is_list(variants) do
+    if atom in variants,
+      do: %AST.Path{parts: [rust_name, rust_variant(atom)]},
+      else: lower_expr(atom, context)
+  end
+
   defp lower_expected_expr_context(
          {:%{}, _, [{:|, _, [base, fields]}]},
          %Type{} = _expected_type,

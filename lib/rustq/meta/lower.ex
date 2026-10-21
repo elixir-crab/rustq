@@ -102,6 +102,19 @@ defmodule RustQ.Meta.Lower do
       [%AST.Return{expr: lower_expr(final, expected_type, return_context)}]
   end
 
+  @keyed_collections [:HashMap, :HashSet, :BTreeMap, :BTreeSet]
+
+  # An empty map or set filled through `entry(key).or_default()` leaves Rust without its value
+  # type; when RustQ knows it, the binding states it.
+  defp empty_collection_type(
+         {{:., _, [{:__aliases__, _, [collection]}, constructor]}, _, _args},
+         %Type{ast: ast}
+       )
+       when collection in @keyed_collections and constructor in [:new, :with_capacity, :default],
+       do: ast
+
+  defp empty_collection_type(_expression, _expected_type), do: nil
+
   defp split_final([]), do: {[], :ok}
   defp split_final(expressions), do: {Enum.drop(expressions, -1), List.last(expressions)}
 
@@ -123,7 +136,8 @@ defmodule RustQ.Meta.Lower do
 
     %AST.Let{
       pattern: lower_binding_pattern(pattern),
-      expr: lower_expr(expression, expected_type, expression_context)
+      expr: lower_expr(expression, expected_type, expression_context),
+      type: empty_collection_type(expression, expected_type)
     }
   end
 
@@ -3087,10 +3101,62 @@ defmodule RustQ.Meta.Lower do
       %AST.Let{pattern: %AST.PatVar{name: name}} = let ->
         %{let | mutable: MapSet.member?(mutable_vars, name)}
 
+      %AST.Closure{args: args, body: closure_body} = closure ->
+        %{closure | args: mutable_closure_args(args, closure_body)}
+
       other ->
         other
     end)
   end
+
+  # A closure argument its body changes, such as a fold accumulator, is bound `mut`.
+  defp mutable_closure_args(args, body) do
+    mutated = body |> collect_mutable_let_refs() |> MapSet.new()
+
+    Enum.map(args, fn
+      name when is_atom(name) ->
+        if MapSet.member?(mutated, name), do: %AST.PatVar{name: name, mutable: true}, else: name
+
+      pattern ->
+        pattern
+    end)
+  end
+
+  # The variable a statement-level method chain starts from, when its first method changes
+  # its receiver, as in `map.entry(key).or_default().push(value)`.
+  defp mutated_chain_root(%AST.MethodCall{receiver: %AST.Var{name: name}, method: method}),
+    do: if(mutating_method?(method), do: name)
+
+  defp mutated_chain_root(%AST.MethodCall{receiver: receiver}), do: mutated_chain_root(receiver)
+  defp mutated_chain_root(_expression), do: nil
+
+  @mutating_methods [
+    :append,
+    :clear,
+    :dedup,
+    :drain,
+    :entry,
+    :extend,
+    :fill,
+    :insert,
+    :pop,
+    :push,
+    :push_str,
+    :remove,
+    :resize,
+    :retain,
+    :reverse,
+    :sort,
+    :sort_by,
+    :sort_by_key,
+    :sort_unstable,
+    :split_off,
+    :swap,
+    :truncate
+  ]
+
+  defp mutating_method?(method),
+    do: method in @mutating_methods or String.ends_with?(Atom.to_string(method), "_mut")
 
   defp rebound_or_borrowed?(body, name) do
     Walk.reduce(body, false, fn
@@ -3144,15 +3210,38 @@ defmodule RustQ.Meta.Lower do
 
   defp collect_mutable_let_refs(term) do
     Walk.reduce(term, [], fn
-      %AST.ExprStmt{expr: %AST.MethodCall{receiver: %AST.Var{name: name}}}, acc -> [name | acc]
-      %AST.Assign{target: %AST.Var{name: name}}, acc -> [name | acc]
-      %AST.AssignOp{target: %AST.Var{name: name}}, acc -> [name | acc]
-      %AST.Assign{target: %AST.Index{receiver: %AST.Var{name: name}}}, acc -> [name | acc]
-      %AST.AssignOp{target: %AST.Index{receiver: %AST.Var{name: name}}}, acc -> [name | acc]
-      %AST.Assign{target: %AST.Field{receiver: %AST.Var{name: name}}}, acc -> [name | acc]
-      %AST.AssignOp{target: %AST.Field{receiver: %AST.Var{name: name}}}, acc -> [name | acc]
-      %AST.Ref{mutable: true, expr: %AST.Var{name: name}}, acc -> [name | acc]
-      _other, acc -> acc
+      %AST.ExprStmt{expr: %AST.MethodCall{receiver: %AST.Var{name: name}}}, acc ->
+        [name | acc]
+
+      %AST.ExprStmt{expr: %AST.MethodCall{} = call}, acc ->
+        case mutated_chain_root(call) do
+          nil -> acc
+          name -> [name | acc]
+        end
+
+      %AST.Assign{target: %AST.Var{name: name}}, acc ->
+        [name | acc]
+
+      %AST.AssignOp{target: %AST.Var{name: name}}, acc ->
+        [name | acc]
+
+      %AST.Assign{target: %AST.Index{receiver: %AST.Var{name: name}}}, acc ->
+        [name | acc]
+
+      %AST.AssignOp{target: %AST.Index{receiver: %AST.Var{name: name}}}, acc ->
+        [name | acc]
+
+      %AST.Assign{target: %AST.Field{receiver: %AST.Var{name: name}}}, acc ->
+        [name | acc]
+
+      %AST.AssignOp{target: %AST.Field{receiver: %AST.Var{name: name}}}, acc ->
+        [name | acc]
+
+      %AST.Ref{mutable: true, expr: %AST.Var{name: name}}, acc ->
+        [name | acc]
+
+      _other, acc ->
+        acc
     end)
   end
 

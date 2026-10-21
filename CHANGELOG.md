@@ -32,6 +32,11 @@
   so `some(value + 1)` no longer wraps the sum in a second `?`.
 - Parenthesize a `?` applied to a compound expression; it used to bind only to
   the last operand.
+- Mark a variable `mut` when a statement-level method chain starting with a
+  method that changes it, such as `map.entry(key).or_default().push(value)`,
+  uses it, and a closure argument its body changes, such as a fold accumulator.
+  An empty map or set bound with a known type states it, as Rust cannot infer
+  its value type through `entry(key).or_default()`.
 - Patterns of unknown type drop the old types of the names they rebind, and a
   `with` clause takes the type of a plain variable it matches, so a rebound
   value is no longer propagated as the option it came from.

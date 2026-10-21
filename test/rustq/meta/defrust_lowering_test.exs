@@ -105,6 +105,35 @@ defmodule RustQ.Meta.DefrustLoweringTest do
     defrust(next(value), do: some(value + 1))
   end
 
+  defmodule MutationChainCase do
+    use RustQ.Meta
+    alias RustQ.Type, as: R
+
+    @spec group(R.vec({R.u32(), R.u32()})) :: HashMap.t(R.u32(), R.vec(R.u32()))
+    defrust group(pairs) do
+      groups = HashMap.new()
+
+      for {key, value} <- pairs do
+        groups.entry(key).or_default().push(value)
+      end
+
+      groups
+    end
+
+    @spec evens(R.vec(R.u32())) :: R.vec(R.u32())
+    defrust evens(values) do
+      values
+      |> into_iter()
+      |> fold(Vec.new(), fn found, value ->
+        if rem(value, 2) == 0 do
+          found.push(value)
+        end
+
+        found
+      end)
+    end
+  end
+
   test "Meta returns rendered items" do
     functions = MetaAST.functions(RustQ.Meta.GeneratedCase)
     item = MetaAST.function!(RustQ.Meta.GeneratedCase, :draw_save)
@@ -713,6 +742,35 @@ defmodule RustQ.Meta.DefrustLoweringTest do
     assert source =~ "Some(left == right)"
     assert source =~ "Some(value? + 1)"
     assert RustQ.valid?(source, "wrapper_comparison.rs")
+  end
+
+  @tag :tmp_dir
+  test "marks variables changed through method chains and closure arguments mut", %{tmp_dir: dir} do
+    source = MutationChainCase.__rustq_source__()
+    assert source =~ "let mut groups: HashMap<u32, Vec<u32>> = HashMap::new();"
+    assert source =~ "|mut found, value|"
+
+    program =
+      """
+      #![deny(warnings)]
+      use std::collections::HashMap;
+      #{source}
+      fn main() {
+          let groups = group(vec![(1, 10), (1, 11), (2, 20)]);
+          println!("{:?} {:?} {:?}", groups[&1], groups[&2], evens(vec![1, 2, 3, 4]));
+      }
+      """
+
+    path = Path.join(dir, "mutation.rs")
+    executable = Path.join(dir, "mutation")
+    File.write!(path, program)
+
+    assert {_, 0} =
+             System.cmd("rustc", ["--edition", "2021", path, "-o", executable],
+               stderr_to_stdout: true
+             )
+
+    assert {"[10, 11] [20] [2, 4]\n", 0} = System.cmd(executable, [])
   end
 
   test "marks mutable lets inside if branches" do

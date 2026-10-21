@@ -57,6 +57,10 @@
   items propagates it; collecting where a slice is expected collects into a
   vector and borrows it; an option or result binding nothing downstream
   unwraps keeps its type.
+- Write the Rust Clippy expects: a comprehension over `values.iter()` does not
+  call `into_iter()` again, one that clones each item is `cloned()`,
+  `into_iter()` on a borrowed collection is `iter()`, and a statement `case`
+  whose other branch does nothing is an `if let`.
 - Keep the grouping of nested operators: `a and (b or c)` rendered as
   `a && b || c`, and `not (a or b)` as `!a || b`. Operands are parenthesized
   by Rust's precedence.

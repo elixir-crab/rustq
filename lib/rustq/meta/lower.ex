@@ -1454,8 +1454,37 @@ defmodule RustQ.Meta.Lower do
 
   defp lower_option_if_let_statement(expression, clauses, %Context{} = context) do
     lower_result_if_let_statement(expression, clauses, context) ||
-      lower_some_if_let_statement(expression, clauses, context)
+      lower_some_if_let_statement(expression, clauses, context) ||
+      lower_single_arm_if_let_statement(expression, clauses, context)
   end
+
+  # A case run for one pattern, whose other branch does nothing, is an `if let`.
+  defp lower_single_arm_if_let_statement(
+         expression,
+         [{:->, _, [[pattern], body]}, {:->, _, [[{:_, _, _}], fallback]}] = clauses,
+         %Context{} = context
+       ) do
+    if unit_body?(fallback) and not match?({:when, _, _}, pattern) do
+      expression_type =
+        infer_expr_type(expression, context.vars) || Typing.synth(expression, typing_env(context))
+
+      {case_type, match_expr} = case_scrutinee(expression, expression_type, clauses, context)
+      then_context = context_with_match_pattern(pattern, case_type, context)
+      then_body = lower_clause_body(body, then_context)
+      mutable_vars = then_body |> collect_pattern_mutations(then_context) |> MapSet.new()
+
+      %AST.IfLet{
+        pattern:
+          pattern
+          |> lower_match_pattern(case_type, context)
+          |> mark_mutable_pattern_vars(mutable_vars),
+        expr: match_expr,
+        then: then_body
+      }
+    end
+  end
+
+  defp lower_single_arm_if_let_statement(_expression, _clauses, %Context{}), do: nil
 
   defp lower_result_if_let_statement(
          expression,
@@ -1621,11 +1650,19 @@ defmodule RustQ.Meta.Lower do
     )
   end
 
-  # An item the body returns as it is needs no mapping.
+  # An item the body returns as it is needs no mapping, and one it clones is `cloned()`.
   defp comprehension_map(stage, binder, body) do
-    if same_variables?(binder, body),
-      do: stage,
-      else: quote(do: unquote(stage) |> map(fn unquote(binder) -> unquote(body) end))
+    cond do
+      same_variables?(binder, body) ->
+        stage
+
+      match?({{:., _, [_, :clone]}, _, []}, body) and
+          same_variables?(binder, body |> elem(0) |> elem(2) |> hd()) ->
+        quote(do: unquote(stage) |> cloned())
+
+      true ->
+        quote(do: unquote(stage) |> map(fn unquote(binder) -> unquote(body) end))
+    end
   end
 
   defp same_variables?({name, _, context}, {name, _, context}) when is_atom(context), do: true
@@ -1647,7 +1684,10 @@ defmodule RustQ.Meta.Lower do
   # A generator that cannot fail and has no filters iterates as it is; otherwise its items are
   # matched, filtered, and reduced to the variables the pattern binds.
   defp generator_stage(pattern, collection, filters) do
-    items = quote(do: unquote(collection) |> into_iter())
+    items =
+      if iterator_call?(collection),
+        do: collection,
+        else: quote(do: unquote(collection) |> into_iter())
 
     if filters == [] and binding_pattern?(pattern) do
       {items, pattern}
@@ -1656,6 +1696,40 @@ defmodule RustQ.Meta.Lower do
       {filter_bind(items, guarded_pattern(pattern, filters), binder), binder}
     end
   end
+
+  @iterator_methods [
+    :bytes,
+    :chain,
+    :char_indices,
+    :chars,
+    :cloned,
+    :copied,
+    :drain,
+    :enumerate,
+    :filter,
+    :filter_map,
+    :flat_map,
+    :into_iter,
+    :iter,
+    :iter_mut,
+    :keys,
+    :map,
+    :rev,
+    :skip,
+    :take,
+    :values,
+    :values_mut,
+    :zip
+  ]
+
+  # A collection already given as an iterator, as in `values.iter()`, is iterated as it is.
+  defp iterator_call?({{:., _, [_receiver, method]}, _, args}) when is_list(args),
+    do: method in @iterator_methods
+
+  defp iterator_call?({:|>, _, [_left, {method, _, args}]}) when is_list(args),
+    do: method in @iterator_methods
+
+  defp iterator_call?(_collection), do: false
 
   defp filter_bind(items, guarded, binder) do
     quote do
@@ -2331,6 +2405,15 @@ defmodule RustQ.Meta.Lower do
           args: []
         }
 
+      field_or_function == :into_iter ->
+        receiver_type =
+          infer_expr_type(receiver, context.vars) || Typing.synth(receiver, typing_env(context))
+
+        %AST.MethodCall{
+          receiver: lower_dot_receiver(receiver, :into_iter, context),
+          method: borrowed_iteration(:into_iter, [], receiver_type)
+        }
+
       true ->
         %AST.MethodCall{
           receiver: lower_dot_receiver(receiver, field_or_function, context),
@@ -2386,7 +2469,7 @@ defmodule RustQ.Meta.Lower do
 
         %AST.MethodCall{
           receiver: lower_method_receiver(receiver, receiver_type, function, context),
-          method: function,
+          method: borrowed_iteration(function, args, receiver_type),
           args: lower_method_call_args(receiver_type, target, function, args, context)
         }
     end
@@ -2663,6 +2746,17 @@ defmodule RustQ.Meta.Lower do
   defp rust_module_name?(<<first, _rest::binary>>) when first in ?a..?z, do: true
   defp rust_module_name?(<<"_", _rest::binary>>), do: true
   defp rust_module_name?(_name), do: false
+
+  # Iterating a borrowed collection with `into_iter` is `iter`.
+  defp borrowed_iteration(:into_iter, [], nil), do: :into_iter
+
+  defp borrowed_iteration(:into_iter, [], %Type{} = receiver_type) do
+    if slice_type?(receiver_type) or receiver_type.kind in [:ref, :mut_ref],
+      do: if(receiver_type.kind == :mut_ref, do: :iter_mut, else: :iter),
+      else: :into_iter
+  end
+
+  defp borrowed_iteration(function, _args, _receiver_type), do: function
 
   defp callable_target_from_type(%Type{} = type), do: Type.callable_target(type)
   defp callable_target_from_type(_type), do: nil

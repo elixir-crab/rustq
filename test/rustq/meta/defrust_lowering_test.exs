@@ -296,6 +296,25 @@ defmodule RustQ.Meta.DefrustLoweringTest do
       ok(checked_values)
     end
 
+    @spec copies(R.slice(String.t())) :: R.vec(String.t())
+    defrust(copies(names), do: for(name <- names.iter(), do: name.clone()))
+
+    @spec odd(R.slice(R.u32())) :: R.vec(R.u32())
+    defrust(odd(values), do: for(value <- values, rem(deref(value), 2) == 1, do: deref(value)))
+
+    @spec tally_first(R.mut_ref(R.vec(R.u32())), R.option(R.u32())) :: R.unit()
+    defrust tally_first(found, value) do
+      case value do
+        {:some, 0} -> :ok
+        _ -> found.push(1)
+      end
+
+      case value do
+        {:some, value} -> found.push(value)
+        _ -> :ok
+      end
+    end
+
     @spec sum(R.slice(R.u32())) :: R.u32()
     defrust(sum(values), do: values.iter().sum())
 
@@ -1013,7 +1032,12 @@ defmodule RustQ.Meta.DefrustLoweringTest do
 
   @tag :tmp_dir
   test "marks changed bindings mut and propagates pushed results", %{tmp_dir: dir} do
-    assert MutationCase.__rustq_source__() =~ "fn flip(pair: Pair) -> bool"
+    source = MutationCase.__rustq_source__()
+    assert source =~ "fn flip(pair: Pair) -> bool"
+    assert source =~ "names.iter().cloned().collect()"
+    assert source =~ "values\n        .iter()\n        .filter_map"
+    refute source =~ ".iter()\n        .into_iter()"
+    assert source =~ "if let Some(value) = value {"
 
     program =
       """
@@ -1025,6 +1049,10 @@ defmodule RustQ.Meta.DefrustLoweringTest do
       #{MutationCase.__rustq_source__()}
       fn main() {
           let tally = record(Tally { seen: vec![], count: 0 }, 4);
+          let mut found = vec![];
+          tally_first(&mut found, Some(3));
+          tally_first(&mut found, Some(0));
+          println!("{:?} {:?} {:?}", found, copies(&["a".to_string()]), odd(&[1, 2, 3]));
           println!("{:?} {:?} {} {}", split(&[30, 2, 12, 1]), tally.seen, tally.count, doubled_sum(&[1, 2]));
           println!("{:?} {:?} {:?}", all_checked(&[1, 2]), all_checked(&[1, 0]).is_err(), all_checked(&[]).is_err());
       }
@@ -1039,7 +1067,7 @@ defmodule RustQ.Meta.DefrustLoweringTest do
                stderr_to_stdout: true
              )
 
-    assert {"([1, 2], [12, 30]) [4] 1 6\nOk([1, 2]) true true\n", 0} =
+    assert {"[1, 3, 0] [\"a\"] [1, 3]\n([1, 2], [12, 30]) [4] 1 6\nOk([1, 2]) true true\n", 0} =
              System.cmd(executable, [])
   end
 

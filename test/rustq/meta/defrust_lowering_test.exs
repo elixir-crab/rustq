@@ -340,6 +340,19 @@ defmodule RustQ.Meta.DefrustLoweringTest do
     @typep operation :: %{required(:operator) => R.u32(), required(:operands) => R.vec(formula())}
     @typep formula :: R.enum(literal: [literal()], alias: [R.u32()], operation: [operation()])
 
+    @typep clone_path ::
+             R.hashable(%{required(:root) => R.u32(), required(:path) => R.vec(R.u32())})
+    @typep node_id :: R.hashable(R.enum(source: [R.u32()], clone: [clone_path()]))
+
+    @spec positions(R.vec(node_id())) :: HashMap.t(node_id(), R.usize())
+    defrust positions(ids) do
+      ids
+      |> into_iter()
+      |> enumerate()
+      |> map(fn {position, id} -> {id, position} end)
+      |> collect()
+    end
+
     @spec halve(literal()) :: literal()
     defrust halve(value) do
       case value do
@@ -1126,9 +1139,12 @@ defmodule RustQ.Meta.DefrustLoweringTest do
   test "builds and matches Rust enums from tagged tuples", %{tmp_dir: dir} do
     program =
       """
+      use std::collections::HashMap;
       #{TaggedEnumCase.__rustq_source__()}
       fn main() {
           println!("{:?} {:?} {}", halve(Literal::Float(3.0)), halve(Literal::Missing), depth(&sample()));
+          let clone = NodeId::Clone(ClonePath { root: 1, path: vec![2, 3] });
+          println!("{:?}", positions(vec![NodeId::Source(1), clone.clone()]).get(&clone));
       }
       """
 
@@ -1141,7 +1157,7 @@ defmodule RustQ.Meta.DefrustLoweringTest do
                stderr_to_stdout: true
              )
 
-    assert {"Float(1.5) Missing 2\n", 0} = System.cmd(executable, [])
+    assert {"Float(1.5) Missing 2\nSome(1)\n", 0} = System.cmd(executable, [])
   end
 
   @tag :tmp_dir

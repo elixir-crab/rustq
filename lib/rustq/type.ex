@@ -198,6 +198,13 @@ defmodule RustQ.Type do
   @spec slice(term()) :: no_return()
   def slice(_type), do: type_only!()
 
+  @doc """
+  A declared struct or enum that also compares and hashes, deriving `PartialEq`, `Eq`, and
+  `Hash`, so it can key a map or set: `@typep id :: R.hashable(%{required(:path) => ...})`.
+  """
+  @spec hashable(term()) :: no_return()
+  def hashable(_type), do: type_only!()
+
   @doc "A slice with a named lifetime: `R.slice(Record.t(), R.lifetime(:a))` is `&'a [Record]`."
   @spec slice(term(), term()) :: no_return()
   def slice(_type, _lifetime), do: type_only!()

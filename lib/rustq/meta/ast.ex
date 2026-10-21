@@ -375,8 +375,15 @@ defmodule RustQ.Meta.AST do
   def build_type_asts(type_aliases) do
     type_aliases
     |> Map.values()
-    |> Enum.flat_map(&type_items/1)
+    |> Enum.flat_map(fn type -> type |> type_items() |> Enum.map(&with_hashable(&1, type)) end)
   end
+
+  # A type marked `R.hashable` compares and hashes, so it can key a map or set.
+  defp with_hashable(%item{derive: derive} = ast, %Type{meta: %{hashable: true}})
+       when item in [AST.Struct, AST.Enum],
+       do: %{ast | derive: Enum.uniq(derive ++ [:PartialEq, :Eq, :Hash])}
+
+  defp with_hashable(ast, _type), do: ast
 
   @doc false
   def group_items(built_asts, rust_modules \\ %{}) do

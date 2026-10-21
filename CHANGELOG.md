@@ -16,6 +16,8 @@
 - Add `R.ref/2` and `R.mut_ref/2` for references with a named lifetime, as in
   `R.ref(Record.t(), R.lifetime(:a))`, which a function returning a reference
   borrowed from one of several reference arguments needs.
+- Add `R.hashable(type)` for a declared struct or enum that also derives
+  `PartialEq`, `Eq`, and `Hash`, so it can key a map or set.
 - Build and match `R.enum` values with tagged tuples, as in Elixir:
   `{:float, value}` is `Literal::Float(value)` and `:missing` is
   `Literal::Missing` wherever the enum is expected or matched, including

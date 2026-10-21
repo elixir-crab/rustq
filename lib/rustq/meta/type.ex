@@ -710,6 +710,21 @@ defmodule RustQ.Meta.Type do
     |> Enum.uniq()
   end
 
+  defp parse_type_alias(
+         name,
+         {{:., _, [module, :hashable]}, _, [inner]} = ast,
+         rust_name,
+         raw,
+         aliases
+       ) do
+    if type_module?(module) do
+      type = parse_type_alias(name, inner, rust_name, raw, aliases)
+      %{type | meta: Map.put(type.meta, :hashable, true)}
+    else
+      parse_standard_type_alias(name, ast, rust_name, raw, aliases)
+    end
+  end
+
   defp parse_type_alias(name, ast, rust_name, raw, aliases) do
     if rust_enum_marker?(ast) do
       parse_rust_enum_alias(name, ast, rust_name, raw, aliases)

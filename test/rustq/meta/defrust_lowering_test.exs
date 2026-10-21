@@ -42,6 +42,32 @@ defmodule RustQ.Meta.DefrustLoweringTest do
     end
   end
 
+  defmodule PatternPathCase do
+    use RustQ.Meta
+    alias RustQ.Type, as: R
+
+    defrustmod(Kind, as: [:kinds])
+
+    @spec label(R.option(R.u32())) :: R.u32()
+    defrust label(kind) do
+      case kind do
+        {:some, Kind.FANCY} -> 1
+        {:some, Kind.PLAIN} -> 2
+        _ -> 0
+      end
+    end
+
+    @spec checked(R.option(R.i64()), R.bool()) :: R.option(R.i64())
+    defrust checked(value, enabled) do
+      with {:some, value} <- value,
+           true <- enabled do
+        some(value * 2)
+      else
+        _ -> nil
+      end
+    end
+  end
+
   test "Meta returns rendered items" do
     functions = MetaAST.functions(RustQ.Meta.GeneratedCase)
     item = MetaAST.function!(RustQ.Meta.GeneratedCase, :draw_save)
@@ -580,6 +606,38 @@ defmodule RustQ.Meta.DefrustLoweringTest do
                      defrust(ready?(value), do: value > 1)
                    end
                  end
+  end
+
+  @tag :tmp_dir
+  test "matches constants, booleans, and rebound names", %{tmp_dir: dir} do
+    source = PatternPathCase.__rustq_source__()
+    assert source =~ "Some(kinds::FANCY) => 1"
+    assert source =~ "true => Some(value * 2)"
+
+    program =
+      """
+      mod kinds {
+          pub const PLAIN: u32 = 0;
+          pub const FANCY: u32 = 3;
+      }
+      #{source}
+      fn main() {
+          println!("{} {} {}", label(Some(3)), label(Some(0)), label(None));
+          println!("{:?} {:?} {:?}", checked(Some(4), true), checked(Some(4), false), checked(None, true));
+      }
+      """
+
+    path = Path.join(dir, "patterns.rs")
+    executable = Path.join(dir, "patterns")
+    File.write!(path, program)
+
+    assert {_, 0} =
+             System.cmd("rustc", ["--edition", "2021", path, "-o", executable],
+               stderr_to_stdout: true
+             )
+
+    assert {output, 0} = System.cmd(executable, [])
+    assert String.split(output, "\n", trim: true) == ["1 2 0", "Some(8) None None"]
   end
 
   test "marks mutable lets inside if branches" do

@@ -796,6 +796,8 @@ defmodule RustQ.Meta.Lower do
     lower_remote_or_method_call(receiver, function, args, context)
   end
 
+  defp lower_expr_context({:__rustq_path__, _, parts}, %Context{}), do: %AST.Path{parts: parts}
+
   defp lower_expr_context({:__aliases__, _, parts}, %Context{} = context),
     do: %AST.Path{parts: mapped_alias_parts(parts, context.rust_modules)}
 
@@ -993,7 +995,9 @@ defmodule RustQ.Meta.Lower do
 
         %AST.Arm{
           pattern:
-            pattern |> lower_match_pattern(case_type) |> mark_mutable_pattern_vars(mutable_vars),
+            pattern
+            |> lower_match_pattern(case_type, context)
+            |> mark_mutable_pattern_vars(mutable_vars),
           guard: lower_guard_expr(guard, body_context),
           body: body
         }
@@ -1148,7 +1152,8 @@ defmodule RustQ.Meta.Lower do
         callables: context.callables,
         rust_modules: context.rust_modules,
         vars: context.vars
-      )
+      ) || infer_expr_type(expression, context.vars) ||
+        Typing.synth(expression, typing_env(context))
 
     body_context = context_with_match_pattern(pattern, match_type, context)
 
@@ -1156,7 +1161,7 @@ defmodule RustQ.Meta.Lower do
       expr: lower_expr(expression, context),
       arms: [
         %AST.Arm{
-          pattern: lower_match_pattern(pattern, nil),
+          pattern: lower_match_pattern(pattern, nil, context),
           body: [
             %AST.Return{
               expr: lower_with_matches(rest, body, else_clauses, body_context, expected_type)
@@ -1181,7 +1186,7 @@ defmodule RustQ.Meta.Lower do
       arms:
         Enum.map(else_clauses, fn {:->, _, [[pattern], body]} ->
           %AST.Arm{
-            pattern: lower_match_pattern(pattern, nil),
+            pattern: lower_match_pattern(pattern, nil, context),
             body: lower_clause_body(body, %{context | position: :return}, expected_type)
           }
         end)
@@ -1247,7 +1252,7 @@ defmodule RustQ.Meta.Lower do
       %AST.IfLet{
         pattern:
           pattern
-          |> lower_match_pattern(%Type{kind: :result})
+          |> lower_match_pattern(%Type{kind: :result}, context)
           |> mark_mutable_pattern_vars(mutable),
         expr: lower_expr(expression, context),
         then: body
@@ -1269,7 +1274,7 @@ defmodule RustQ.Meta.Lower do
       %AST.IfLet{
         pattern:
           some_pattern
-          |> lower_match_pattern(%Type{kind: :option})
+          |> lower_match_pattern(%Type{kind: :option}, context)
           |> mark_mutable_pattern_vars(mutable_vars),
         expr: lower_option_case_scrutinee(expression, expression_type, option_type, context),
         then: then_body
@@ -1488,7 +1493,7 @@ defmodule RustQ.Meta.Lower do
         expr: lower_expr(collection, context),
         body: [
           %AST.IfLet{
-            pattern: lower_match_pattern(pattern, nil),
+            pattern: lower_match_pattern(pattern, nil, context),
             expr: %AST.Var{name: :__rustq_item},
             then:
               lower_for_loop_body(rest, body, context_with_match_pattern(pattern, nil, context))
@@ -1587,7 +1592,7 @@ defmodule RustQ.Meta.Lower do
       body_context = context_with_match_pattern(pattern, return_type, context)
 
       %AST.Arm{
-        pattern: lower_match_pattern(pattern, return_type),
+        pattern: lower_match_pattern(pattern, return_type, context),
         body:
           lower_clause_body(
             body,
@@ -1773,7 +1778,11 @@ defmodule RustQ.Meta.Lower do
     end
   end
 
-  defp context_with_match_pattern(_pattern, _type, %Context{} = context), do: context
+  # A pattern of unknown type still shadows the names it binds; they lose their old types.
+  defp context_with_match_pattern(pattern, _type, %Context{} = context) do
+    names = pattern |> pattern_variables() |> Enum.map(&elem(&1, 0))
+    %{context | vars: Map.drop(context.vars, names)}
+  end
 
   defp context_with_struct_pattern(fields, %Type{} = type, %Context{} = context) do
     Enum.reduce(fields, context, fn {field, pattern}, acc ->
@@ -1838,6 +1847,35 @@ defmodule RustQ.Meta.Lower do
   defp lower_guard_expr(nil, %Context{}), do: nil
   defp lower_guard_expr(guard, %Context{} = context), do: lower_expr(guard, context)
 
+  # Patterns name constants and enum variants through the module's Rust module aliases.
+  defp lower_match_pattern(pattern, case_type, %Context{} = context),
+    do: pattern |> resolve_pattern_paths(context) |> lower_match_pattern(case_type)
+
+  defp resolve_pattern_paths(pattern, %Context{} = context) do
+    Macro.prewalk(pattern, fn
+      {:enum_variant, meta, [{:__aliases__, _, parts} | rest]} ->
+        {:enum_variant, meta, [rust_path_marker(parts, context) | rest]}
+
+      {:__aliases__, _, parts} = alias ->
+        if constant_alias?(parts), do: rust_path_marker(parts, context), else: alias
+
+      other ->
+        other
+    end)
+  end
+
+  defp rust_path_marker(parts, %Context{} = context),
+    do: {:__rustq_path__, [], mapped_alias_parts(parts, context.rust_modules)}
+
+  # A constant ends in an upper-case segment such as `Kind.PLAIN`.
+  defp constant_alias?(parts) do
+    name = parts |> List.last() |> Atom.to_string()
+    name == String.upcase(name) and String.length(name) > 1
+  end
+
+  defp lower_match_pattern({:__rustq_path__, _, parts}, _case_type),
+    do: %AST.PatPath{path: %AST.Path{parts: parts}}
+
   defp lower_match_pattern(:ok, %Type{kind: kind}) when kind in [:result, :nif_result],
     do: %AST.PatOk{pattern: %AST.PatTuple{patterns: []}}
 
@@ -1847,8 +1885,9 @@ defmodule RustQ.Meta.Lower do
   defp lower_match_pattern(:none, _case_type), do: %AST.PatNone{}
   defp lower_match_pattern({:_, _, _}, _case_type), do: %AST.PatWildcard{}
 
-  defp lower_match_pattern(value, _case_type) when is_binary(value) or is_integer(value),
-    do: %AST.PatLiteral{value: value}
+  defp lower_match_pattern(value, _case_type)
+       when is_binary(value) or is_integer(value) or is_boolean(value),
+       do: %AST.PatLiteral{value: value}
 
   defp lower_match_pattern([ok: pattern], _case_type),
     do: %AST.PatOk{pattern: lower_match_pattern(pattern, nil)}
@@ -2745,7 +2784,9 @@ defmodule RustQ.Meta.Lower do
   defp lower_semantic_pat(nil, %Context{}), do: %AST.PatNone{}
   defp lower_semantic_pat(:_, %Context{}), do: %AST.PatWildcard{}
   defp lower_semantic_pat({:_, _, _}, %Context{}), do: %AST.PatWildcard{}
-  defp lower_semantic_pat(other, %Context{}), do: lower_match_pattern(other, nil)
+
+  defp lower_semantic_pat(other, %Context{} = context),
+    do: lower_match_pattern(other, nil, context)
 
   defp lower_semantic_pat_fields(fields, %Context{} = context) when is_list(fields) do
     Enum.map(fields, fn {name, pattern} -> {name, lower_semantic_pat(pattern, context)} end)

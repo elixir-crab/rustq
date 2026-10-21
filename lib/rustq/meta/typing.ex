@@ -105,6 +105,13 @@ defmodule RustQ.Meta.Typing do
   def synth({:%{}, _meta, [{:|, _, [base, fields]}]}, %Env{} = env) when is_list(fields),
     do: synth(base, env)
 
+  def synth({:ref, _meta, [expression]}, %Env{} = env) do
+    case synth(expression, env) do
+      %Type{} = type -> Type.ref(type)
+      nil -> nil
+    end
+  end
+
   def synth({:deref, _meta, [expression]}, %Env{} = env) do
     case synth(expression, env) do
       %Type{} = type -> Type.ref_inner(type)
@@ -626,11 +633,30 @@ defmodule RustQ.Meta.Typing do
   defp value_coercion(actual, expected) do
     cond do
       expected.kind == :option and Type.compatible?(actual, Type.inner(expected)) -> :some
+      copy_deref_compatible?(actual, expected) -> :deref
       ref_inner_compatible?(actual, expected) -> borrow_coercion(expected)
       vec_slice_compatible?(actual, expected) -> :borrow
       slice_vec_compatible?(actual, expected) -> :to_vec
       Type.compatible_with_expected?(actual, expected) -> :none
       true -> nil
+    end
+  end
+
+  # A borrowed number, boolean, or tuple of them is copied out where its value is expected.
+  defp copy_deref_compatible?(%Type{kind: :ref} = actual, %Type{} = expected) do
+    case Type.ref_inner(actual) do
+      %Type{} = inner -> copy?(expected) and Type.compatible?(inner, expected)
+      nil -> false
+    end
+  end
+
+  defp copy_deref_compatible?(_actual, _expected), do: false
+
+  defp copy?(%Type{} = type) do
+    case Type.category(Type.expected_value(type)) do
+      category when category in [:number, :integer, :boolean, :enum] -> type.kind != :rust_enum
+      {:tuple, elements} -> Enum.all?(elements, &copy?/1)
+      _other -> false
     end
   end
 

@@ -235,6 +235,10 @@ defmodule RustQ.Meta.Lower.Kernel do
   defp wrapper_kind(%Type{kind: kind}) when kind in [:result, :nif_result], do: :result
   defp wrapper_kind(_type), do: nil
 
+  # Arithmetic on a borrowed number gives a number, as Rust's operators on references do.
+  defp propagated_value(%Type{kind: kind} = type) when kind in [:ref, :mut_ref],
+    do: Type.ref_inner(type) || type
+
   defp propagated_value(%Type{} = type) do
     if Type.propagates?(type), do: Type.inner(type) || type, else: type
   end

@@ -77,6 +77,10 @@
   ignores uses after a pattern binds the same name again, and a comprehension
   ignores item variables its body does not use.
 - A failed native render names atoms matched inside patterns no type resolved.
+- A borrowed number, boolean, or tuple of them passed where the value is
+  expected is copied out with `*`, and arithmetic on borrowed numbers is typed
+  as a number; `ref(value)` is typed as a reference, and `try_fold` in an
+  option-returning position is not wrapped in `Some`.
 - Keep the grouping of nested operators: `a and (b or c)` rendered as
   `a && b || c`, and `not (a or b)` as `!a || b`. Operands are parenthesized
   by Rust's precedence.

@@ -332,7 +332,8 @@ defmodule RustQ.Meta.Lower do
               :find_map,
               :position,
               :max_by_key,
-              :min_by_key
+              :min_by_key,
+              :try_fold
             ] and
               is_list(args),
        do: true
@@ -1260,6 +1261,9 @@ defmodule RustQ.Meta.Lower do
 
   defp lower_checked_coercion(%Typing.Check{coercion: :propagate_as_ref}, expression, context),
     do: option_as_ref_expr(%AST.Try{expr: lower_expr(expression, context)})
+
+  defp lower_checked_coercion(%Typing.Check{coercion: :deref}, expression, context),
+    do: %AST.UnaryOp{op: :deref, expr: lower_expr(expression, context)}
 
   defp lower_checked_coercion(%Typing.Check{coercion: :some}, expression, context),
     do: %AST.Some{expr: lower_expr(expression, context)}

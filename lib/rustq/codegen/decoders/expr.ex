@@ -93,7 +93,8 @@ defmodule RustQ.Codegen.Decoders.Expr do
   defrust decode_expr_struct_literal(term) do
     Super.parse_struct_literal_expr(
       required_expr(term, "path"),
-      Super.decode_struct_literal_fields(required_field(term, "fields"))
+      Super.decode_struct_literal_fields(required_field(term, "fields")),
+      Super.decode_optional_expr_field(term, "base")
     )
   end
 

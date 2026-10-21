@@ -101,6 +101,10 @@ defmodule RustQ.Meta.Typing do
     end
   end
 
+  # A struct update has the type of the struct it updates.
+  def synth({:%{}, _meta, [{:|, _, [base, fields]}]}, %Env{} = env) when is_list(fields),
+    do: synth(base, env)
+
   def synth({:deref, _meta, [expression]}, %Env{} = env) do
     case synth(expression, env) do
       %Type{} = type -> Type.ref_inner(type)

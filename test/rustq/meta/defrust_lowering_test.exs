@@ -98,6 +98,35 @@ defmodule RustQ.Meta.DefrustLoweringTest do
     end
   end
 
+  defmodule StructUpdateCase do
+    use RustQ.Meta
+    alias RustQ.Type, as: R
+
+    @typep tree :: %{
+             required(:label) => R.i64(),
+             required(:scale) => R.f64(),
+             required(:children) => R.vec(tree())
+           }
+
+    @spec relabel(tree(), R.i64()) :: tree()
+    defrust relabel(node, label) do
+      %{
+        node
+        | label: label,
+          children: node.children |> into_iter() |> map(fn child -> grow(child) end) |> collect()
+      }
+    end
+
+    @spec grow(tree()) :: tree()
+    defrust(grow(node), do: %{node | scale: node.scale * 2.0})
+
+    @spec sample() :: tree()
+    defrust sample() do
+      leaf = struct_literal(Tree, label: 2, scale: 1.0, children: Vec.new())
+      struct_literal(Tree, label: 1, scale: 1.0, children: [leaf])
+    end
+  end
+
   defmodule CaptureIndexCase do
     use RustQ.Meta
     alias RustQ.Type, as: R
@@ -715,6 +744,32 @@ defmodule RustQ.Meta.DefrustLoweringTest do
                      defrust(ready?(value), do: value > 1)
                    end
                  end
+  end
+
+  @tag :tmp_dir
+  test "updates structs, including recursive ones", %{tmp_dir: dir} do
+    source = StructUpdateCase.__rustq_source__()
+    assert source =~ "..node"
+
+    program =
+      """
+      #{source}
+      fn main() {
+          let tree = relabel(sample(), 7);
+          println!("{} {} {}", tree.label, tree.children[0].label, tree.children[0].scale);
+      }
+      """
+
+    path = Path.join(dir, "struct_update.rs")
+    executable = Path.join(dir, "struct_update")
+    File.write!(path, program)
+
+    assert {_, 0} =
+             System.cmd("rustc", ["--edition", "2021", path, "-o", executable],
+               stderr_to_stdout: true
+             )
+
+    assert {"7 2 2\n", 0} = System.cmd(executable, [])
   end
 
   @tag :tmp_dir

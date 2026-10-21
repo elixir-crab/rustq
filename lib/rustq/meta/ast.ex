@@ -595,7 +595,7 @@ defmodule RustQ.Meta.AST do
   # An owned value changed in place, such as `values.retain(...)`; a borrowed one stays as is.
   defp mutable_standard_receiver?(%Type{rust: "&" <> _borrowed}, _method), do: false
 
-  defp mutable_standard_receiver?(%Type{}, method), do: RustQ.Meta.Lower.mutating_method?(method)
+  defp mutable_standard_receiver?(%Type{}, method), do: Lower.mutating_method?(method)
 
   defp nif_attrs?(attrs) do
     Enum.any?(attrs, &match?(%AST.Attribute{path: [:rustler, :nif]}, &1))

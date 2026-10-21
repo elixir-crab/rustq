@@ -377,12 +377,17 @@ pub(crate) fn parse_ref_expr(expr: Expr, mutable: bool) -> NifResult<Expr> {
 pub(crate) fn parse_struct_literal_expr(
     path: Expr,
     fields: Vec<NamedField<Expr>>,
+    base: Option<Expr>,
 ) -> NifResult<Expr> {
     let Expr::Path(path) = path else {
         return Err(rustler::Error::BadArg);
     };
 
-    let mut expression = parse_syn::<Expr>(quote!(#path { #(#fields),* }))?;
+    let mut expression = match base {
+        Some(base) if fields.is_empty() => parse_syn::<Expr>(quote!(#path { ..#base }))?,
+        Some(base) => parse_syn::<Expr>(quote!(#path { #(#fields),*, ..#base }))?,
+        None => parse_syn::<Expr>(quote!(#path { #(#fields),* }))?,
+    };
     if let Expr::Struct(value) = &mut expression {
         for field in &mut value.fields {
             if let (syn::Member::Named(name), Expr::Path(path)) = (&field.member, &field.expr) {

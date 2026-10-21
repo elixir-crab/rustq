@@ -613,8 +613,12 @@ defmodule RustQ.Rust.AST do
       )
   )
 
-  defnode(StructLiteral, :expr, [:path, fields: []],
-    type: quote(do: %__MODULE__{path: Path.t(), fields: [{atom(), AST.expr()}]})
+  # `base` fills the fields not listed, as in `Point { x: 1, ..origin }`.
+  defnode(StructLiteral, :expr, [:path, fields: [], base: nil],
+    type:
+      quote(
+        do: %__MODULE__{path: Path.t(), fields: [{atom(), AST.expr()}], base: AST.expr() | nil}
+      )
   )
 
   defnode(LocalCall, :expr, [:name, args: []],

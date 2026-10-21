@@ -23,8 +23,11 @@ defmodule RustQ.Meta.Lower do
 
   defmodule Env do
     @moduledoc false
+    # `scope_return_type` is what the enclosing function or closure returns, which `?` exits
+    # into; `return_type` is what the block being lowered must produce.
     defstruct [
       :return_type,
+      :scope_return_type,
       vars: %{},
       lexical_vars: %{},
       type_aliases: %{},
@@ -42,6 +45,7 @@ defmodule RustQ.Meta.Lower do
   def quoted_body(body_ast, return_type, vars \\ %{}, opts \\ []) do
     context = %Context{
       return_type: return_type,
+      scope_return_type: return_type,
       type_aliases: Keyword.get(opts, :type_aliases, %{}),
       vars: vars,
       rust_modules: Keyword.get(opts, :rust_modules, %{}),
@@ -381,6 +385,14 @@ defmodule RustQ.Meta.Lower do
   end
 
   defp lower_expected_expr_context(
+         {:%{}, _, [{:|, _, [base, fields]}]},
+         %Type{} = _expected_type,
+         %Context{} = context
+       )
+       when is_list(fields),
+       do: lower_struct_update(base, fields, context)
+
+  defp lower_expected_expr_context(
          {:%{}, _, fields},
          %Type{kind: :struct, ast: %AST.TypePath{parts: parts}} = expected_type,
          %Context{} = context
@@ -703,6 +715,10 @@ defmodule RustQ.Meta.Lower do
   defp lower_expr_context({:badarg, _, []}, %Context{}),
     do: %AST.Path{parts: [:rustler, :Error, :BadArg]}
 
+  defp lower_expr_context({:%{}, _, [{:|, _, [base, fields]}]}, %Context{} = context)
+       when is_list(fields),
+       do: lower_struct_update(base, fields, context)
+
   defp lower_expr_context({:struct_literal, _, [path, fields]}, %Context{} = context),
     do: %AST.StructLiteral{
       path: lower_struct_literal_path(path, context),
@@ -984,9 +1000,8 @@ defmodule RustQ.Meta.Lower do
   # `?` needs a function returning an option or result; a plain value keeps it wrapped.
   defp lower_checked_coercion(%Typing.Check{coercion: coercion}, expression, context)
        when coercion in [:propagate, :propagate_borrow, :propagate_mut_borrow, :propagate_as_ref] and
-              not is_nil(context.return_type) and
-              not (is_struct(context.return_type, Type) and
-                     context.return_type.kind in [:option, :result, :nif_result, :unit]),
+              is_struct(context.scope_return_type, Type) and
+              context.scope_return_type.kind not in [:option, :result, :nif_result, :unit],
        do: lower_expr(expression, context)
 
   defp lower_checked_coercion(%Typing.Check{coercion: :propagate} = check, expression, context) do
@@ -2644,6 +2659,7 @@ defmodule RustQ.Meta.Lower do
     context = %{
       closure_context(args, context)
       | return_type: closure_return_type(expected_type),
+        scope_return_type: closure_return_type(expected_type),
         position: :expr
     }
 
@@ -2672,7 +2688,13 @@ defmodule RustQ.Meta.Lower do
   defp lower_closure_args(args, body, %Context{} = context, expected_return_type \\ nil)
        when is_list(args) do
     context = closure_context(args, context)
-    context = %{context | return_type: expected_return_type, position: :expr}
+
+    context = %{
+      context
+      | return_type: expected_return_type,
+        scope_return_type: expected_return_type,
+        position: :expr
+    }
 
     %AST.Closure{
       args: Enum.map(args, &closure_arg!/1),
@@ -3004,6 +3026,26 @@ defmodule RustQ.Meta.Lower do
   defp enum_variant_path(path, variant, %Context{} = context) do
     %AST.Path{parts: parts} = lower_expr(path, context)
     %AST.Path{parts: parts ++ [rust_variant(semantic_atom!(variant))]}
+  end
+
+  # `%{value | field: new}` copies the struct with the listed fields replaced.
+  defp lower_struct_update(base, fields, %Context{} = context) do
+    case infer_expr_type(base, context.vars) || Typing.synth(base, typing_env(context)) do
+      %Type{kind: :struct, ast: %AST.TypePath{parts: parts}} = type ->
+        %AST.StructLiteral{
+          path: %AST.Path{parts: parts},
+          fields: lower_named_fields(fields, type, context),
+          base: lower_expr(base, type, context)
+        }
+
+      _unknown ->
+        Diagnostic.lower(
+          :unsupported_struct_update,
+          base,
+          "struct update needs a value of a known struct type",
+          suggestion: "Annotate the value's struct type in the function's @spec."
+        )
+    end
   end
 
   defp lower_named_fields(fields, %Context{} = context) when is_list(fields) do

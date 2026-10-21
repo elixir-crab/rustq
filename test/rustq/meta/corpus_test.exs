@@ -27,6 +27,7 @@ defmodule RustQ.Meta.CorpusInventoryTest do
                :unsupported_pipeline_step,
                :unsupported_quote_tokens,
                :unsupported_remote_macro_receiver,
+               :unsupported_struct_update,
                :unsupported_token_macro_path
              ]
            }

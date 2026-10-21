@@ -18,6 +18,8 @@
   borrowed from one of several reference arguments needs.
 - Generate Rust-only types from `@typep`: the struct, enum, or alias without
   the term decoder a `@type` gets, so it may hold values without a term codec.
+- Lower `%{value | field: new}` on a struct to Rust's struct update syntax,
+  `Struct { field: new, ..value }`.
 
 ### Changed
 
@@ -48,8 +50,10 @@
   value is no longer propagated as the option it came from.
 - A `with` without `else` passes an unmatched `{:error, _}` or `nil` on as
   the function's own `Err` or `None`, as Elixir returns the unmatched value.
-- Never propagate with `?` in a function returning a plain value such as a
-  vector; the value stays wrapped there.
+- Never propagate with `?` in a function or closure returning a plain value
+  such as a vector; the value stays wrapped there.
+- A type that refers to itself, such as a tree whose children are trees, names
+  its Rust type in its own fields.
 - Mark an owned argument `mut` for any method that changes it in place, such
   as `retain` or `sort`, not only `push` and `insert`.
 

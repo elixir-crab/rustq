@@ -665,9 +665,30 @@ defmodule RustQ.Meta.Type do
             elem(resolve_alias(dependency, raw, aliases, path), 1)
           end)
 
-        type = parse_type_alias(name, ast, rust_name, raw, aliases)
+        type = parse_type_alias(name, ast, rust_name, raw, recursive_stubs(path, raw, aliases))
         {type, Map.put(aliases, key, type)}
     end
+  end
+
+  # Aliases still being resolved stand for themselves by name, so a recursive reference, such
+  # as a tree's children, names the Rust type.
+  defp recursive_stubs(path, raw, aliases) do
+    Enum.reduce(path, aliases, fn key, aliases ->
+      {name, ast, rust_name} = Map.fetch!(raw, key)
+      Map.put_new(aliases, key, recursive_stub(name, ast, rust_name))
+    end)
+  end
+
+  defp recursive_stub(name, ast, rust_name) do
+    if map_type?(ast),
+      do:
+        type(:struct, path(rust_name), %{
+          elixir_name: name,
+          rust_name: rust_name,
+          representation: :map,
+          fields: []
+        }),
+      else: type(:type, path(rust_name), %{elixir_name: name})
   end
 
   defp referenced_aliases(ast, raw) do

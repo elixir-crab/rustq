@@ -666,10 +666,11 @@ defmodule RustQ.Rust.AST.Render do
   def render_expr(%LocalCall{name: name, args: args}),
     do: [to_string(name), "(", render_args(args), ")"]
 
-  def render_expr(%StructLiteral{path: path, fields: fields}) do
+  def render_expr(%StructLiteral{path: path, fields: fields, base: base}) do
     rendered_fields =
       fields
       |> Elixir.Enum.map(fn {name, expr} -> [to_string(name), ": ", render_expr(expr)] end)
+      |> Kernel.++(if base, do: [["..", render_expr(base)]], else: [])
       |> Elixir.Enum.intersperse(", ")
 
     [render_expr(path), " { ", rendered_fields, " }"]

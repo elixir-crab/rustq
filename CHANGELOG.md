@@ -13,6 +13,9 @@
 - Lower `container[key]` to Rust indexing, borrowing the key for a map.
 - Match constants such as `Kind.PLAIN` in patterns, resolved through the
   module's Rust module aliases, and `true` or `false` in `with` clauses.
+- Add `R.ref/2` and `R.mut_ref/2` for references with a named lifetime, as in
+  `R.ref(Record.t(), R.lifetime(:a))`, which a function returning a reference
+  borrowed from one of several reference arguments needs.
 - Generate Rust-only types from `@typep`: the struct, enum, or alias without
   the term decoder a `@type` gets, so it may hold values without a term codec.
 

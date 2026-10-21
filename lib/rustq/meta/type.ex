@@ -992,6 +992,11 @@ defmodule RustQ.Meta.Type do
     type(:mut_ref, %AST.TypeRef{inner: inner.ast, mutable: true}, %{inner: inner})
   end
 
+  defp parse_rust_type(kind, [inner, lifetime], aliases) when kind in [:ref, :mut_ref] do
+    %__MODULE__{ast: ast} = type = parse_rust_type(kind, [inner], aliases)
+    %{type | ast: %{ast | lifetime: reference_lifetime!(lifetime)}}
+  end
+
   defp parse_rust_type(:option, [inner], aliases) do
     inner = parse(inner, aliases)
     type(:option, %AST.TypeOption{inner: inner.ast}, %{inner: inner})
@@ -1025,6 +1030,14 @@ defmodule RustQ.Meta.Type do
       parts: [function],
       generics: Enum.map(args, &parse(&1, aliases).ast)
     })
+  end
+
+  defp reference_lifetime!({{:., _, [_type_module, :lifetime]}, _, [name]}),
+    do: spec_path_part!(name)
+
+  defp reference_lifetime!(other) do
+    raise ArgumentError,
+          "expected a reference lifetime such as R.lifetime(:a), got: #{Macro.to_string(other)}"
   end
 
   defp validate_impl_options!(opts) do

@@ -207,8 +207,15 @@ defmodule RustQ.Type do
   @spec ref(term()) :: no_return()
   def ref(_type), do: type_only!()
 
+  @doc "A reference with a named lifetime: `R.ref(Record.t(), R.lifetime(:a))` is `&'a Record`."
+  @spec ref(term(), term()) :: no_return()
+  def ref(_type, _lifetime), do: type_only!()
+
   @spec mut_ref(term()) :: no_return()
   def mut_ref(_type), do: type_only!()
+
+  @spec mut_ref(term(), term()) :: no_return()
+  def mut_ref(_type, _lifetime), do: type_only!()
 
   @spec option(term()) :: no_return()
   def option(_type), do: type_only!()

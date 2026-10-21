@@ -137,6 +137,18 @@ defmodule RustQ.Meta.DefrustLoweringTest do
     end
   end
 
+  defmodule LifetimeCase do
+    use RustQ.Meta
+    alias RustQ.Type, as: R
+
+    @spec pick(
+            R.ref(R.vec(R.u32()), R.lifetime(:a)),
+            R.ref(R.vec(R.u32()), R.lifetime(:a)),
+            R.bool()
+          ) :: R.ref(R.u32(), R.lifetime(:a))
+    defrust(pick(left, right, first), do: if(first, do: ref(left[0]), else: ref(right[0])))
+  end
+
   test "Meta returns rendered items" do
     functions = MetaAST.functions(RustQ.Meta.GeneratedCase)
     item = MetaAST.function!(RustQ.Meta.GeneratedCase, :draw_save)
@@ -778,6 +790,30 @@ defmodule RustQ.Meta.DefrustLoweringTest do
              )
 
     assert {"[10, 11] [20] [2, 4]\n", 0} = System.cmd(executable, [])
+  end
+
+  @tag :tmp_dir
+  test "declares the lifetimes references name", %{tmp_dir: dir} do
+    source = LifetimeCase.__rustq_source__()
+
+    assert source =~
+             "fn pick<'a>(left: &'a Vec<u32>, right: &'a Vec<u32>, first: bool) -> &'a u32"
+
+    path = Path.join(dir, "lifetimes.rs")
+    executable = Path.join(dir, "lifetimes")
+
+    File.write!(
+      path,
+      source <>
+        ~s|fn main() { println!("{} {}", pick(&vec![1], &vec![2], true), pick(&vec![1], &vec![2], false)); }|
+    )
+
+    assert {_, 0} =
+             System.cmd("rustc", ["--edition", "2021", path, "-o", executable],
+               stderr_to_stdout: true
+             )
+
+    assert {"1 2\n", 0} = System.cmd(executable, [])
   end
 
   test "marks mutable lets inside if branches" do

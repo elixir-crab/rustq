@@ -2490,6 +2490,21 @@ defmodule RustQ.Meta.Lower do
   defp lower_pipe(left, right, %Context{} = context),
     do: lower_pipe(left, right, nil, context)
 
+  # Piping into a function the module can call passes the value as its first argument, as
+  # in Elixir; piping into any other name calls a method on the value.
+  defp lower_pipe(left, {name, meta, args}, expected_type, %Context{} = context)
+       when is_atom(name) and is_list(args) and name not in [:cast] do
+    if BindingIndex.get(context.callables, nil, name, length(args) + 1) do
+      call = {name, meta, [left | args]}
+
+      if expected_type,
+        do: lower_expr(call, expected_type, context),
+        else: lower_expr(call, context)
+    else
+      lower_pipe_call(lower_expr(left, context), {name, meta, args}, context)
+    end
+  end
+
   defp lower_pipe(left, right, expected_type, %Context{} = context) do
     case Call.pipe_remote(left, right) do
       {:ok, call} when is_struct(expected_type, Type) -> lower_expr(call, expected_type, context)

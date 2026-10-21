@@ -7,5 +7,5 @@ fn double(value: u32) -> u32 {
 }
 
 fn run(value: u32) -> u32 {
-    value.add_one().double()
+    double(add_one(value))
 }

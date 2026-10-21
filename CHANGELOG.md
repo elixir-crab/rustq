@@ -1,5 +1,41 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Lower comprehensions with several generators, filters, and patterns that can
+  fail to match. As a value, a comprehension becomes an iterator pipeline that
+  collects into the expected type, so `into:` works by the target type; run for
+  its effects, it becomes nested `for` loops with `if let` and `if`.
+- Lower `&fun/1` captures in any expression, not only inside `Enum` calls, and
+  `&(&1 + 1)` shorthand to a closure.
+- Lower `container[key]` to Rust indexing, borrowing the key for a map.
+- Match constants such as `Kind.PLAIN` in patterns, resolved through the
+  module's Rust module aliases, and `true` or `false` in `with` clauses.
+- Generate Rust-only types from `@typep`: the struct, enum, or alias without
+  the term decoder a `@type` gets, so it may hold values without a term codec.
+
+### Changed
+
+- Piping into a function the module can call passes the value as its first
+  argument, as in Elixir. It used to call a method of that name on the value.
+- An Elixir predicate such as `live?` names the Rust function `live`; a module
+  defining both is rejected.
+
+### Fixed
+
+- Render words Rust reserves for future use, such as `override` and `yield`, as
+  raw identifiers, including function and closure arguments and local calls.
+- Compare two options or results without propagating either side, never
+  propagate literals, and type arithmetic on a propagated option as its value,
+  so `some(value + 1)` no longer wraps the sum in a second `?`.
+- Parenthesize a `?` applied to a compound expression; it used to bind only to
+  the last operand.
+- Patterns of unknown type drop the old types of the names they rebind, and a
+  `with` clause takes the type of a plain variable it matches, so a rebound
+  value is no longer propagated as the option it came from.
+
 ## 1.0.0-rc.11 - 2026-09-30
 
 ### Added

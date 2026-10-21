@@ -46,6 +46,22 @@ defmodule RustQ.Meta.Lower.Kernel do
     end
   end
 
+  # Comparing two options or results compares the wrappers; neither side propagates.
+  def lower(%Call{function: function, args: [left, right]}, %Context{} = context)
+      when function in [:==, :!=] do
+    lower_operand =
+      if wrapper_comparison?(left, right, context),
+        do: context.lower,
+        else: context.lower_binary_operand
+
+    {:ok,
+     %AST.BinaryOp{
+       left: lower_operand.(left),
+       op: Map.fetch!(@binary_ops, function),
+       right: lower_operand.(right)
+     }}
+  end
+
   def lower(%Call{function: function, args: [left, right]}, %Context{} = context)
       when is_map_key(@binary_ops, function) do
     {:ok,
@@ -148,9 +164,10 @@ defmodule RustQ.Meta.Lower.Kernel do
   def synth(%Call{function: function}, %TypeContext{}) when function in @comparison_functions,
     do: {:ok, Spec.type(quote(do: boolean()))}
 
+  # Arithmetic on an option or result works on the value its operand propagates.
   def synth(%Call{function: function, args: [left | _rest]}, %TypeContext{} = context)
       when function in [:+, :-, :*, :/, :div, :rem, :abs, :min, :max],
-      do: type_result(context.type_of.(left))
+      do: left |> context.type_of.() |> propagated_value() |> type_result()
 
   def synth(%Call{function: function}, %TypeContext{})
       when function in [:byte_size, :length, :map_size, :tuple_size],
@@ -200,4 +217,27 @@ defmodule RustQ.Meta.Lower.Kernel do
       suggestion: "Use an explicit Rust adapter when Elixir and Rust semantics differ."
     )
   end
+
+  defp wrapper_comparison?(left, right, %Context{} = context) do
+    wrapper_literal?(left) or wrapper_literal?(right) or
+      (wrapper_kind(context.type_of.(left)) != nil and
+         wrapper_kind(context.type_of.(left)) == wrapper_kind(context.type_of.(right)))
+  end
+
+  defp wrapper_literal?({:some, _, [_value]}), do: true
+  defp wrapper_literal?({:ok, _, [_value]}), do: true
+  defp wrapper_literal?({:err, _, [_value]}), do: true
+  defp wrapper_literal?(value) when value in [nil, :none], do: true
+  defp wrapper_literal?({tag, _value}) when tag in [:some, :ok, :error], do: true
+  defp wrapper_literal?(_expression), do: false
+
+  defp wrapper_kind(%Type{kind: :option}), do: :option
+  defp wrapper_kind(%Type{kind: kind}) when kind in [:result, :nif_result], do: :result
+  defp wrapper_kind(_type), do: nil
+
+  defp propagated_value(%Type{} = type) do
+    if Type.propagates?(type), do: Type.inner(type) || type, else: type
+  end
+
+  defp propagated_value(type), do: type
 end

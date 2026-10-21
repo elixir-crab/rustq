@@ -88,6 +88,23 @@ defmodule RustQ.Meta.DefrustLoweringTest do
     defrust(lookup(table, key), do: table[key])
   end
 
+  defmodule WrapperComparisonCase do
+    use RustQ.Meta
+    alias RustQ.Type, as: R
+
+    @spec matching(R.option(R.u32()), R.option(R.u32())) :: R.option(R.bool())
+    defrust matching(left, right) do
+      if left == some(3) do
+        some(true)
+      else
+        some(left == right)
+      end
+    end
+
+    @spec next(R.option(R.u32())) :: R.option(R.u32())
+    defrust(next(value), do: some(value + 1))
+  end
+
   test "Meta returns rendered items" do
     functions = MetaAST.functions(RustQ.Meta.GeneratedCase)
     item = MetaAST.function!(RustQ.Meta.GeneratedCase, :draw_save)
@@ -687,6 +704,15 @@ defmodule RustQ.Meta.DefrustLoweringTest do
 
     assert {output, 0} = System.cmd(executable, [])
     assert String.split(output, "\n", trim: true) == ["[2, 4] [2, 3] 6", "10"]
+  end
+
+  test "compares options without propagating them" do
+    source = WrapperComparisonCase.__rustq_source__()
+
+    assert source =~ "if left == Some(3)"
+    assert source =~ "Some(left == right)"
+    assert source =~ "Some(value? + 1)"
+    assert RustQ.valid?(source, "wrapper_comparison.rs")
   end
 
   test "marks mutable lets inside if branches" do

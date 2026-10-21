@@ -913,6 +913,16 @@ defmodule RustQ.Meta.Lower do
   defp propagation_allowed?(nil), do: true
   defp propagation_allowed?(_type), do: false
 
+  # A literal is a plain value whatever type the context expects.
+  defp fallible_expression?(literal, %Context{})
+       when is_number(literal) or is_binary(literal) or is_boolean(literal),
+       do: false
+
+  # An operator's operands propagate on their own; the result is a plain value.
+  defp fallible_expression?({operator, _, [_left, _right]}, %Context{})
+       when operator in [:+, :-, :*, :/, :==, :!=, :<, :<=, :>, :>=, :and, :or, :div, :rem],
+       do: false
+
   defp fallible_expression?(expression, %Context{} = context) do
     case Typing.synth(expression, typing_env(context)) do
       %Type{} = type -> Type.propagates?(type)

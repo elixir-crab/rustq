@@ -490,8 +490,29 @@ pub(crate) fn parse_err_expr(expr: Expr) -> NifResult<Expr> {
     parse_syn::<Expr>(quote!(Err(#expr)))
 }
 
+/// `expr?`, parenthesizing an operand that binds more loosely than `?`.
 pub(crate) fn parse_try_expr(expr: Expr) -> NifResult<Expr> {
-    parse_syn::<Expr>(quote!(#expr?))
+    let expr = match expr {
+        Expr::Binary(_)
+        | Expr::Unary(_)
+        | Expr::Cast(_)
+        | Expr::Range(_)
+        | Expr::Assign(_)
+        | Expr::Closure(_)
+        | Expr::Reference(_)
+        | Expr::Let(_) => Expr::Paren(syn::ExprParen {
+            attrs: Vec::new(),
+            paren_token: Default::default(),
+            expr: Box::new(expr),
+        }),
+        expr => expr,
+    };
+
+    Ok(Expr::Try(syn::ExprTry {
+        attrs: Vec::new(),
+        expr: Box::new(expr),
+        question_token: Default::default(),
+    }))
 }
 
 pub(crate) fn parse_expr_stmt(expr: Expr) -> NifResult<Stmt> {

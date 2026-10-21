@@ -130,6 +130,37 @@ defmodule RustQ.Meta.Inference do
       else: downstream_type_for_var(expressions, name, vars, callbacks, rhs_success_type)
   end
 
+  # Uses after a pattern binds the name again, as in `{:some, value} <- value`, may refer to
+  # the new binding, so calls and struct fields say nothing about this one.
+  defp unshadowed_call_type(expressions, name, vars, callbacks) do
+    if Enum.any?(expressions, &rebinds?(&1, name)),
+      do: nil,
+      else: call_expected_type_for_var(expressions, name, vars, callbacks)
+  end
+
+  defp rebinds?(ast, name) do
+    {_ast, found} =
+      Macro.prewalk(ast, false, fn
+        {operator, _, [pattern, _expression]} = node, found when operator in [:<-, :=, :->] ->
+          {node, found or binds?(pattern, name)}
+
+        node, found ->
+          {node, found}
+      end)
+
+    found
+  end
+
+  defp binds?(pattern, name) do
+    {_pattern, found} =
+      Macro.prewalk(pattern, false, fn
+        {^name, _, context} = node, _found when is_atom(context) -> {node, true}
+        node, found -> {node, found}
+      end)
+
+    found
+  end
+
   defp wrapper?(%Type{} = type), do: Type.propagates?(type)
   defp wrapper?(_type), do: false
 
@@ -148,7 +179,7 @@ defmodule RustQ.Meta.Inference do
   end
 
   defp downstream_type_for_var(expressions, name, vars, callbacks, rhs_success_type) do
-    call_expected_type_for_var(expressions, name, vars, callbacks) ||
+    unshadowed_call_type(expressions, name, vars, callbacks) ||
       Enum.find_value(expressions, &expected_comparison_type_for_var(name, &1, rhs_success_type)) ||
       Enum.find_value(
         expressions,
@@ -425,6 +456,29 @@ defmodule RustQ.Meta.Inference do
       Macro.prewalk(ast, [], &collect_downstream_call_arg_types(&1, &2, vars, callbacks))
 
     calls
+  end
+
+  # A struct literal's field values are expected to have the types the struct declares.
+  defp collect_downstream_call_arg_types(
+         {:struct_literal, _meta, [path, fields]} = ast,
+         calls,
+         _vars,
+         callbacks
+       )
+       when is_list(fields) do
+    case callbacks[:struct_type] && callbacks.struct_type.(path) do
+      %Type{} = type ->
+        {values, types} =
+          fields
+          |> Enum.map(fn {field, value} -> {value, Type.field_type(type, field)} end)
+          |> Enum.filter(fn {_value, field_type} -> match?(%Type{}, field_type) end)
+          |> Enum.unzip()
+
+        {ast, maybe_add_downstream_call(calls, values, types)}
+
+      _unknown ->
+        {ast, calls}
+    end
   end
 
   defp collect_downstream_call_arg_types({name, _meta, args} = ast, calls, _vars, callbacks)

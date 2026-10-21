@@ -297,8 +297,26 @@ defmodule RustQ.Meta.Typing do
     |> option_unwrap_type()
   end
 
+  # An option chained with another keeps its type.
+  defp synth_method_call({{:., _, [receiver, method]}, _meta, [_other]}, %Env{} = env)
+       when method in [:or, :or_else, :xor] do
+    case synth(receiver, env) do
+      %Type{kind: :option} = option -> option
+      _unknown -> nil
+    end
+  end
+
   defp synth_method_call({{:., _, [_receiver, :to_string]}, _meta, []}, %Env{}),
     do: RustQ.Spec.type(quote(do: String.t()))
+
+  defp synth_method_call({{:., _, [receiver, :as_slice]}, _meta, []}, %Env{} = env) do
+    with %Type{} = type <- synth(receiver, env),
+         %Type{} = item <- Type.vec_inner(type) || borrowed_vec_inner(type) do
+      Type.slice_ref(item)
+    else
+      _unknown -> nil
+    end
+  end
 
   defp synth_method_call({{:., _, [receiver, :to_vec]}, _meta, []}, %Env{} = env) do
     with %Type{} = type <- synth(receiver, env),
@@ -360,9 +378,10 @@ defmodule RustQ.Meta.Typing do
   end
 
   defp synth_method_call({{:., _, [receiver, :first]}, _meta, []}, %Env{} = env) do
-    receiver
-    |> synth(env)
-    |> slice_get_type()
+    case synth(receiver, env) do
+      %Type{} = type -> slice_get_type(type)
+      nil -> nil
+    end
   end
 
   defp synth_method_call({{:., _, [receiver, :map_get]}, _meta, [_key]}, %Env{} = env) do

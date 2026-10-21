@@ -65,6 +65,16 @@
   call `into_iter()` again, one that clones each item is `cloned()`,
   `into_iter()` on a borrowed collection is `iter()`, and a statement `case`
   whose other branch does nothing is an `if let`.
+- A closure `Option::map` or `and_then` takes lowers its body as the expected
+  option's value, so tagged tuples and atoms inside it name variants; an option
+  a closure maps, items collected, or an iterator's `next` is not wrapped in a
+  second `Some`. `or`, `or_else`, `as_slice` are typed.
+- Patterns in `with`, inside `{:some, _}`, and on slices take the type of what
+  they match, and a list pattern on a value of unknown type is a slice pattern.
+- Inference reads a struct literal's fields as the types the struct declares,
+  ignores uses after a pattern binds the same name again, and a comprehension
+  ignores item variables its body does not use.
+- A failed native render names atoms matched inside patterns no type resolved.
 - Keep the grouping of nested operators: `a and (b or c)` rendered as
   `a && b || c`, and `not (a or b)` as `!a || b`. Operands are parenthesized
   by Rust's precedence.

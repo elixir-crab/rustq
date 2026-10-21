@@ -18,7 +18,7 @@ pub(crate) fn decode_function_arg_value(term: Term) -> NifResult<syn::FnArg> {
         Ok(arg) => Ok(arg),
         Err(_) => {
             let (name, ty) = term.decode::<(Term, Term)>()?;
-            let name = format_ident!("{}", atom_or_string(name)?);
+            let name = ident_from_part(&atom_or_string(name)?);
             let ty = decode_type(ty)?;
             crate::parse_function_arg(name, ty, false)
         }
@@ -451,7 +451,7 @@ pub(crate) fn decode_closure_args(term: Term) -> NifResult<Vec<Pat>> {
             if name == "_" {
                 Ok(syn::parse_quote!(_))
             } else {
-                parse_var_pat(format_ident!("{}", name), false)
+                parse_var_pat(ident_from_part(&name), false)
             }
         })
         .collect()
@@ -607,7 +607,7 @@ pub(crate) fn parse_local_call(name: String, args: Vec<Expr>) -> NifResult<Expr>
         return Err(rustler::Error::BadArg);
     }
 
-    let name = format_ident!("{}", name);
+    let name = ident_from_part(&name);
     parse_syn::<Expr>(quote!(#name(#(#args),*)))
 }
 

@@ -1369,6 +1369,15 @@ defmodule RustQ.Meta.Lower do
     end
   end
 
+  defp comprehension_pipeline(qualifiers, _body) do
+    Diagnostic.lower(
+      :unsupported_comprehension,
+      qualifiers,
+      "unsupported defrust comprehension",
+      suggestion: "Start the comprehension with a `pattern <- enumerable` generator."
+    )
+  end
+
   # An item the body returns as it is needs no mapping.
   defp comprehension_map(stage, binder, body) do
     if same_variables?(binder, body),
@@ -1387,15 +1396,6 @@ defmodule RustQ.Meta.Lower do
       _different ->
         false
     end
-  end
-
-  defp comprehension_pipeline(qualifiers, _body) do
-    Diagnostic.lower(
-      :unsupported_comprehension,
-      qualifiers,
-      "unsupported defrust comprehension",
-      suggestion: "Start the comprehension with a `pattern <- enumerable` generator."
-    )
   end
 
   defp generator?({:<-, _, [_pattern, _collection]}), do: true

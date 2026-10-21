@@ -542,6 +542,46 @@ defmodule RustQ.Meta.DefrustLoweringTest do
     assert source =~ "if value > 0"
   end
 
+  test "names predicates without their question mark and escapes reserved words" do
+    defmodule RustNamesCase do
+      use RustQ.Meta
+      alias RustQ.Type, as: R
+
+      @spec positive?(R.i64()) :: R.bool()
+      defrust(positive?(value), do: value > 0)
+
+      @spec shift(R.i64()) :: R.i64()
+      defrust shift(override) do
+        type = override + 1
+        if positive?(type), do: type, else: 0
+      end
+    end
+
+    source = RustNamesCase.__rustq_source__()
+    assert source =~ "fn positive(value: i64) -> bool"
+    assert source =~ "fn shift(r#override: i64) -> i64"
+    assert source =~ "let r#type = r#override + 1;"
+    assert source =~ "if positive(r#type)"
+    assert RustQ.valid?(source, "rust_names.rs")
+  end
+
+  test "rejects functions whose Rust names collide" do
+    assert_raise ArgumentError,
+                 ~r/:ready\? and :ready both become the Rust function ready|:ready and :ready\? both become the Rust function ready/,
+                 fn ->
+                   defmodule RustNameCollisionCase do
+                     use RustQ.Meta
+                     alias RustQ.Type, as: R
+
+                     @spec ready(R.i64()) :: R.bool()
+                     defrust(ready(value), do: value > 0)
+
+                     @spec ready?(R.i64()) :: R.bool()
+                     defrust(ready?(value), do: value > 1)
+                   end
+                 end
+  end
+
   test "marks mutable lets inside if branches" do
     defmodule IfBranchMutationCase do
       use RustQ.Meta

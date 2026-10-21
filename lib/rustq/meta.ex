@@ -375,6 +375,8 @@ defmodule RustQ.Meta do
       |> Enum.reverse()
       |> normalize_definitions()
 
+    reject_rust_name_collisions!(defs)
+
     macro_defs = Module.get_attribute(env.module, :rustq_macros) |> List.wrap() |> Enum.reverse()
     specs = Module.get_attribute(env.module, :spec) |> List.wrap()
     type_aliases = env.module |> Module.get_attribute(:type) |> Type.type_aliases()
@@ -413,6 +415,30 @@ defmodule RustQ.Meta do
       type_aliases: type_aliases,
       rust_modules: rust_modules
     }
+  end
+
+  # Rust drops an Elixir predicate's `?`, so `live?` and `live` would both name `live`.
+  defp reject_rust_name_collisions!(definitions) do
+    definitions
+    |> Enum.map(fn {call_ast, _body, _attrs, rust_module, rust_impl} ->
+      {name, _args} = call_name_args!(call_ast)
+      {name, rust_module, rust_impl}
+    end)
+    |> Enum.uniq()
+    |> Enum.group_by(
+      fn {name, rust_module, rust_impl} ->
+        {name |> Atom.to_string() |> String.trim_trailing("?"), rust_module, rust_impl}
+      end,
+      &elem(&1, 0)
+    )
+    |> Enum.each(fn
+      {_rust_name, [_one]} ->
+        :ok
+
+      {{rust_name, _module, _impl}, names} ->
+        raise ArgumentError,
+              "#{Enum.map_join(names, " and ", &inspect/1)} both become the Rust function #{rust_name}"
+    end)
   end
 
   defp normalize_definitions(definitions) do

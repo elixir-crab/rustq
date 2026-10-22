@@ -89,7 +89,7 @@ defmodule RustQ.Meta.Lower.DefrustCallableTest do
       use RustQ.Meta
       alias RustQ.Type, as: R
 
-      @spec decode_color(term()) :: R.nif_result(R.u32())
+      @spec decode_color(R.u32()) :: R.nif_result(R.u32())
       defrust decode_color(term) do
         case term do
           1 -> {:ok, 10}
@@ -97,7 +97,7 @@ defmodule RustQ.Meta.Lower.DefrustCallableTest do
         end
       end
 
-      @spec decode_shader(term()) :: R.nif_result(R.u32())
+      @spec decode_shader(R.u32()) :: R.nif_result(R.u32())
       defrust decode_shader(term) do
         case term do
           2 -> {:ok, 20}
@@ -105,7 +105,7 @@ defmodule RustQ.Meta.Lower.DefrustCallableTest do
         end
       end
 
-      @spec decode(term()) :: R.nif_result(R.u32())
+      @spec decode(R.u32()) :: R.nif_result(R.u32())
       defrust decode(term) do
         with {:error, _color_reason} <- decode_color(term),
              {:error, _shader_reason} <- decode_shader(term) do

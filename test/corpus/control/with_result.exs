@@ -5,7 +5,7 @@ defmodule RustQ.Corpus.Control.WithResult do
 
   alias RustQ.Type, as: R
 
-  @spec decode_a(term()) :: R.nif_result(R.u32())
+  @spec decode_a(R.u32()) :: R.nif_result(R.u32())
   defrust decode_a(term) do
     case term do
       1 -> {:ok, 10}
@@ -13,7 +13,7 @@ defmodule RustQ.Corpus.Control.WithResult do
     end
   end
 
-  @spec decode_b(term()) :: R.nif_result(R.u32())
+  @spec decode_b(R.u32()) :: R.nif_result(R.u32())
   defrust decode_b(term) do
     case term do
       2 -> {:ok, 20}
@@ -21,7 +21,7 @@ defmodule RustQ.Corpus.Control.WithResult do
     end
   end
 
-  @spec decode(term()) :: R.nif_result(R.u32())
+  @spec decode(R.u32()) :: R.nif_result(R.u32())
   defrust decode(term) do
     with {:error, _a_reason} <- decode_a(term),
          {:error, _b_reason} <- decode_b(term) do

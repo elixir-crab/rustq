@@ -5,12 +5,12 @@ defmodule RustQ.Corpus.Propagation.ReturnPosition do
 
   alias RustQ.Type, as: R
 
-  @spec decode(atom()) :: R.nif_result(R.u32())
+  @spec decode(term()) :: R.nif_result(R.u32())
   defrust decode(atom) do
     decode_as!(atom, R.u32())
   end
 
-  @spec use_decode(atom()) :: R.nif_result(R.u32())
+  @spec use_decode(term()) :: R.nif_result(R.u32())
   defrust use_decode(atom) do
     value = decode(atom)
     {:ok, value}

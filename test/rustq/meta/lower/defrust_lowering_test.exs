@@ -1561,7 +1561,7 @@ defmodule RustQ.Meta.Lower.DefrustLoweringTest do
 
     source = DecodeTermsCase.__rustq_source__()
     assert source =~ "fn decode_terms<'a>(term: Term<'a>) -> NifResult<Vec<Term<'a>>>"
-    assert source =~ "term.decode::<Vec<Term<'a>>>()?"
+    assert source =~ "term.decode::<Vec<Term<'a>>>()\n}"
   end
 
   test "lowers integer match patterns from defrust valid Elixir" do

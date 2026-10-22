@@ -5,7 +5,7 @@ defmodule RustQ.Corpus.Propagation.CallArgument do
 
   alias RustQ.Type, as: R
 
-  @spec decode(atom()) :: R.nif_result(R.u32())
+  @spec decode(term()) :: R.nif_result(R.u32())
   defrust decode(atom) do
     decode_as!(atom, R.u32())
   end
@@ -16,7 +16,7 @@ defmodule RustQ.Corpus.Propagation.CallArgument do
     :ok
   end
 
-  @spec run(atom()) :: R.nif_result(R.unit())
+  @spec run(term()) :: R.nif_result(R.unit())
   defrust run(atom) do
     consume(decode(atom))
     :ok

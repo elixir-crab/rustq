@@ -26,6 +26,17 @@
 
 ### Fixed
 
+- A function returning `R.nif_result(t)` returns a plain value as `Ok(value)`,
+  as the NIF returns that value in Elixir. Its Rust returned the bare value,
+  which did not compile; a plain value returned where an `R.result` is expected
+  is now a diagnostic asking for `{:ok, value}`.
+- A tail `decode_as!` in such a function is its `decode`, without the `?` that
+  made it not compile.
+- `:ok` returned where an atom is expected is the atom, and `Ok(())` for any
+  result carrying nothing; it used to be `()` wherever the type was not
+  `NifResult<()>`.
+- `{:some, value}` and `:none` where an option is expected are `Some(value)`
+  and `None`, as patterns read them; `{:some, 12.0}` used to be a tuple.
 - A function returning a variable typed as a 3-tuple returned the variable's
   Elixir AST as a tuple of atoms.
 - `true` and `false` render as raw identifiers wherever a name goes, and

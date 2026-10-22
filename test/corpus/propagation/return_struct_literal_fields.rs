@@ -12,7 +12,7 @@ pub fn decode_point<'a>(term: Term<'a>) -> NifResult<Point> {
 }
 
 fn decode_float<'a>(term: Term<'a>) -> NifResult<f64> {
-    term.decode::<f64>()?
+    term.decode::<f64>()
 }
 
 fn run<'a>(term: Term<'a>) -> NifResult<Point> {

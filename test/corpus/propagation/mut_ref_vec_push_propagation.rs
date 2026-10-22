@@ -1,12 +1,12 @@
-fn make_term<'a>() -> Term<'a> {
+fn make_term() -> u32 {
     0
 }
 
-fn decode_value<'a>() -> NifResult<Term<'a>> {
+fn decode_value() -> NifResult<u32> {
     Ok(make_term())
 }
 
-fn run<'a>(values: &mut Vec<Term<'a>>) -> NifResult<()> {
+fn run(values: &mut Vec<u32>) -> NifResult<()> {
     values.push(decode_value()?);
     Ok(())
 }

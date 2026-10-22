@@ -344,3 +344,137 @@ defmodule RustQ.MetaTest do
     assert RustQ.valid?(source, "macro_generated_case_clause.rs")
   end
 end
+
+defmodule RustQ.Meta.GeneratedRustTest do
+  # Synchronous, so it runs once every test file has defined its fixtures.
+  use ExUnit.Case, async: false
+
+  describe "generated Rust" do
+    # Fixtures whose Rust is not meant to compile on its own, each with why. The test fails on
+    # any other error, and on an entry that no longer has one.
+    @known_invalid %{
+      "RustQ.Meta.RustMacroTest.DefrustMacroFieldCase" =>
+        "a defrustmacro call has no type, so its tail is not wrapped in Ok and its string " <>
+          "literal argument is not made a binary",
+      "test/corpus/macros/defrustmacro_repeat.rs" =>
+        "a defrustmacro call has no type, so its tail is not wrapped in Ok"
+    }
+
+    # rustc stops before type checking when names do not resolve, and fixtures may call helpers
+    # their Rust sources define elsewhere; those are left out rather than stubbed.
+    @resolution_errors ~w(E0405 E0412 E0422 E0423 E0425 E0432 E0433 E0531)
+
+    @tag timeout: 600_000
+    test "compiles for every module in the suite that generates it" do
+      # The corpus is checked from its golden files, which it compiles modules to match only
+      # while its own tests run.
+      loaded =
+        for {module, _loaded} <- :code.all_loaded(),
+            function_exported?(module, :__rustq_source__, 0),
+            not String.starts_with?(inspect(module), "RustQ.Corpus."),
+            into: %{},
+            do: {inspect(module), generated_source(module)}
+
+      sources =
+        for path <- Path.wildcard("test/corpus/**/*.rs"),
+            into: loaded,
+            do: {path, File.read!(path)}
+
+      crate = Path.join(Mix.Project.build_path(), "rustq_generated_rust_check")
+
+      unresolved =
+        for {module, code, _message} <- cargo_check!(crate, sources),
+            code in @resolution_errors,
+            into: MapSet.new(),
+            do: module
+
+      checked = Map.drop(sources, MapSet.to_list(unresolved))
+
+      # Run with the whole suite, most fixtures resolve; a broken prelude would leave none.
+      # Run on its own, the test sees only its file's fixtures.
+      assert map_size(sources) < 20 or map_size(checked) * 2 > map_size(sources)
+
+      errors =
+        crate
+        |> cargo_check!(checked)
+        |> Enum.group_by(&elem(&1, 0), fn {_module, code, message} -> "#{code} #{message}" end)
+
+      assert Map.drop(errors, Map.keys(@known_invalid)) == %{}
+      assert Map.keys(@known_invalid) -- Map.keys(errors) == []
+    end
+  end
+
+  defp generated_source(module) do
+    if function_exported?(module, :__rustq_native_source__, 0),
+      do: module.__rustq_native_source__(),
+      else: module.__rustq_source__()
+  end
+
+  # Checks each source in a module of one crate, and returns rustc's errors by module.
+  defp cargo_check!(crate, sources) do
+    {lib, owners} = crate_source(sources)
+    File.mkdir_p!(Path.join(crate, "src"))
+
+    File.write!(Path.join(crate, "Cargo.toml"), """
+    [package]
+    name = "rustq_generated_rust_check"
+    version = "0.0.0"
+    edition = "2021"
+
+    [dependencies]
+    rustler = "0.37"
+    """)
+
+    File.write!(Path.join(crate, "src/lib.rs"), lib)
+
+    {output, _status} =
+      System.cmd("cargo", ["check", "--message-format", "short"],
+        cd: crate,
+        env: [{"CARGO_TARGET_DIR", Path.join(crate, "target")}],
+        stderr_to_stdout: true
+      )
+
+    for line <- String.split(output, "\n"),
+        [_line, number, code, message] <-
+          [Regex.run(~r/^src\/lib\.rs:(\d+):\d+: error(?:\[(E\d+)\])?: (.*)/, line)],
+        do: {Map.get(owners, String.to_integer(number)), code, message}
+  end
+
+  defp crate_source(sources) do
+    prelude =
+      "#![allow(warnings)]\nuse rustler::{Atom, Binary, Encoder, Env, NifResult, ResourceArc, Term};\n" <>
+        "use std::collections::HashMap;\n"
+
+    sources
+    |> Enum.sort()
+    |> Enum.with_index()
+    |> Enum.reduce({prelude, %{}}, fn {{module, source}, index}, {lib, owners} ->
+      text = "mod m#{index} {\nuse super::*;\n#{atoms_module(source)}#{source}\n}\n"
+      first = lib |> String.split("\n") |> length()
+      last = first + (text |> String.split("\n") |> length())
+      {lib <> text, Enum.reduce(first..last, owners, &Map.put(&2, &1, module))}
+    end)
+  end
+
+  # The atoms a source names, declared as rustler would for its module.
+  defp atoms_module(source) do
+    case Regex.scan(~r/atoms::((?:r#)?[A-Za-z_][A-Za-z0-9_]*)\s*\(/, source,
+           capture: :all_but_first
+         ) do
+      [] ->
+        ""
+
+      names ->
+        declarations =
+          names
+          |> List.flatten()
+          |> Enum.uniq()
+          |> Enum.map_join(", ", fn
+            "r#" <> name = raw -> ~s(#{raw} = "#{name}")
+            name -> name
+          end)
+
+        "mod atoms { rustler::atoms! { #{declarations} } }\n"
+    end
+  end
+end

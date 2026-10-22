@@ -1,5 +1,5 @@
-fn decode(atom: Atom) -> NifResult<u32> {
-    atom.decode::<u32>()?
+fn decode<'a>(atom: Term<'a>) -> NifResult<u32> {
+    atom.decode::<u32>()
 }
 
 fn consume(value: u32) -> NifResult<()> {
@@ -7,7 +7,7 @@ fn consume(value: u32) -> NifResult<()> {
     Ok(())
 }
 
-fn run(atom: Atom) -> NifResult<()> {
+fn run<'a>(atom: Term<'a>) -> NifResult<()> {
     consume(decode(atom)?)?;
     Ok(())
 }

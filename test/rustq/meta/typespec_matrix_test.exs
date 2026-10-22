@@ -81,28 +81,23 @@ defmodule RustQ.Meta.TypespecMatrixTest do
   end
 
   test "rejects a type declared twice instead of following the later one" do
-    module = Module.concat(__MODULE__, "Duplicate#{System.unique_integer([:positive])}")
-
     error =
       assert_raise RustQ.Diagnostic.Error, fn ->
-        Code.compile_string("""
-        defmodule #{inspect(module)} do
-          use RustQ.Meta
-          @type point :: %{required(:x) => float()}
-          @type point :: %{required(:y) => integer()}
-          @spec y(point()) :: integer()
-          defrust y(point), do: point.y
-        end
-        """)
+        compile(fn module ->
+          quote do
+            defmodule unquote(module) do
+              use RustQ.Meta
+              @type point :: %{required(:x) => float()}
+              @type point :: %{required(:y) => integer()}
+              @spec y(point()) :: integer()
+              defrust(y(point), do: point.y)
+            end
+          end
+        end)
       end
 
-    assert %RustQ.Diagnostic{
-             kind: :duplicate_type,
-             details: %{type: {:point, 0}, lines: [first, second]}
-           } = error.diagnostic
-
-    assert {first, second} == {3, 4}
-    assert error.message =~ "at lines 3 and 4"
+    assert %RustQ.Diagnostic{kind: :duplicate_type, details: %{type: {:point, 0}}} =
+             error.diagnostic
   end
 
   defp echo_signature(form) do

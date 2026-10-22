@@ -8,6 +8,8 @@
   both lines. RustQ reads types before Elixir rejects the duplicate, and used
   to follow the later declaration silently; types read from source with
   `RustQ.Spec` were never checked at all.
+- `RustQ.Spec.declarations/1` takes declarations' lines from
+  `quote location: :keep` as well as from parsed source.
 
 ### Changed
 

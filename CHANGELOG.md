@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.1 - 2026-10-22
+
+### Changed
+
+- Document `RustQ.Meta.Capture` and `RustQ.Meta.StdMethods` instead of hiding
+  them from the API reference.
+- The API reference leaves out the tools in `dev/` for working on RustQ itself,
+  which the package does not ship.
+
 ## 1.0.0 - 2026-10-22
 
 ### Added

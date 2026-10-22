@@ -1,5 +1,8 @@
 defmodule RustQ.Meta.Capture do
-  @moduledoc false
+  @moduledoc """
+  Capture shorthand in Rusty-Elixir, rewritten as the anonymous function it stands for so it
+  lowers wherever a closure does.
+  """
 
   @doc """
   Rewrites capture shorthand such as `&(&1 + &2)` as the anonymous function it stands for,

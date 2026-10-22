@@ -1,7 +1,7 @@
 defmodule RustQ.MixProject do
   use Mix.Project
 
-  @version "1.0.0"
+  @version "1.0.1"
   @source_url "https://github.com/elixir-crab/rustq"
 
   def project do
@@ -145,6 +145,10 @@ defmodule RustQ.MixProject do
         "CHANGELOG.md",
         "LICENSE"
       ],
+      # dev/ holds tools for working on RustQ itself, which the package does not ship.
+      filter_modules: fn _module, %{source_path: path} ->
+        not String.starts_with?(to_string(path), Path.expand("dev"))
+      end,
       groups_for_modules: [
         "Start here": [
           RustQ,

@@ -1,4 +1,4 @@
-defmodule RustQ.Rust.IdentifierMatrixTest do
+defmodule RustQ.Rust.AST.RenderTest do
   @moduledoc """
   Renders every AST position that holds a Rust identifier with every Rust keyword, natively
   inside an item and through the text renderer on its own. Each must either render Rust that

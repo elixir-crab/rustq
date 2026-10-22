@@ -39,6 +39,15 @@
 - Rendered Rust is checked to parse before it is returned.
 - `RustQ.Rust.AST.Builder.expr(true)` builds the literal, not a variable named
   `true`.
+- A `RustQ.Native` crate using `%{key => value}` or `HashMap.t` in a NIF
+  compiles; it imports `HashMap`.
+- A public `R.enum` type crosses the NIF boundary as Elixir writes it, as
+  `{:circle, 1.0}` or `:empty`, through `rustler::NifTaggedEnum`. It had no
+  codec, so a NIF taking or returning one did not compile.
+- `gen`, which the 2024 edition reserves, renders as a raw identifier.
+- A path segment named `try`, or a variable named `break`, `continue`,
+  `return`, or `yield`, renders raw. It used to render as the keyword, which
+  parses but does not name the variable.
 
 ## 1.0.0-rc.12 - 2026-10-22
 

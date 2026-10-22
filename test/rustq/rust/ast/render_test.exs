@@ -20,6 +20,9 @@ defmodule RustQ.Rust.AST.RenderTest do
   # Keywords with no raw form, valid only where Rust gives them a meaning, such as a path.
   @path_keywords [:self, :Self, :super, :crate]
 
+  # Weak keywords are keywords only in some positions, and identifiers everywhere else.
+  @weak_keywords [:union, :macro_rules, :raw, :safe]
+
   @i32 %AST.TypePath{parts: [:i32]}
   @unit %AST.TypeUnit{}
   @zero %AST.Literal{value: 0}
@@ -182,9 +185,16 @@ defmodule RustQ.Rust.AST.RenderTest do
   defp check(label, keyword, render) do
     case render_result(render) do
       {:ok, source} ->
-        if RustQ.valid?(source, "identifier_matrix.rs"),
-          do: nil,
-          else: {label, keyword, :invalid_rust, source}
+        cond do
+          not RustQ.valid?(source, "identifier_matrix.rs") ->
+            {label, keyword, :invalid_rust, source}
+
+          not spelled?(label, source, keyword) ->
+            {label, keyword, :misspelled, source}
+
+          true ->
+            nil
+        end
 
       {:diagnostic, _message} when keyword in @path_keywords ->
         nil
@@ -195,6 +205,25 @@ defmodule RustQ.Rust.AST.RenderTest do
       {:crash, error} ->
         {label, keyword, :crashed, error}
     end
+  end
+
+  # Macro metavariables follow `$`, where Rust takes a keyword as it is, as in `$type:ty`.
+  @plain_positions ["MacroVar.name", "MacroCapture.name"]
+
+  # An atom raised from a NIF is named by a string, as in `RaiseAtom("type")`.
+  @string_positions ["NifRaiseAtom.name"]
+
+  # The rendered name, as Rust spells it: raw for a strict or reserved keyword, as itself for a
+  # weak keyword, a path keyword where Rust accepts one, or a macro metavariable.
+  defp spelled?(label, source, keyword) when label in @string_positions,
+    do: String.contains?(source, ~s("#{keyword}"))
+
+  defp spelled?(label, source, keyword) do
+    name = Regex.escape(Atom.to_string(keyword))
+
+    if keyword in @weak_keywords or keyword in @path_keywords or label in @plain_positions,
+      do: source =~ ~r/(?<![\w#])#{name}(?!\w)/,
+      else: source =~ ~r/(?<![\w#])r##{name}(?!\w)/
   end
 
   defp render_result(render) do

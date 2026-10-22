@@ -76,6 +76,18 @@ defmodule RustQ.Native.ABI do
       end)
       |> Map.new()
 
+    # A public `R.enum` crosses the boundary as Elixir writes it: `{:circle, 1.0}` or `:empty`.
+    tagged_enums =
+      values[:type_aliases]
+      |> Enum.flat_map(fn
+        {_key, %Type{kind: :rust_enum, meta: meta} = type} ->
+          if meta[:private], do: [], else: [to_string(type.rust)]
+
+        _type ->
+          []
+      end)
+      |> MapSet.new()
+
     tuple_enums =
       values[:type_aliases]
       |> Enum.flat_map(fn
@@ -95,29 +107,11 @@ defmodule RustQ.Native.ABI do
 
     items =
       Enum.flat_map(source_items, fn
-        %AST.Struct{name: name} = struct ->
-          name = to_string(name)
+        %AST.Struct{} = struct ->
+          [derive_struct_codec(struct, resource_structs, map_structs, nif_structs)]
 
-          cond do
-            MapSet.member?(resource_structs, name) ->
-              [%{struct | derive: []}]
-
-            MapSet.member?(map_structs, name) ->
-              [%{struct | derive: Enum.uniq(struct.derive ++ ["rustler::NifMap"])}]
-
-            module = Map.get(nif_structs, name) ->
-              [derive_elixir_struct(struct, module)]
-
-            true ->
-              [struct]
-          end
-
-        %AST.Enum{name: name} = enum ->
-          if Map.has_key?(unit_enums, to_string(name)) do
-            [%{enum | derive: Enum.uniq(enum.derive ++ ["rustler::NifUnitEnum"])}]
-          else
-            [enum]
-          end
+        %AST.Enum{} = enum ->
+          [derive_enum_codec(enum, unit_enums, tagged_enums)]
 
         %AST.Function{} = function ->
           prepare_native_function(function, generated_decoders)
@@ -156,6 +150,29 @@ defmodule RustQ.Native.ABI do
   defp prepare_expanded_native_item(item) do
     item
   end
+
+  # A struct crossing the boundary takes the codec its Elixir shape needs; a resource has none.
+  defp derive_struct_codec(%AST.Struct{name: name} = struct, resources, maps, nif_structs) do
+    name = to_string(name)
+
+    cond do
+      MapSet.member?(resources, name) -> %{struct | derive: []}
+      MapSet.member?(maps, name) -> derive(struct, "rustler::NifMap")
+      module = Map.get(nif_structs, name) -> derive_elixir_struct(struct, module)
+      true -> struct
+    end
+  end
+
+  # An atom union crosses as atoms, and a public `R.enum` as tagged tuples and atoms.
+  defp derive_enum_codec(%AST.Enum{name: name} = enum, unit_enums, tagged_enums) do
+    cond do
+      Map.has_key?(unit_enums, to_string(name)) -> derive(enum, "rustler::NifUnitEnum")
+      MapSet.member?(tagged_enums, to_string(name)) -> derive(enum, "rustler::NifTaggedEnum")
+      true -> enum
+    end
+  end
+
+  defp derive(%{derive: derive} = item, codec), do: %{item | derive: Enum.uniq(derive ++ [codec])}
 
   defp derive_elixir_struct(%AST.Struct{} = struct, module) do
     derive =

@@ -454,9 +454,96 @@ defmodule RustQ.Meta.TypeTest do
     {quote(do: struct()), :unsupported}
   ]
 
+  # Values each mapped form takes through a built NIF unchanged, and values it rejects.
+  @round_trips [
+    {quote(do: integer()), [0, -5, 9_223_372_036_854_775_807],
+     ["1", 1.5, 9_223_372_036_854_775_808]},
+    {quote(do: float()), [1.5, -2.25], ["x"]},
+    {quote(do: number()), [2.5], ["x"]},
+    {quote(do: boolean()), [true, false], [:maybe, nil]},
+    {quote(do: String.t()), ["héllo", ""], [:a, 1]},
+    {quote(do: atom()), [:ok, :anything], ["ok"]},
+    {quote(do: term()), [{1, [2]}], []},
+    {quote(do: any()), [%{a: 1}], []},
+    {quote(do: integer() | nil), [nil, 3], [:x]},
+    {quote(do: {:ok, integer()} | {:error, String.t()}), [{:ok, 1}, {:error, "e"}],
+     [{:ok, "x"}, :ok]},
+    {quote(do: [integer()]), [[1, 2], []], [[1, "a"], 1]},
+    {quote(do: nonempty_list(integer())), [[1]], []},
+    {quote(do: {integer(), float()}), [{1, 2.5}], [{1}, {1, 2.5, 3}]},
+    {quote(do: {integer(), String.t(), boolean()}), [{1, "a", true}], [{1, "a"}]},
+    {quote(do: [{atom(), integer()}]), [[a: 1]], [[{"a", 1}]]},
+    {quote(do: %{String.t() => integer()}), [%{"a" => 1}, %{}], [%{a: 1}]},
+    {quote(do: R.u8()), [0, 255], [-1]},
+    {quote(do: R.u32()), [4_294_967_295], [-1, 4_294_967_296]},
+    {quote(do: R.i64()), [-9_223_372_036_854_775_808], [9_223_372_036_854_775_808]},
+    {quote(do: R.usize()), [0], [-1]},
+    {quote(do: R.f32()), [1.5], [1.0e300]},
+    {quote(do: R.bool()), [true], [1]},
+    {quote(do: R.atom()), [:x], ["x"]},
+    {quote(do: R.vec(integer())), [[3]], [[:a]]},
+    {quote(do: R.option(integer())), [nil, 1], ["a"]},
+    {quote(do: R.result(integer(), String.t())), [{:ok, 1}, {:error, "e"}], [{:ok, "x"}]},
+    {quote(do: point()), [%{x: 1.0, y: 2.0}], [%{x: 1.0}, %{x: "a", y: 1.0}]},
+    {quote(do: [point()]), [[%{x: 1.0, y: 2.0}]], [[%{x: 1.0}]]},
+    {quote(do: point() | nil), [nil, %{x: 1.0, y: 2.0}], [%{y: 1.0}]},
+    {quote(do: shape()), [{:circle, 1.0}, :empty], [{:square, 1.0}, :circle]},
+    {quote(do: mode()), [:fast, :slow], [:medium]},
+    {quote(do: byte()), [0, 255], [-1]},
+    {quote(do: non_neg_integer()), [0, 18_446_744_073_709_551_615],
+     [-1, 18_446_744_073_709_551_616]},
+    {quote(do: pos_integer()), [1], [-1]},
+    {quote(do: char()), [?a, ?é, 0x10FFFF], [-1]}
+  ]
+
+  # Values a form's spec excludes that the NIF still takes, each with why. When a gap closes,
+  # its entry fails here: move the value to the form's rejected values above.
+  @known_gaps [
+    {quote(do: R.u8()), 256, "rustler truncates narrow integers; rusterlium/rustler#785"},
+    {quote(do: byte()), 256, "rustler truncates narrow integers; rusterlium/rustler#785"},
+    {quote(do: pos_integer()), 0, "maps to u64 until rustler decodes NonZeroU64"},
+    {quote(do: char()), 0x110000, "maps to u32, wider than a code point"},
+    {quote(do: :ok), :error, "an inline literal atom is any Atom; a named @type is an enum"},
+    {quote(do: :small | :large), :medium,
+     "an inline atom union is any Atom; a named @type is an enum"}
+  ]
+
   # Each form passes through a NIF boundary as `@spec echo(form) :: form`; a form RustQ cannot
   # map is rejected rather than become a Rust type named after it.
   describe "typespec matrix" do
+    @tag timeout: 300_000
+    test "every mapped form round-trips through a built NIF" do
+      forms =
+        Enum.uniq(Enum.map(@round_trips, &elem(&1, 0)) ++ Enum.map(@known_gaps, &elem(&1, 0)))
+
+      call = build_echo_nifs!(forms)
+
+      failures =
+        for {form, accepted, rejected} <- @round_trips,
+            failure <-
+              Enum.flat_map(accepted, fn value ->
+                case call.(form, value) do
+                  {:ok, ^value} -> []
+                  other -> [{:accepted, value, other}]
+                end
+              end) ++
+                Enum.flat_map(rejected, fn value ->
+                  case call.(form, value) do
+                    {:raised, _error} -> []
+                    other -> [{:rejected, value, other}]
+                  end
+                end),
+            do: {Macro.to_string(form), failure}
+
+      gaps =
+        for {form, value, reason} <- @known_gaps,
+            match?({:raised, _error}, call.(form, value)),
+            do: {Macro.to_string(form), value, closed: reason}
+
+      assert failures == []
+      assert gaps == []
+    end
+
     test "maps every typespec form to its Rust type, or rejects it" do
       mismatches =
         for {form, expected} <- @matrix,
@@ -485,6 +572,45 @@ defmodule RustQ.Meta.TypeTest do
 
       assert %RustQ.Diagnostic{kind: :duplicate_type, details: %{type: {:point, 0}}} =
                error.diagnostic
+    end
+  end
+
+  # Builds one crate with an `echo` NIF per form and returns a function calling the NIF for
+  # a form with a value, as `{:ok, result}` or `{:raised, error}`.
+  defp build_echo_nifs!(forms) do
+    names =
+      forms |> Enum.with_index() |> Map.new(fn {form, index} -> {form, :"echo_#{index}"} end)
+
+    nifs =
+      for {form, name} <- names do
+        quote do
+          @spec unquote(name)(unquote(form)) :: unquote(form)
+          defnif(unquote(name)(value), do: value)
+        end
+      end
+
+    module =
+      compile(fn module ->
+        quote do
+          defmodule unquote(module) do
+            use RustQ.Native, otp_app: :rustq, crate: :rustq_typespec_matrix, mode: :debug
+            alias RustQ.Type, as: R
+
+            @type point :: %{required(:x) => float(), required(:y) => float()}
+            @type shape :: R.enum(circle: [float()], empty: [])
+            @type mode :: :fast | :slow
+
+            unquote_splicing(nifs)
+          end
+        end
+      end)
+
+    fn form, value ->
+      try do
+        {:ok, apply(module, Map.fetch!(names, form), [value])}
+      rescue
+        error -> {:raised, error}
+      end
     end
   end
 

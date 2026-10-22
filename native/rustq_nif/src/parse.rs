@@ -117,16 +117,18 @@ fn path_part_source(part: &str) -> String {
 pub(crate) fn identifier_source(name: &str, context: &str) -> NifResult<String> {
     let name = rust_name(name);
 
-    let fits = match context {
+    // A keyword is written raw before anything else: `break` parses as an expression and
+    // `try` as a path segment, but neither means the name.
+    let fits = || match context {
         "segment" => syn::parse_str::<syn::PathSegment>(name).is_ok(),
         "expr" => syn::parse_str::<syn::Expr>(name).is_ok(),
-        _ => syn::parse_str::<syn::Ident>(name).is_ok(),
+        _ => false,
     };
 
-    if fits {
-        Ok(name.to_string())
-    } else if rust_keyword(name) {
+    if rust_keyword(name) {
         Ok(format!("r#{name}"))
+    } else if syn::parse_str::<syn::Ident>(name).is_ok() || fits() {
+        Ok(name.to_string())
     } else {
         Err(rustler::Error::Term(Box::new(format!(
             "`{name}` cannot be a Rust identifier"
@@ -137,9 +139,14 @@ pub(crate) fn identifier_source(name: &str, context: &str) -> NifResult<String> 
 /// Whether `part` is a Rust keyword, which Rust writes as a raw identifier: syn reads it as an
 /// identifier only with the `r#` prefix. `self`, `Self`, `super`, and `crate` are neither.
 fn rust_keyword(part: &str) -> bool {
-    syn::parse_str::<syn::Ident>(part).is_err()
-        && syn::parse_str::<syn::Ident>(&format!("r#{part}")).is_ok()
+    EDITION_KEYWORDS.contains(&part)
+        || (syn::parse_str::<syn::Ident>(part).is_err()
+            && syn::parse_str::<syn::Ident>(&format!("r#{part}")).is_ok())
 }
+
+/// Keywords a newer Rust edition reserves that syn, which knows no editions, still reads as
+/// identifiers: `gen` from the 2024 edition. Raw, they are valid in every edition.
+const EDITION_KEYWORDS: &[&str] = &["gen"];
 
 pub(crate) fn parse_expr(source: impl AsRef<str>) -> NifResult<Expr> {
     syn::parse_str(source.as_ref()).map_err(|_| rustler::Error::BadArg)

@@ -1,5 +1,7 @@
 defmodule RustQ.Meta.Lower.Range do
-  @moduledoc false
+  @moduledoc """
+  Lowers ranges and `in` over them for `RustQ.Meta.Lower.Stdlib`, and types such calls.
+  """
 
   alias RustQ.Diagnostic
   alias RustQ.Meta.Core.Call

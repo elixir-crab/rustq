@@ -1,5 +1,9 @@
 defmodule RustQ.Meta.Lower.Stdlib do
-  @moduledoc false
+  @moduledoc """
+  Lowers calls to Elixir's standard library (`Kernel`, `Enum`, `List`, `Map`, `String`,
+  `Tuple`, and `Range`) to Rust that keeps their semantics, dispatching to one lowering module
+  per Elixir module. Calls whose semantics Rust cannot preserve are rejected.
+  """
 
   alias RustQ.Diagnostic
   alias RustQ.Meta.Core.Call
@@ -7,7 +11,10 @@ defmodule RustQ.Meta.Lower.Stdlib do
   alias RustQ.Rust.AST
 
   defmodule Context do
-    @moduledoc false
+    @moduledoc """
+    The callbacks a standard-library lowering uses to lower its arguments and closures, and
+    the type the call is expected to produce.
+    """
 
     defstruct [
       :lower,
@@ -87,7 +94,7 @@ defmodule RustQ.Meta.Lower.Stdlib do
   end
 
   defmodule TypeContext do
-    @moduledoc false
+    @moduledoc "The callbacks a standard-library lowering uses to type its arguments."
 
     defstruct [:type_of, :type_with_vars]
 

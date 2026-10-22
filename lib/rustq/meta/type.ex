@@ -198,7 +198,7 @@ defmodule RustQ.Meta.Type do
 
   def slice_inner(%__MODULE__{}), do: nil
 
-  @doc false
+  @doc "Constructs tuple type metadata for its element types."
   @spec tuple([t()]) :: t()
   def tuple(elements) when is_list(elements) and elements != [] do
     type(:tuple, %AST.TypeTuple{items: Enum.map(elements, & &1.ast)}, %{elements: elements})
@@ -608,8 +608,11 @@ defmodule RustQ.Meta.Type do
 
   defp syn_lifetime("'" <> name), do: Identifier.atom!(name)
 
-  @doc false
-  @spec parse(Macro.t(), map()) :: t()
+  @doc """
+  Parses a module's `@type` declarations, with types imported from other modules, into type
+  metadata by name and arity.
+  """
+  @spec type_aliases(term(), map()) :: %{{atom(), non_neg_integer()} => t()}
   def type_aliases(types, imported \\ %{}) do
     types = types |> List.wrap() |> Enum.reverse()
 
@@ -852,6 +855,7 @@ defmodule RustQ.Meta.Type do
 
   defp parse_alias_type(ast, _raw, aliases), do: {parse(ast, aliases), aliases}
 
+  @spec parse(Macro.t(), map()) :: t()
   def parse({{:., _, [module, function]}, _, args}, aliases),
     do: parse_remote(module, function, args, aliases)
 
@@ -1266,7 +1270,7 @@ defmodule RustQ.Meta.Type do
 
   defp rust_module_part(part) when is_binary(part), do: Macro.underscore(part)
 
-  @doc false
+  @doc "Type metadata for a RustQ AST type."
   @spec ast_type(AST.type()) :: t()
   def ast_type(ast), do: type(ast_type_kind(ast), ast)
 

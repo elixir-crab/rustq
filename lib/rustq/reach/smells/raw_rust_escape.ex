@@ -1,5 +1,9 @@
 defmodule RustQ.Reach.Smells.RawRustEscape do
-  @moduledoc false
+  @moduledoc """
+  Reach smell check flagging a literal raw Rust escape that spans lines or exceeds 100
+  characters, which `defrust`, RustQ AST builders, metadata, or a small `defrustmacro`
+  usually express.
+  """
 
   use Reach.Smell.Check.AST
 

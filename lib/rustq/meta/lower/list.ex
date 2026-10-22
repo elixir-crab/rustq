@@ -1,5 +1,8 @@
 defmodule RustQ.Meta.Lower.List do
-  @moduledoc false
+  @moduledoc """
+  Lowers `List.duplicate/2`, `List.flatten/1`, and `List.wrap/1` for `RustQ.Meta.Lower.Stdlib`,
+  and types such calls.
+  """
 
   alias RustQ.Meta.Core.Call
   alias RustQ.Meta.Lower.Stdlib

@@ -1,10 +1,20 @@
 defmodule RustQ.Native.Options do
-  @moduledoc false
+  @moduledoc """
+  Validates and defaults the options `use RustQ.Native` takes on top of `RustQ.Meta`'s:
+  `:otp_app`, `:crate`, `:mode`, `:cargo`, `:crates`, `:build`, and `:load`.
+  """
   alias RustQ.Meta.Options
   @native_options [:otp_app, :crate, :mode, :cargo, :crates, :build, :load]
+  @doc "The option names `RustQ.Native` owns, as opposed to those it passes to `RustQ.Meta`."
   @spec names() :: [atom()]
   def names, do: @native_options
 
+  @doc """
+  Returns the native options with defaults filled in, expanding each in `caller`. Raises
+  `ArgumentError` on an unknown option or an invalid value, including `load: true` with
+  `build: false`.
+  """
+  @spec native_options!(keyword(), Macro.Env.t()) :: keyword()
   def native_options!(opts, caller) when is_list(opts) do
     unknown = Keyword.keys(opts) -- (@native_options ++ Options.option_names())
 

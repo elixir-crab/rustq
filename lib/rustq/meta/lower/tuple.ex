@@ -1,5 +1,7 @@
 defmodule RustQ.Meta.Lower.Tuple do
-  @moduledoc false
+  @moduledoc """
+  Lowers `Tuple.to_list/1` for `RustQ.Meta.Lower.Stdlib`, and types such calls.
+  """
 
   alias RustQ.Diagnostic
   alias RustQ.Meta.Core.Call

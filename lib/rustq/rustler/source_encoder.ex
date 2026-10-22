@@ -1,8 +1,8 @@
 defmodule RustQ.Rustler.SourceEncoder do
-  @moduledoc false
-
-  # Builds `Term` encoder functions for Rust structs and enums read from source
-  # through `RustQ.Syn`. See `RustQ.Rustler.Term.encoders_from_source/3`.
+  @moduledoc """
+  Builds `Term` encoder functions for Rust structs and enums read from source through
+  `RustQ.Syn`, and the atoms they use. See `RustQ.Rustler.Term.encoders_from_source/3`.
+  """
 
   alias RustQ.Rust.AST
   alias RustQ.Rust.AST.Builder, as: A
@@ -28,16 +28,21 @@ defmodule RustQ.Rustler.SourceEncoder do
   @wrapper_roles Keyword.keys(@default_wrappers)
 
   defmodule Plan do
-    @moduledoc false
+    @moduledoc """
+    The types reachable from the requested roots, by name, in the order their encoders are
+    generated, with the encoder configuration.
+    """
     defstruct [:config, types: %{}, order: [], atoms: MapSet.new()]
   end
 
+  @doc "Returns an encoder function for each type reachable from `roots`."
   @spec functions(Index.t() | [Path.t()], [atom() | String.t()], keyword()) :: [AST.Function.t()]
   def functions(source, roots, opts) do
     plan = plan!(source, roots, opts)
     Enum.map(plan.order, &function(plan, Map.fetch!(plan.types, &1)))
   end
 
+  @doc "Returns the atom declarations the encoders of the types reachable from `roots` use."
   @spec atoms(Index.t() | [Path.t()], [atom() | String.t()], keyword()) ::
           [String.t() | {atom(), String.t()}]
   def atoms(source, roots, opts) do

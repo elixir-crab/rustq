@@ -250,7 +250,10 @@ defmodule RustQ.Meta.AST do
     end
   end
 
-  @doc false
+  @doc """
+  Lowers one Rusty-Elixir body to a Rust function from explicit `:args`, `:returns`, and `:do`,
+  without a module's specs; used to build functions from generators.
+  """
   @spec quoted(atom(), keyword()) :: AST.Function.t()
   def quoted(name, opts) do
     args = Keyword.fetch!(opts, :args)
@@ -287,7 +290,10 @@ defmodule RustQ.Meta.AST do
     }
   end
 
-  @doc false
+  @doc """
+  Lowers one `defrust` definition, with its specs, type aliases, Rust module aliases, and the
+  callables and macros it may use, to its RustQ AST item.
+  """
   def build_ast(
         definition,
         specs,
@@ -371,7 +377,7 @@ defmodule RustQ.Meta.AST do
       raise_defrust_diagnostic(call_ast, body_ast, error)
   end
 
-  @doc false
+  @doc "Builds the Rust struct, enum, and alias items the module's declared types need."
   def build_type_asts(type_aliases) do
     type_aliases
     |> Map.values()
@@ -385,7 +391,9 @@ defmodule RustQ.Meta.AST do
 
   defp with_hashable(ast, _type), do: ast
 
-  @doc false
+  @doc """
+  Groups built items into their Rust modules and `impl` blocks, in definition order.
+  """
   def group_items(built_asts, rust_modules \\ %{}) do
     {plain, nested} = Enum.split_with(built_asts, &is_nil(&1.rust_module))
 
@@ -401,7 +409,7 @@ defmodule RustQ.Meta.AST do
     plain_items ++ nested_items
   end
 
-  @doc false
+  @doc "Groups built items as `group_items/2` does, without Rust module aliases."
   def group_module_asts(built_asts), do: group_items(built_asts)
 
   defp group_impl_asts(built_asts, rust_modules) do
@@ -696,7 +704,7 @@ defmodule RustQ.Meta.AST do
   defp diagnostic_cause_message(%Diagnostic{} = diagnostic), do: diagnostic.message
   defp diagnostic_cause_message(error), do: Exception.message(error)
 
-  @doc false
+  @doc "Expands ordinary Elixir macros in a body in `env` before it is lowered."
   def expand_body_macros(body_ast, env) do
     body_ast
     |> Macro.prewalk(fn ast -> expand_body_macro(ast, env) end)
@@ -941,7 +949,7 @@ defmodule RustQ.Meta.AST do
     raise ArgumentError, "unsupported defrust argument: #{Macro.to_string(other)}"
   end
 
-  @doc false
+  @doc "Callable metadata for the module's own functions, from their specs."
   @spec callables_from_specs([term()], map()) :: [Callable.t()]
   def callables_from_specs(specs, type_aliases), do: spec_callables(specs, type_aliases)
 

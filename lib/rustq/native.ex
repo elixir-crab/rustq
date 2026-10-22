@@ -36,7 +36,12 @@ defmodule RustQ.Native do
   alias RustQ.Native.{ABI, Build, Options}
   alias RustQ.Rust.AST
   alias RustQ.Rust.Identifier
-  @doc false
+
+  @doc """
+  Makes the calling module a native compilation unit: validates the native options, prepares
+  the generated crate's `Cargo.toml` so its crates' metadata can be read, and passes the
+  remaining options to `use RustQ.Meta`.
+  """
   defmacro __using__(opts) do
     native_opts = Options.native_options!(opts, __CALLER__)
 
@@ -89,7 +94,11 @@ defmodule RustQ.Native do
     module.__rustq_native_source__()
   end
 
-  @doc false
+  @doc """
+  Called by `RustQ.Meta` before a native module compiles: prepares its items for the NIF
+  boundary, defines `__rustq_native_items__/0` and `__rustq_native_source__/0`, and, when the
+  module builds its crate, compiles it and adds the loader.
+  """
   def __compile_native__(env, values, opts, exports) do
     module = env.module
     items = ABI.native_items(values)
@@ -98,12 +107,12 @@ defmodule RustQ.Native do
 
     native_exports =
       quote do
-        @doc false
+        @doc "Returns this module's ABI-prepared Rust items; see `RustQ.Native.items/1`."
         def __rustq_native_items__ do
           unquote(Macro.escape(items))
         end
 
-        @doc false
+        @doc "Returns this module's ABI-prepared Rust source; see `RustQ.Native.source/1`."
         def __rustq_native_source__ do
           unquote(item_source)
         end

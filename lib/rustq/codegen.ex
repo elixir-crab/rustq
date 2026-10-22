@@ -1,5 +1,9 @@
 defmodule RustQ.Codegen do
-  @moduledoc false
+  @moduledoc """
+  Generates `native/rustq_nif/src/generated_ast.rs`, the native support RustQ compiles
+  itself against: the `syn` term decoders and dispatch for RustQ AST nodes, written with
+  RustQ's own AST builders and Rusty-Elixir. `rustq.exs` declares the target.
+  """
 
   alias RustQ.Codegen.DecoderHelpers
   alias RustQ.Codegen.Decoders

@@ -1,5 +1,8 @@
 defmodule RustQ.Meta.Validate do
-  @moduledoc false
+  @moduledoc """
+  Checks that a generated item is valid Rust by rendering it and parsing the result with syn,
+  raising when it does not parse.
+  """
 
   alias RustQ.Rust
   alias RustQ.Rust.AST

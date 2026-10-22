@@ -1,5 +1,8 @@
 defmodule RustQ.Meta.Lower.Enum do
-  @moduledoc false
+  @moduledoc """
+  Lowers `Enum` functions over lists as iterator chains: mapping, filtering, reducing,
+  searching, sorting, and zipping for `RustQ.Meta.Lower.Stdlib`, and types such calls.
+  """
 
   alias RustQ.Diagnostic
   alias RustQ.Meta.Capture

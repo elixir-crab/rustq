@@ -1,6 +1,13 @@
 defmodule RustQ.Rustler.HelperSelection do
-  @moduledoc false
+  @moduledoc """
+  Selects which generated helpers a Rustler helper generator emits, from its `:include` and
+  `:exclude` options.
+  """
 
+  @doc """
+  Returns the helper names to emit: `:include` (a list, or `:all` for `default_names`,
+  which is also the default) without those in `:exclude`.
+  """
   @spec names(keyword(), [atom()]) :: [atom()]
   def names(opts, default_names) do
     opts

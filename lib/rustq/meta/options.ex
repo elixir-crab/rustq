@@ -1,5 +1,8 @@
 defmodule RustQ.Meta.Options do
-  @moduledoc false
+  @moduledoc """
+  The options `use RustQ.Meta` accepts: `:rust_sources`, `:rust_packages`,
+  `:callable_modules`, and `:static_types`.
+  """
 
   alias RustQ.Binding.Source
   alias RustQ.Diagnostic
@@ -11,7 +14,8 @@ defmodule RustQ.Meta.Options do
           static_types: keyword(Macro.t())
         }
 
-  @doc false
+  @doc "The names of the options `use RustQ.Meta` accepts."
+  @spec option_names() :: [atom()]
   def option_names, do: [:rust_sources, :rust_packages, :callable_modules, :static_types]
 
   @doc "Validates and normalizes options passed to `use RustQ.Meta`."

@@ -1,5 +1,10 @@
 defmodule RustQ.Codegen.DefrustModule do
-  @moduledoc false
+  @moduledoc """
+  `use RustQ.Codegen.DefrustModule` sets up a `RustQ.Meta` module for RustQ's own
+  generated native support: it reads callable metadata from the native crate's sources,
+  requires the given `callable_modules`, and defines `asts/0` returning the module's
+  functions as crate-visible Rust items.
+  """
 
   alias RustQ.Meta.AST, as: MetaAST
 

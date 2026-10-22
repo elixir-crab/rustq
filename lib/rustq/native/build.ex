@@ -1,10 +1,19 @@
 defmodule RustQ.Native.Build do
-  @moduledoc false
+  @moduledoc """
+  Builds a `RustQ.Native` module's crate: writes its `Cargo.toml` and `src/lib.rs` under the
+  Mix build directory, formats and compiles it with Cargo, installs the library into the
+  application's `priv/native`, and generates the NIF loader.
+  """
 
   alias RustQ.Native.Manifest
   alias RustQ.Rust.AST.Builder, as: A
   alias RustQ.Rustler.Nif
 
+  @doc """
+  Builds the crate for `module`'s `items` when `opts[:build]` is set, returning the quoted
+  `@on_load` loader when `opts[:load]` is also set, and `nil` otherwise.
+  """
+  @spec maybe_build_and_loader(module(), [RustQ.Rust.AST.item()], keyword()) :: Macro.t() | nil
   def maybe_build_and_loader(module, items, opts) do
     if opts[:build] do
       build_and_loader(module, items, opts)
@@ -32,7 +41,7 @@ defmodule RustQ.Native.Build do
 
       quote do
         @on_load :__rustq_load_nif__
-        @doc false
+        @doc "Loads this module's native library from the application's `priv/native`."
         def __rustq_load_nif__ do
           :code.purge(__MODULE__)
 
@@ -45,6 +54,12 @@ defmodule RustQ.Native.Build do
     end
   end
 
+  @doc """
+  Writes the crate's `Cargo.toml`, and a placeholder `src/lib.rs` until the real one is
+  generated, so Cargo metadata for its dependencies is readable while the module compiles.
+  Returns the manifest path.
+  """
+  @spec prepare_manifest!(keyword()) :: Path.t()
   def prepare_manifest!(opts) do
     root = Path.join([Mix.Project.build_path(), "rustq_native", opts[:crate]])
     manifest = Path.join(root, "Cargo.toml")

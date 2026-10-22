@@ -4,8 +4,11 @@
 
 ### Changed
 
-- Document `RustQ.Meta.Capture` and `RustQ.Meta.StdMethods` instead of hiding
-  them from the API reference.
+- Document every module and function that was hidden from the API reference.
+  Lowering, code generation, native build, and tooling internals are grouped
+  as such, and the user-facing groups list only user-facing modules.
+- Stub modules `RustQ.Rustler.Nif` generates carry a moduledoc, so checked-in
+  generated stubs need regenerating.
 - The API reference leaves out the tools in `dev/` for working on RustQ itself,
   which the package does not ship.
 

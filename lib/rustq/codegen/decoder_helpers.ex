@@ -1,5 +1,8 @@
 defmodule RustQ.Codegen.DecoderHelpers do
-  @moduledoc false
+  @moduledoc """
+  Rusty-Elixir helpers the generated AST decoders share, such as decoding lists of
+  items, statements, and arms from terms. Compiled to Rust in `generated_ast.rs`.
+  """
 
   use RustQ.Codegen.DefrustModule,
     callable_modules: [RustQ.Codegen.Helpers],

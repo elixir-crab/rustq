@@ -1,5 +1,9 @@
 defmodule RustQ.Corpus do
-  @moduledoc false
+  @moduledoc """
+  The golden lowering corpus under `test/corpus`: each `.exs` case defines `RustQ.Meta`
+  modules whose rendered Rust is checked against the `.rs` file beside it. Backs the
+  `rustq.corpus` Mix task, which checks, updates, and reports coverage of the cases.
+  """
 
   @root Path.expand("../../test/corpus", __DIR__)
   @lower_path Path.expand("meta/lower.ex", __DIR__)

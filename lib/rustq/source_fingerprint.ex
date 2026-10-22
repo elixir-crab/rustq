@@ -1,5 +1,8 @@
 defmodule RustQ.SourceFingerprint do
-  @moduledoc false
+  @moduledoc """
+  Content fingerprints of source files, so cached metadata read from them can tell
+  when a file changed or disappeared.
+  """
 
   @spec file(Path.t()) :: tuple()
   def file(path) do

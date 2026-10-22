@@ -1,5 +1,9 @@
 defmodule RustQ.Rust.AST.Render do
-  @moduledoc false
+  @moduledoc """
+  Renders RustQ AST nodes to Rust source. Items, functions, and expressions with a
+  native shape go through the NIF and `prettyplease`; macro items and other nodes syn
+  cannot represent are rendered here as text. `RustQ.Rust` is the public entry point.
+  """
 
   alias RustQ.Diagnostic
   alias RustQ.Native.Nif

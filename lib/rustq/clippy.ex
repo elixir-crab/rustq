@@ -1,5 +1,7 @@
 defmodule RustQ.Clippy do
-  @moduledoc false
+  @moduledoc """
+  Paths of Clippy lints, for `#[allow(...)]` attributes on generated Rust.
+  """
 
   alias RustQ.Rust.AST
 

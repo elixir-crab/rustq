@@ -1,5 +1,9 @@
 defmodule RustQ.Reach.Smells.BlocklessDefrustmod do
-  @moduledoc false
+  @moduledoc """
+  Reach smell check flagging a `defrustmod` without a `do` block, which mirrors an external
+  Rust module; remote types and calls, or a block-form `defrustmod` for a RustQ-owned module,
+  say the same thing directly.
+  """
 
   use Reach.Smell.Check.AST
 

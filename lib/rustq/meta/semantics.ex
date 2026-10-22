@@ -1,5 +1,8 @@
 defmodule RustQ.Meta.Semantics do
-  @moduledoc false
+  @moduledoc """
+  Argument types std methods take that their signatures alone do not say, as
+  `binary_search_by_key` borrowing the key its closure reads.
+  """
 
   alias RustQ.Meta.Type
 

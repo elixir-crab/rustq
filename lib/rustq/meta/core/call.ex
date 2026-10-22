@@ -1,5 +1,8 @@
 defmodule RustQ.Meta.Core.Call do
-  @moduledoc false
+  @moduledoc """
+  A call in Rusty-Elixir normalized to its module, function, and arguments, so lowering and
+  typing match `Kernel` operators, local calls, remote calls, and pipes the same way.
+  """
 
   @kernel_functions [
     :+,

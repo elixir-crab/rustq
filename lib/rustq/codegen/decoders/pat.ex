@@ -1,5 +1,8 @@
 defmodule RustQ.Codegen.Decoders.Pat do
-  @moduledoc false
+  @moduledoc """
+  Rusty-Elixir decoders from RustQ AST terms to `syn` patterns, compiled into
+  `generated_ast.rs` for the native renderer.
+  """
 
   use RustQ.Codegen.DefrustModule,
     callable_modules: [RustQ.Codegen.DecoderHelpers, RustQ.Codegen.Helpers]

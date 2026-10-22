@@ -1,5 +1,8 @@
 defmodule RustQ.Meta.Conditional do
-  @moduledoc false
+  @moduledoc """
+  Groups definitions of one function that differ by `@cfg`, so each condition's clauses
+  generate one implementation. Conditional implementations must share a NIF policy.
+  """
 
   alias RustQ.Rust.AST
 

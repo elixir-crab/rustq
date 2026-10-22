@@ -1,5 +1,9 @@
 defmodule RustQ.Rust.AST.NodeDSL do
-  @moduledoc false
+  @moduledoc """
+  `defnode/4` declares a RustQ AST node module: its struct, typespec, and the category
+  (`:item`, `:stmt`, `:expr`, `:pat`, `:type`, …) that `RustQ.Rust.AST.Schema` and
+  rendering dispatch on.
+  """
 
   defmacro defnode(name, category, fields, opts \\ []) do
     type_ast = opts |> Keyword.fetch!(:type) |> quoted_type_ast()

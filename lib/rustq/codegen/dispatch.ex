@@ -1,5 +1,8 @@
 defmodule RustQ.Codegen.Dispatch do
-  @moduledoc false
+  @moduledoc """
+  Builds the Rust functions that dispatch a RustQ AST term to the decoder for its node,
+  one per category, from `RustQ.Rust.AST.Schema`.
+  """
 
   alias RustQ.Rust.AST.Builder, as: A
   alias RustQ.Rust.AST.PatternBuilder, as: P

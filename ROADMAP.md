@@ -1,6 +1,6 @@
 # RustQ roadmap
 
-Last reviewed 2026-10-22, at 1.0.0-rc.12. The [changelog](CHANGELOG.md) records
+Last reviewed 2026-10-23, at 1.0.0-rc.13. The [changelog](CHANGELOG.md) records
 what shipped; this file covers where RustQ stands and what comes next.
 
 ## Where things stand

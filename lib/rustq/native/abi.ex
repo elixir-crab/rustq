@@ -4,6 +4,7 @@ defmodule RustQ.Native.ABI do
   returning a `Result` get a codec wrapper, map structs and resources get their Rustler
   derives and implementations, and generated code gets the Clippy allows it needs.
   """
+  alias RustQ.Binding.Callable
   alias RustQ.Meta.Type
   alias RustQ.Rust.AST
   alias RustQ.Rust.AST.Builder, as: A
@@ -22,8 +23,12 @@ defmodule RustQ.Native.ABI do
             do: {name, result_implementation_name(name)}
       )
 
-    validate_result_names!(values[:items], result_targets)
-    source_items = redirect_result_calls(values[:items], result_targets)
+    binary_targets = binary_return_targets(values)
+
+    validate_result_names!(values[:items], result_targets, binary_targets)
+
+    source_items =
+      redirect_result_calls(values[:items], Map.merge(result_targets, binary_targets))
 
     map_structs =
       values[:type_aliases]
@@ -114,7 +119,7 @@ defmodule RustQ.Native.ABI do
           [derive_enum_codec(enum, unit_enums, tagged_enums)]
 
         %AST.Function{} = function ->
-          prepare_native_function(function, generated_decoders)
+          prepare_native_function(function, generated_decoders, binary_targets)
 
         item ->
           [item]
@@ -135,12 +140,71 @@ defmodule RustQ.Native.ABI do
     items ++ union_codecs ++ resource_impls
   end
 
-  defp prepare_native_function(%AST.Function{name: name} = function, generated_decoders) do
-    if MapSet.member?(generated_decoders, to_string(name)) do
-      []
-    else
-      function |> expand_nif_result_codec() |> Enum.map(&prepare_expanded_native_item/1)
+  defp prepare_native_function(%AST.Function{name: name} = function, generated_decoders, binaries) do
+    cond do
+      MapSet.member?(generated_decoders, to_string(name)) ->
+        []
+
+      implementation = Map.get(binaries, name) ->
+        function
+        |> expand_binary_return(implementation)
+        |> Enum.map(&prepare_expanded_native_item/1)
+
+      true ->
+        function |> expand_nif_result_codec() |> Enum.map(&prepare_expanded_native_item/1)
     end
+  end
+
+  # NIFs whose spec returns `binary()`. Their bytes are a `Vec<u8>` in Rust, which rustler
+  # would send to Elixir as a list, so each gets a wrapper returning an Elixir binary.
+  defp binary_return_targets(values) do
+    binaries =
+      for %Callable{name: name, returns: %Type{kind: :binary}} <- values[:local_callables] || [],
+          into: MapSet.new(),
+          do: to_string(name)
+
+    for %AST.Function{name: name, attrs: attrs} <- values[:items],
+        MapSet.member?(binaries, to_string(name)),
+        Enum.any?(attrs, &match?(%AST.Attribute{path: [:rustler, :nif]}, &1)),
+        into: %{},
+        do: {name, Identifier.atom!("#{name}_rustq_binary_impl")}
+  end
+
+  # The NIF's body becomes `implementation`, and the NIF copies the bytes it returns into a
+  # new Elixir binary.
+  defp expand_binary_return(%AST.Function{attrs: attrs, args: args} = function, implementation) do
+    implementation_function = %{
+      function
+      | name: implementation,
+        attrs: Enum.reject(attrs, &match?(%AST.Attribute{path: [:rustler, :nif]}, &1))
+    }
+
+    env = %AST.FunctionArg{name: :env, type: T.path(:Env, lifetimes: [:a])}
+
+    nif_args =
+      if match?([%AST.FunctionArg{name: :env} | _rest], args), do: args, else: [env | args]
+
+    arguments = Enum.map(args, fn %AST.FunctionArg{name: name} -> A.expr(name) end)
+
+    body = [
+      A.let(:bytes, A.call(implementation, arguments)),
+      A.let_mut(
+        :binary,
+        A.path_call([:rustler, :NewBinary, :new], [:env, A.method(:bytes, :len)])
+      ),
+      A.stmt(A.method(A.method(:binary, :as_mut_slice), :copy_from_slice, [A.ref(:bytes)])),
+      A.return_stmt(A.method(:binary, :into))
+    ]
+
+    wrapper = %{
+      function
+      | args: nif_args,
+        returns: T.path(:Binary, lifetimes: [:a]),
+        lifetimes: [:a],
+        body: body
+    }
+
+    [implementation_function, wrapper]
   end
 
   defp prepare_expanded_native_item(%AST.Function{} = function) do
@@ -189,14 +253,15 @@ defmodule RustQ.Native.ABI do
     }
   end
 
-  defp validate_result_names!(items, targets) do
+  defp validate_result_names!(items, targets, binary_targets) do
     declared =
       MapSet.new(for %{name: name} <- items, do: to_string(name))
 
     generated =
       Enum.flat_map(targets, fn {name, implementation} ->
         [to_string(implementation), Macro.camelize(to_string(name)) <> "NifResult"]
-      end)
+      end) ++
+        Enum.map(binary_targets, fn {_name, implementation} -> to_string(implementation) end)
 
     Enum.reduce(generated, declared, fn name, names ->
       if MapSet.member?(names, name) do

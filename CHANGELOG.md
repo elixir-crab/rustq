@@ -44,6 +44,11 @@
 - A public `R.enum` type crosses the NIF boundary as Elixir writes it, as
   `{:circle, 1.0}` or `:empty`, through `rustler::NifTaggedEnum`. It had no
   codec, so a NIF taking or returning one did not compile.
+- A `defnif` whose spec returns `binary()` returns an Elixir binary. Its
+  bytes are a `Vec<u8>` in Rust, which rustler sends as a list, so the NIF now
+  wraps a `*_rustq_binary_impl` function and copies its bytes into a new
+  binary. A `binary()` nested in an argument or result still crosses as a list
+  of bytes.
 - `gen`, which the 2024 edition reserves, renders as a raw identifier.
 - A path segment named `try`, or a variable named `break`, `continue`,
   `return`, or `yield`, renders raw. It used to render as the keyword, which

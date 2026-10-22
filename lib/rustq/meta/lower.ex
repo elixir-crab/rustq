@@ -805,6 +805,22 @@ defmodule RustQ.Meta.Lower do
     end
   end
 
+  # A NIF's `binary()` argument is a borrowed `Binary`; a `binary()` result owns its bytes.
+  defp lower_expected_expr_context(
+         {name, _, ast_context} = variable,
+         %Type{kind: :binary, ast: %AST.TypeVec{}} = expected_type,
+         %Context{} = context
+       )
+       when is_atom(name) and is_atom(ast_context) do
+    case Map.get(context.vars, name) do
+      %Type{ast: %AST.TypePath{parts: [:Binary]}} ->
+        %AST.MethodCall{receiver: lower_expr(variable, context), method: :to_vec, args: []}
+
+      _other ->
+        lower_checked_expr(variable, expected_type, context)
+    end
+  end
+
   defp lower_expected_expr_context(expression, %Type{} = expected_type, %Context{} = context) do
     lower_checked_expr(expression, expected_type, context)
   end

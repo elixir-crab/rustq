@@ -399,7 +399,7 @@ defmodule RustQ.Meta.TypeTest do
     {quote(do: number()), {"f64", "f64"}},
     {quote(do: boolean()), {"bool", "bool"}},
     {quote(do: String.t()), {"String", "String"}},
-    {quote(do: binary()), {"Binary<'a>", "Vec<u8>"}},
+    {quote(do: binary()), {"Binary<'a>", "Binary<'a>"}},
     {quote(do: atom()), {"Atom", "Atom"}},
     {quote(do: term()), {"Term<'a>", "Term<'a>"}},
     {quote(do: any()), {"Term<'a>", "Term<'a>"}},
@@ -462,6 +462,7 @@ defmodule RustQ.Meta.TypeTest do
     {quote(do: number()), [2.5], ["x"]},
     {quote(do: boolean()), [true, false], [:maybe, nil]},
     {quote(do: String.t()), ["héllo", ""], [:a, 1]},
+    {quote(do: binary()), [<<0, 255>>, ""], [1, [1, 2]]},
     {quote(do: atom()), [:ok, :anything], ["ok"]},
     {quote(do: term()), [{1, [2]}], []},
     {quote(do: any()), [%{a: 1}], []},
@@ -508,13 +509,24 @@ defmodule RustQ.Meta.TypeTest do
      "an inline atom union is any Atom; a named @type is an enum"}
   ]
 
+  # Values a form's NIF returns in another shape than its spec says, each with the shape it
+  # returns and why. When a gap closes, its entry fails here: move the form to the round trips.
+  @known_output_gaps [
+    {quote(do: {:ok, binary()} | {:error, String.t()}), {:ok, [1, 2]}, {:ok, [1, 2]},
+     "a binary() nested in a NIF's argument or result crosses as a list of bytes; only a " <>
+       "top-level binary() is a binary"}
+  ]
+
   # Each form passes through a NIF boundary as `@spec echo(form) :: form`; a form RustQ cannot
   # map is rejected rather than become a Rust type named after it.
   describe "typespec matrix" do
     @tag timeout: 300_000
     test "every mapped form round-trips through a built NIF" do
       forms =
-        Enum.uniq(Enum.map(@round_trips, &elem(&1, 0)) ++ Enum.map(@known_gaps, &elem(&1, 0)))
+        Enum.uniq(
+          Enum.map(@round_trips, &elem(&1, 0)) ++
+            Enum.map(@known_gaps, &elem(&1, 0)) ++ Enum.map(@known_output_gaps, &elem(&1, 0))
+        )
 
       call = build_echo_nifs!(forms)
 
@@ -540,8 +552,14 @@ defmodule RustQ.Meta.TypeTest do
             match?({:raised, _error}, call.(form, value)),
             do: {Macro.to_string(form), value, closed: reason}
 
+      output_gaps =
+        for {form, value, returned, reason} <- @known_output_gaps,
+            call.(form, value) != {:ok, returned},
+            do: {Macro.to_string(form), value, closed: reason}
+
       assert failures == []
       assert gaps == []
+      assert output_gaps == []
     end
 
     test "maps every typespec form to its Rust type, or rejects it" do
@@ -636,7 +654,7 @@ defmodule RustQ.Meta.TypeTest do
     assert RustQ.valid?(source, "typespec_matrix.rs")
 
     [_signature, arg, return] =
-      Regex.run(~r/fn echo(?:<'a>)?\(value: (.+)\) -> (.+) \{/, source)
+      Regex.run(~r/fn echo(?:<'a>)?\((?:env: Env<'a>, )?value: (.+)\) -> (.+) \{/, source)
 
     {arg, return}
   rescue

@@ -10,7 +10,7 @@ defmodule RustQ.MixProject do
       version: @version,
       elixir: "~> 1.19",
       start_permanent: Mix.env() == :prod,
-      description: "Rust templates and quasiquoting for Elixir",
+      description: "Generate Rust code and Rustler NIFs from typed Elixir",
       compilers: [:rustq_native] ++ Mix.compilers(),
       aliases: aliases(),
       package: package(),

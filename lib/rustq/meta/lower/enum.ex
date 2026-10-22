@@ -287,9 +287,9 @@ defmodule RustQ.Meta.Lower.Enum do
 
     closure =
       if mapped_type do
-        context.lower_typed_closure.(args, body, mapped_type)
+        context.lower_typed_closure.(typed_items(args, collection, context), body, mapped_type)
       else
-        context.lower_closure.(args, body)
+        context.lower_closure.(typed_items(args, collection, context), body)
       end
 
     collection
@@ -329,6 +329,7 @@ defmodule RustQ.Meta.Lower.Enum do
          {:fn, _, [{:->, _, [[item, accumulator], body]}]},
          context
        ) do
+    [item] = typed_items([item], collection, context)
     closure = context.lower_closure.([accumulator, item], body)
 
     collection
@@ -347,6 +348,11 @@ defmodule RustQ.Meta.Lower.Enum do
   end
 
   defp lower_operation(operation, collection, mapper, context) do
+    mapper =
+      if operation in [:flat_map, :each, :any?, :all?],
+        do: typed_mapper(mapper, collection, context),
+        else: mapper
+
     collection = collection |> lower_collection(context) |> method_chain(:into_iter)
 
     case operation do
@@ -455,6 +461,25 @@ defmodule RustQ.Meta.Lower.Enum do
 
   defp type_result(%Type{} = type), do: {:ok, type}
   defp type_result(_type), do: :unsupported
+
+  # A list is iterated by value, so a closure given its items may treat each as the list's
+  # element type, as a struct update needs; filters see references and keep untyped arguments.
+  defp typed_items([item | rest], collection, context) do
+    case context.type_of.(collection) do
+      %Type{kind: :vec} = type ->
+        [{:__rustq_typed_arg__, [], [item, Type.vec_inner(type)]} | rest]
+
+      _unknown ->
+        [item | rest]
+    end
+  end
+
+  defp typed_items([], _collection, _context), do: []
+
+  defp typed_mapper({:fn, meta, [{:->, arrow_meta, [args, body]}]}, collection, context),
+    do: {:fn, meta, [{:->, arrow_meta, [typed_items(args, collection, context), body]}]}
+
+  defp typed_mapper(mapper, _collection, _context), do: mapper
 
   defp lower_collection(collection, context) do
     case context.type_of.(collection) do

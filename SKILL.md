@@ -452,7 +452,8 @@ module declares come through `callable_modules`, written remotely as
 Write data operations the Elixir way:
 
 - `%{item | count: item.count + 1}` on a struct is Rust's struct update syntax.
-  It needs the struct type known, as from a parameter's `@spec`.
+  It needs the struct type known: from a parameter's `@spec`, or as an item of a
+  typed list a comprehension or `Enum` function iterates.
 - Comprehensions, with filters, several generators, patterns that may not match,
   and `into:`, become iterator pipelines collected into the expected type.
 - `&fun/1` and `&(&1 * 2)` captures become closures, including as `Enum`

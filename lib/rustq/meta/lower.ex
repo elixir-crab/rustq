@@ -29,11 +29,13 @@ defmodule RustQ.Meta.Lower do
   defmodule Env do
     @moduledoc false
     # `scope_return_type` is what the enclosing function or closure returns, which `?` exits
-    # into; `return_type` is what the block being lowered must produce.
+    # into; `return_type` is what the block being lowered must produce. `captured` names the
+    # variables enclosing closures capture, which a closure called once per item must not move.
     defstruct [
       :return_type,
       :scope_return_type,
       vars: %{},
+      captured: MapSet.new(),
       lexical_vars: %{},
       type_aliases: %{},
       position: :return,
@@ -1754,7 +1756,12 @@ defmodule RustQ.Meta.Lower do
     body =
       typed_body(Keyword.fetch!(opts, :do), expected_type && collection_item_type(expected_type))
 
-    pipeline = quote(do: unquote(comprehension_pipeline(qualifiers, body)) |> collect())
+    pipeline =
+      quote(
+        do:
+          unquote(comprehension_pipeline(qualifiers, body, context, {false, []}))
+          |> collect()
+      )
 
     case expected_type do
       %Type{} = type ->
@@ -1789,26 +1796,41 @@ defmodule RustQ.Meta.Lower do
     {Enum.reverse(qualifiers), opts |> Enum.reverse() |> Enum.concat()}
   end
 
-  defp comprehension_pipeline([{:<-, _, [pattern, collection]} | rest], body) do
+  # `nested?` says whether earlier generators enclose this one, and `generated` names the
+  # variables they bound.
+  defp comprehension_pipeline(
+         [{:<-, _, [pattern, collection]} | rest],
+         body,
+         context,
+         {nested?, generated}
+       ) do
     {filters, rest} = Enum.split_while(rest, &(not generator?(&1)))
-    {stage, binder} = generator_stage(pattern, collection, filters)
+    item_type = comprehension_item_type(collection, context)
+    root = root_variable(collection)
+    reused? = nested? and root != nil and root not in generated
+    {stage, binder} = generator_stage(pattern, collection, filters, item_type, reused?)
+    bound = context_with_match_pattern(pattern, item_type, context)
+
+    generated = binding_pattern_names(pattern) ++ generated
+
+    binder_type = binder_type(binder, bound)
 
     case rest do
       [] ->
-        comprehension_map(stage, binder, body)
+        comprehension_map(stage, binder, binder_type, body)
 
       _ ->
         quote(
           do:
             unquote(stage)
-            |> flat_map(fn unquote(binder) ->
-              Vec.from_iter(unquote(comprehension_pipeline(rest, body)))
+            |> flat_map(fn unquote(typed_arg(binder, binder_type)) ->
+              Vec.from_iter(unquote(comprehension_pipeline(rest, body, bound, {true, generated})))
             end)
         )
     end
   end
 
-  defp comprehension_pipeline(qualifiers, _body) do
+  defp comprehension_pipeline(qualifiers, _body, _context, _generated) do
     Diagnostic.lower(
       :unsupported_comprehension,
       qualifiers,
@@ -1824,8 +1846,37 @@ defmodule RustQ.Meta.Lower do
   defp untyped({:__rustq_typed__, _, [body, _type]}), do: body
   defp untyped(body), do: body
 
+  # A generator over a list gives its closures the list's items, which they may then use as
+  # that type; other collections leave their items untyped.
+  defp comprehension_item_type(collection, %Context{} = context) do
+    unless iterator_call?(collection) do
+      case infer_expr_type(collection, context.vars) ||
+             Typing.synth(collection, typing_env(context)) do
+        %Type{kind: :vec} = type -> Type.vec_inner(type)
+        _unknown -> nil
+      end
+    end
+  end
+
+  # The type of the variables a generator binds, as one variable or a tuple of them.
+  defp binder_type({name, _, ast_context}, %Context{vars: vars}) when is_atom(ast_context),
+    do: Map.get(vars, name)
+
+  defp binder_type(binder, %Context{} = context) do
+    with [_ | _] = elements <- Pattern.tuple_elements(binder),
+         types = Enum.map(elements, &binder_type(&1, context)),
+         true <- Enum.all?(types, &match?(%Type{}, &1)) do
+      Type.tuple(types)
+    else
+      _unknown -> nil
+    end
+  end
+
+  defp typed_arg(arg, %Type{} = type), do: {:__rustq_typed_arg__, [], [arg, type]}
+  defp typed_arg(arg, nil), do: arg
+
   # An item the body returns as it is needs no mapping, and one it clones is `cloned()`.
-  defp comprehension_map(stage, binder, body) do
+  defp comprehension_map(stage, binder, binder_type, body) do
     plain = untyped(body)
 
     cond do
@@ -1837,7 +1888,7 @@ defmodule RustQ.Meta.Lower do
         quote(do: unquote(stage) |> cloned())
 
       true ->
-        binder = unused_as_underscored(binder, body)
+        binder = binder |> unused_as_underscored(body) |> typed_arg(binder_type)
         quote(do: unquote(stage) |> map(fn unquote(binder) -> unquote(body) end))
     end
   end
@@ -1880,19 +1931,30 @@ defmodule RustQ.Meta.Lower do
 
   # A generator that cannot fail and has no filters iterates as it is; otherwise its items are
   # matched, filtered, and reduced to the variables the pattern binds.
-  defp generator_stage(pattern, collection, filters) do
+  # A later generator over a collection from outside the comprehension iterates it once per
+  # item of the earlier ones, so it copies its items rather than consuming it.
+  defp generator_stage(pattern, collection, filters, item_type, reused?) do
     items =
-      if iterator_call?(collection),
-        do: collection,
-        else: quote(do: unquote(collection) |> into_iter())
+      cond do
+        iterator_call?(collection) -> collection
+        reused? -> quote(do: unquote(collection) |> iter() |> cloned())
+        true -> quote(do: unquote(collection) |> into_iter())
+      end
 
     if filters == [] and binding_pattern?(pattern) do
       {items, pattern}
     else
       binder = pattern_binder(pattern)
-      {filter_bind(items, guarded_pattern(pattern, filters), binder), binder}
+      {filter_bind(items, guarded_pattern(pattern, filters), binder, item_type), binder}
     end
   end
+
+  defp root_variable({name, _, ast_context}) when is_atom(name) and is_atom(ast_context), do: name
+  # The variable a collection is, or is a field of; a call or literal makes a fresh one.
+  defp root_variable({{:., _, [receiver, _field]}, meta, []}),
+    do: if(meta[:no_parens], do: root_variable(receiver))
+
+  defp root_variable(_collection), do: nil
 
   # A collection already given as an iterator, as in `values.iter()`, is iterated as it is.
   defp iterator_call?({{:., _, [_receiver, method]}, _, args}) when is_list(args),
@@ -1903,11 +1965,13 @@ defmodule RustQ.Meta.Lower do
 
   defp iterator_call?(_collection), do: false
 
-  defp filter_bind(items, guarded, binder) do
+  defp filter_bind(items, guarded, binder, item_type) do
+    item = quote(do: item)
+
     quote do
       unquote(items)
-      |> filter_map(fn item ->
-        case item do
+      |> filter_map(fn unquote(typed_arg(item, item_type)) ->
+        case unquote(item) do
           unquote(guarded) -> some(unquote(binder))
           _ -> nil
         end
@@ -3177,7 +3241,21 @@ defmodule RustQ.Meta.Lower do
 
   defp lower_closure_args(args, body, %Context{} = context, expected_return_type \\ nil)
        when is_list(args) do
-    context = closure_context(args, context)
+    {args, typed} = Enum.map_reduce(args, [], &untyped_closure_arg/2)
+
+    captured =
+      context.vars
+      |> Map.keys()
+      |> MapSet.new()
+      |> MapSet.union(context.captured)
+      |> MapSet.difference(MapSet.new(Enum.flat_map(args, &binding_pattern_names/1)))
+
+    context =
+      Enum.reduce(typed, closure_context(args, context), fn {arg, type}, context ->
+        context_with_match_pattern(arg, type, context)
+      end)
+
+    context = %{context | captured: captured}
 
     context = %{
       context
@@ -3191,6 +3269,13 @@ defmodule RustQ.Meta.Lower do
       body: lower_closure_body(body, expected_return_type, context)
     }
   end
+
+  # A closure argument may carry the type of the items it is given, as an element of the list
+  # an `Enum` function or comprehension iterates.
+  defp untyped_closure_arg({:__rustq_typed_arg__, _, [arg, %Type{} = type]}, typed),
+    do: {arg, [{arg, type} | typed]}
+
+  defp untyped_closure_arg(arg, typed), do: {arg, typed}
 
   defp lower_closure_body(
          {:__block__, _, [_first, _second | _rest] = expressions},
@@ -3536,6 +3621,16 @@ defmodule RustQ.Meta.Lower do
 
   defp declared_struct_type(_path, %Context{}), do: nil
 
+  # A closure may run once per item, so a value it captures is copied rather than moved.
+  defp clone_captured(lowered, {name, _, ast_context}, %Context{captured: captured})
+       when is_atom(name) and is_atom(ast_context) do
+    if MapSet.member?(captured, name),
+      do: %AST.MethodCall{receiver: lowered, method: :clone, args: []},
+      else: lowered
+  end
+
+  defp clone_captured(lowered, _base, _context), do: lowered
+
   # `%{value | field: new}` copies the struct with the listed fields replaced.
   defp lower_struct_update(base, fields, %Context{} = context) do
     case infer_expr_type(base, context.vars) || Typing.synth(base, typing_env(context)) do
@@ -3543,7 +3638,7 @@ defmodule RustQ.Meta.Lower do
         %AST.StructLiteral{
           path: %AST.Path{parts: parts},
           fields: lower_named_fields(fields, type, context),
-          base: lower_expr(base, type, context)
+          base: base |> lower_expr(type, context) |> clone_captured(base, context)
         }
 
       _unknown ->

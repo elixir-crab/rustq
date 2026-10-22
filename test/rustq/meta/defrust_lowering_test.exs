@@ -425,6 +425,34 @@ defmodule RustQ.Meta.DefrustLoweringTest do
     defrust(counts(stock, names), do: for(name <- names, do: stock[name]))
   end
 
+  defmodule ClosureStructUpdateCase do
+    use RustQ.Meta
+    alias RustQ.Type, as: R
+
+    @typep item :: %{required(:name) => String.t(), required(:count) => integer()}
+
+    @spec restock(R.vec(item()), integer()) :: R.vec(item())
+    defrust(restock(items, extra),
+      do: for(item <- items, item.count > 0, do: %{item | count: item.count + extra})
+    )
+
+    @spec renamed(R.vec({String.t(), item()})) :: R.vec(item())
+    defrust(renamed(pairs), do: for({name, item} <- pairs, do: %{item | name: name}))
+
+    @spec grid(R.vec(item()), R.vec(integer())) :: R.vec(item())
+    defrust(grid(items, counts),
+      do: for(item <- items, count <- counts, do: %{item | count: count})
+    )
+
+    @spec copies(item(), R.vec(integer())) :: R.vec(item())
+    defrust(copies(item, counts), do: Enum.map(counts, fn count -> %{item | count: count} end))
+
+    @spec total(R.vec(item())) :: integer()
+    defrust(total(items),
+      do: Enum.reduce(items, 0, fn item, sum -> sum + %{item | count: 1}.count end)
+    )
+  end
+
   defmodule WrapperComparisonCase do
     use RustQ.Meta
     alias RustQ.Type, as: R
@@ -1288,6 +1316,46 @@ defmodule RustQ.Meta.DefrustLoweringTest do
              "10",
              "[3, 6] [11, 12]",
              "[7]"
+           ]
+  end
+
+  @tag :tmp_dir
+  test "updates structs that closures and comprehensions are given", %{tmp_dir: dir} do
+    source = ClosureStructUpdateCase.__rustq_source__()
+
+    assert source =~ "..item\n"
+    assert source =~ "Item { name, ..item }"
+    assert source =~ "counts.iter().cloned().map(|count| Item { count, ..item.clone() })"
+    assert source =~ "..item.clone()"
+
+    program =
+      """
+      #{source}
+      fn main() {
+          let item = Item { name: "a".to_string(), count: 1 };
+          println!("{:?}", restock(vec![item.clone(), Item { name: "b".to_string(), count: 0 }], 2));
+          println!("{:?}", renamed(vec![("c".to_string(), item.clone())]));
+          println!("{:?}", grid(vec![item.clone()], vec![5, 6]));
+          println!("{:?} {}", copies(item.clone(), vec![7]), total(vec![item.clone(), item]));
+      }
+      """
+
+    path = Path.join(dir, "closure_struct_update.rs")
+    executable = Path.join(dir, "closure_struct_update")
+    File.write!(path, program)
+
+    assert {_, 0} =
+             System.cmd("rustc", ["--edition", "2021", path, "-o", executable],
+               stderr_to_stdout: true
+             )
+
+    assert {output, 0} = System.cmd(executable, [])
+
+    assert String.split(output, "\n", trim: true) == [
+             ~s([Item { name: "a", count: 3 }]),
+             ~s([Item { name: "c", count: 1 }]),
+             ~s([Item { name: "a", count: 5 }, Item { name: "a", count: 6 }]),
+             ~s([Item { name: "a", count: 7 }] 2)
            ]
   end
 

@@ -28,7 +28,12 @@
 - Generate Rust-only types from `@typep`: the struct, enum, or alias without
   the term decoder a `@type` gets, so it may hold values without a term codec.
 - Lower `%{value | field: new}` on a struct to Rust's struct update syntax,
-  `Struct { field: new, ..value }`.
+  `Struct { field: new, ..value }`, including on the items a comprehension or
+  `Enum` function's closure is given; a struct a closure captures is cloned.
+- Closures that a comprehension or `Enum.map`, `flat_map`, `each`, `reduce`,
+  `any?`, or `all?` gives a typed list's items know their type.
+- A later generator over a list from outside the comprehension copies its
+  items, so `for x <- xs, y <- ys` compiles without cloning `ys` by hand.
 - Add `R.slice(type, R.lifetime(:a))` for a slice with a named lifetime.
 - An atom where an atom-union type such as `:small | :large` is expected names
   the enum variant, as patterns already did, including fields of a

@@ -255,8 +255,14 @@ A comprehension used as a value becomes an iterator pipeline collected into the
 expected type, so `into:` follows the target type, as in
 `for {key, value} <- pairs, into: HashMap.new(), do: {key, value}`. Run for its
 effects, it becomes nested `for` loops. Generators may use patterns that can
-fail to match; non-matching items are skipped, as in Elixir. Indexing a map
-borrows the key, and `%{key => value}` in a spec is a `HashMap`.
+fail to match; non-matching items are skipped, as in Elixir.
+
+The items of a typed list keep their type inside a comprehension or an `Enum`
+function's closure, so `for item <- items, do: %{item | count: 0}` updates each
+`Item`. A closure runs once per item, so a struct it updates from outside the
+closure is cloned rather than moved, and a later generator over a list from
+outside the comprehension copies its items rather than consuming it. Indexing a
+map borrows the key, and `%{key => value}` in a spec is a `HashMap`.
 
 Types another module declares are available through `callable_modules`. Write
 them remotely, as `Shapes.shape()`, since Elixir checks local types; they keep

@@ -69,11 +69,10 @@ defrust area({:circle, r}), do: 3.14159 * r * r
 defrust area({:square, side}), do: side * side
 defrust area(:empty), do: 0.0
 
-@spec restock(item(), integer()) :: item()
-defrust restock(item, extra), do: %{item | count: item.count + extra}
-
-@spec in_stock([item()]) :: [shape()]
-defrust in_stock(items), do: for(item <- items, item.count > 0, do: item.shape)
+@spec restock([item()], integer()) :: [item()]
+defrust restock(items, extra) do
+  for item <- items, item.count > 0, do: %{item | count: item.count + extra}
+end
 ```
 
 ```rust
@@ -85,11 +84,18 @@ fn area(arg1: &Shape) -> f64 {
     }
 }
 
-fn restock(item: Item, extra: i64) -> Item {
-    Item {
-        count: item.count + extra,
-        ..item
-    }
+fn restock(items: Vec<Item>, extra: i64) -> Vec<Item> {
+    items
+        .into_iter()
+        .filter_map(|item| match item {
+            item if item.count > 0 => Some(item),
+            _ => None,
+        })
+        .map(|item| Item {
+            count: item.count + extra,
+            ..item
+        })
+        .collect()
 }
 ```
 

@@ -366,7 +366,7 @@ pub(crate) fn decode_ast_use<'a>(term: Term<'a>) -> NifResult<ItemUse> {
 }
 pub(crate) fn decode_ast_module<'a>(term: Term<'a>) -> NifResult<ItemMod> {
     expect_struct(term, "Elixir.RustQ.Rust.AST.Module")?;
-    let name = super::format_ident_value(atom_key(term, "name")?);
+    let name = super::format_ident_value(atom_key(term, "name")?)?;
     super::parse_item_module(
         name,
         super::decode_vis(required_field(term, "vis")?)?,
@@ -385,7 +385,7 @@ pub(crate) fn decode_ast_impl<'a>(term: Term<'a>) -> NifResult<ItemImpl> {
 }
 pub(crate) fn decode_ast_const<'a>(term: Term<'a>) -> NifResult<ItemConst> {
     expect_struct(term, "Elixir.RustQ.Rust.AST.Const")?;
-    let name = super::format_ident_value(atom_key(term, "name")?);
+    let name = super::format_ident_value(atom_key(term, "name")?)?;
     super::parse_item_const(
         name,
         required_type(term, "type")?,
@@ -395,7 +395,7 @@ pub(crate) fn decode_ast_const<'a>(term: Term<'a>) -> NifResult<ItemConst> {
 }
 pub(crate) fn decode_ast_type_alias<'a>(term: Term<'a>) -> NifResult<ItemType> {
     expect_struct(term, "Elixir.RustQ.Rust.AST.TypeAlias")?;
-    let name = super::format_ident_value(atom_key(term, "name")?);
+    let name = super::format_ident_value(atom_key(term, "name")?)?;
     super::parse_item_type(
         name,
         required_type(term, "type")?,
@@ -404,7 +404,7 @@ pub(crate) fn decode_ast_type_alias<'a>(term: Term<'a>) -> NifResult<ItemType> {
 }
 pub(crate) fn decode_ast_static<'a>(term: Term<'a>) -> NifResult<ItemStatic> {
     expect_struct(term, "Elixir.RustQ.Rust.AST.Static")?;
-    let name = super::format_ident_value(atom_key(term, "name")?);
+    let name = super::format_ident_value(atom_key(term, "name")?)?;
     super::parse_item_static(
         name,
         required_type(term, "type")?,
@@ -415,7 +415,7 @@ pub(crate) fn decode_ast_static<'a>(term: Term<'a>) -> NifResult<ItemStatic> {
 }
 pub(crate) fn decode_ast_function<'a>(term: Term<'a>) -> NifResult<ItemFn> {
     expect_struct(term, "Elixir.RustQ.Rust.AST.Function")?;
-    let name = super::format_ident_value(atom_key(term, "name")?);
+    let name = super::format_ident_value(atom_key(term, "name")?)?;
     super::parse_item_function_args(
         name,
         super::decode_vis(required_field(term, "vis")?)?,
@@ -435,7 +435,7 @@ pub(crate) fn decode_derive_path_list<'a>(term: Term<'a>) -> NifResult<Vec<Path>
 }
 pub(crate) fn decode_ast_struct<'a>(term: Term<'a>) -> NifResult<ItemStruct> {
     expect_struct(term, "Elixir.RustQ.Rust.AST.Struct")?;
-    let name = super::format_ident_value(atom_key(term, "name")?);
+    let name = super::format_ident_value(atom_key(term, "name")?)?;
     super::parse_item_struct(
         name,
         super::decode_vis(required_field(term, "vis")?)?,
@@ -468,7 +468,7 @@ pub(crate) fn decode_ast_macro_rules<'a>(term: Term<'a>) -> NifResult<Item> {
 }
 pub(crate) fn decode_ast_enum<'a>(term: Term<'a>) -> NifResult<ItemEnum> {
     expect_struct(term, "Elixir.RustQ.Rust.AST.Enum")?;
-    let name = super::format_ident_value(atom_key(term, "name")?);
+    let name = super::format_ident_value(atom_key(term, "name")?)?;
     super::parse_item_enum(
         name,
         super::decode_vis(required_field(term, "vis")?)?,
@@ -485,7 +485,7 @@ pub(crate) fn decode_function_arg<'a>(term: Term<'a>) -> NifResult<FnArg> {
         super::parse_function_receiver(mutable)
     } else {
         super::parse_function_arg(
-            super::format_ident_value(atom_key(term, "name")?),
+            super::format_ident_value(atom_key(term, "name")?)?,
             required_type(term, "type")?,
             mutable,
         )
@@ -493,7 +493,7 @@ pub(crate) fn decode_function_arg<'a>(term: Term<'a>) -> NifResult<FnArg> {
 }
 pub(crate) fn decode_struct_field<'a>(term: Term<'a>) -> NifResult<Field> {
     expect_struct(term, "Elixir.RustQ.Rust.AST.StructField")?;
-    let name = super::format_ident_value(atom_key(term, "name")?);
+    let name = super::format_ident_value(atom_key(term, "name")?)?;
     super::parse_struct_field(
         name,
         required_type(term, "type")?,
@@ -503,7 +503,7 @@ pub(crate) fn decode_struct_field<'a>(term: Term<'a>) -> NifResult<Field> {
 pub(crate) fn decode_enum_variant<'a>(term: Term<'a>) -> NifResult<Variant> {
     expect_struct(term, "Elixir.RustQ.Rust.AST.EnumVariant")?;
     super::parse_enum_variant_fields(
-        super::format_ident_value(atom_key(term, "name")?),
+        super::format_ident_value(atom_key(term, "name")?)?,
         required_type_list(term, "tuple")?,
         required_struct_field_list(term, "fields")?,
         super::decode_attribute_list(required_field(term, "attrs")?)?,
@@ -592,7 +592,7 @@ pub(crate) fn decode_type_tuple<'a>(term: Term<'a>) -> NifResult<Type> {
     super::parse_type_tuple(required_type_list(term, "items")?)
 }
 pub(crate) fn decode_pat_var<'a>(term: Term<'a>) -> NifResult<Pat> {
-    let ident = super::format_ident_value(atom_key(term, "name")?);
+    let ident = super::format_ident_value(atom_key(term, "name")?)?;
     let mutable = required_field(term, "mutable")?.decode::<bool>()?;
     super::parse_var_pat(ident, mutable)
 }
@@ -715,14 +715,14 @@ pub(crate) fn decode_arm<'a>(term: Term<'a>) -> NifResult<Arm> {
     )
 }
 pub(crate) fn decode_expr_var<'a>(term: Term<'a>) -> NifResult<Expr> {
-    let ident = super::format_ident_value(atom_key(term, "name")?);
+    let ident = super::format_ident_value(atom_key(term, "name")?)?;
     super::parse_ident_expr(ident)
 }
 pub(crate) fn decode_expr_path<'a>(term: Term<'a>) -> NifResult<Expr> {
     super::parse_path_expr(super::parse_ast_path(term)?)
 }
 pub(crate) fn decode_expr_atom_value<'a>(term: Term<'a>) -> NifResult<Expr> {
-    let name = super::format_ident_value(atom_key(term, "name")?);
+    let name = super::format_ident_value(atom_key(term, "name")?)?;
     super::parse_atom_value_expr(
         super::decode_string_list(required_field(term, "module")?)?,
         name,
@@ -768,7 +768,7 @@ pub(crate) fn decode_expr_path_call<'a>(term: Term<'a>) -> NifResult<Expr> {
     )
 }
 pub(crate) fn decode_expr_method_call<'a>(term: Term<'a>) -> NifResult<Expr> {
-    let method = super::format_ident_value(atom_key(term, "method")?);
+    let method = super::format_ident_value(atom_key(term, "method")?)?;
     super::parse_method_call_expr(
         required_expr(term, "receiver")?,
         method,

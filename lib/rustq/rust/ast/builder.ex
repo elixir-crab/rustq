@@ -454,6 +454,7 @@ defmodule RustQ.Rust.AST.Builder do
            ],
       do: value
 
+  def expr(value) when is_boolean(value), do: lit(value)
   def expr(name) when is_atom(name), do: var(name)
 
   def expr(value)

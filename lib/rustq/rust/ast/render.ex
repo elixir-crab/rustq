@@ -139,17 +139,25 @@ defmodule RustQ.Rust.AST.Render do
           node
       end)
 
-    Nif.render_ast(item)
+    case Nif.render_ast(item) do
+      source when is_binary(source) -> source
+      {:error, message} -> native_render_failed!(item, message, message)
+    end
   rescue
     error in [ArgumentError, RuntimeError] ->
-      Diagnostic.render(
-        :native_render_failed,
-        item,
-        "native AST rendering failed for #{inspect(item.__struct__)}: #{Exception.message(error)}" <>
-          unrenderable_hint(item),
-        details: %{ast_module: item.__struct__, cause: error},
-        snippet: inspect(item, pretty: true, limit: 20)
-      )
+      native_render_failed!(item, Exception.message(error), error)
+  end
+
+  @spec native_render_failed!(struct(), String.t(), term()) :: no_return()
+  defp native_render_failed!(item, message, cause) do
+    Diagnostic.render(
+      :native_render_failed,
+      item,
+      "native AST rendering failed for #{inspect(item.__struct__)}: #{message}" <>
+        unrenderable_hint(item),
+      details: %{ast_module: item.__struct__, cause: cause},
+      snippet: inspect(item, pretty: true, limit: 20)
+    )
   end
 
   # Patterns an atom guard sits inside cannot render: the guard only works as a whole arm.
@@ -245,21 +253,33 @@ defmodule RustQ.Rust.AST.Render do
 
   def render_macro_item(%MacroItem{source: source}), do: source
 
-  def render_macro_rules(%MacroRules{name: name, rules: rules, attrs: attrs}) do
+  def render_macro_rules(%MacroRules{name: name, rules: rules, attrs: attrs} = item) do
     rendered_rules =
       rules
       |> Elixir.Enum.map(&render_macro_rule/1)
       |> Elixir.Enum.join("\n")
 
-    [
-      render_attrs(attrs),
-      "macro_rules! ",
-      Atom.to_string(name),
-      " {\n",
-      indent(rendered_rules),
-      "\n}"
-    ]
-    |> IO.iodata_to_binary()
+    source =
+      [
+        render_attrs(attrs),
+        "macro_rules! ",
+        render_expr(%Path{parts: [name]}),
+        " {\n",
+        indent(rendered_rules),
+        "\n}"
+      ]
+      |> IO.iodata_to_binary()
+
+    # The rules render as text, so nothing else checks that they form Rust.
+    if RustQ.valid?(source, "macro_rules.rs"),
+      do: source,
+      else:
+        Diagnostic.render(
+          :invalid_macro_rules,
+          item,
+          "macro_rules! #{name} does not render as valid Rust",
+          snippet: source
+        )
   end
 
   def render_macro_rule(%MacroRule{pattern: pattern, expansion: expansion}) do
@@ -578,7 +598,7 @@ defmodule RustQ.Rust.AST.Render do
   def render_type(%TypeImplTrait{bounds: bounds}),
     do: ["impl ", Elixir.Enum.intersperse(bounds, " + ")]
 
-  defp render_closure_arg(name) when is_atom(name), do: Atom.to_string(name)
+  defp render_closure_arg(name) when is_atom(name), do: identifier(name)
   defp render_closure_arg({pattern, type}), do: [render_pattern(pattern), ": ", render_type(type)]
   defp render_closure_arg(pattern), do: render_pattern(pattern)
 
@@ -654,11 +674,11 @@ defmodule RustQ.Rust.AST.Render do
   def render_stmt(%Break{expr: expr}), do: ["break ", render_expr(expr), ";"]
   def render_stmt(%Continue{}), do: "continue;"
 
-  def render_expr(%Var{name: name}), do: Atom.to_string(name)
+  def render_expr(%Var{name: name}), do: identifier(name, "expr")
   def render_expr(%Path{parts: parts}), do: Elixir.Enum.map_join(parts, "::", &render_path_part/1)
 
   def render_expr(%Field{receiver: receiver, field: field}),
-    do: [render_expr(receiver), ".", to_string(field)]
+    do: [render_expr(receiver), ".", render_field(field)]
 
   def render_expr(%Index{receiver: receiver, index: index}),
     do: [render_expr(receiver), "[", render_expr(index), "]"]
@@ -683,7 +703,7 @@ defmodule RustQ.Rust.AST.Render do
     [
       render_method_receiver(receiver),
       ".",
-      to_string(method),
+      identifier(method),
       render_generics(generics),
       "(",
       render_args(args),
@@ -744,7 +764,7 @@ defmodule RustQ.Rust.AST.Render do
     do: [render_expr(path), "!(", render_args(args), ")"]
 
   def render_expr(%AtomValue{name: name, module: module}) do
-    [Elixir.Enum.map_join(module, "::", &to_string/1), "::", Atom.to_string(name), "()"]
+    [Elixir.Enum.map_join(module, "::", &render_path_part/1), "::", identifier(name), "()"]
   end
 
   def render_expr(%None{}), do: "None"
@@ -804,8 +824,8 @@ defmodule RustQ.Rust.AST.Render do
   defp render_arm_guard(nil), do: []
   defp render_arm_guard(guard), do: [" if ", render_expr(guard)]
 
-  def render_pattern(%PatVar{name: name, mutable: true}), do: ["mut ", Atom.to_string(name)]
-  def render_pattern(%PatVar{name: name}), do: Atom.to_string(name)
+  def render_pattern(%PatVar{name: name, mutable: true}), do: ["mut ", identifier(name)]
+  def render_pattern(%PatVar{name: name}), do: identifier(name)
   def render_pattern(%PatWildcard{}), do: "_"
   def render_pattern(%PatPath{path: path}), do: render_expr(path)
   def render_pattern(%PatLiteral{value: value}) when is_binary(value), do: inspect(value)
@@ -852,9 +872,9 @@ defmodule RustQ.Rust.AST.Render do
   def render_pattern(%PatAtomGuard{name: name, module: module}),
     do: [
       "value if value == ",
-      Elixir.Enum.map_join(module, "::", &to_string/1),
+      Elixir.Enum.map_join(module, "::", &render_path_part/1),
       "::",
-      Atom.to_string(name),
+      identifier(name),
       "()"
     ]
 
@@ -870,25 +890,26 @@ defmodule RustQ.Rust.AST.Render do
   defp render_generics(generics),
     do: ["::<", generics |> Elixir.Enum.map(&render_type/1) |> Elixir.Enum.intersperse(", "), ">"]
 
-  @rust_keywords MapSet.new(~w[
-                   as async await break const continue crate dyn else enum extern false fn for if impl
-                   in let loop match mod move mut pub ref return self Self static struct super trait true
-                   type unsafe use where while
-                 ]a)
-
   defp render_path_part(nil), do: "nil"
 
-  defp render_path_part(part) when is_atom(part) do
-    name = Atom.to_string(part)
-
-    if MapSet.member?(@rust_keywords, part) do
-      "r#" <> name
-    else
-      name
-    end
-  end
+  defp render_path_part(part) when is_atom(part), do: identifier(part, "segment")
 
   defp render_path_part(part), do: to_string(part)
+
+  defp render_field(field) when is_atom(field), do: identifier(field)
+  defp render_field(field), do: to_string(field)
+
+  # How Rust writes `name` where `context` expects it, as syn decides: itself, `r#name` for a
+  # keyword, or a diagnostic for a word Rust cannot use there, such as a field named `self`.
+  defp identifier(name, context \\ "name") do
+    case Nif.rust_identifier(Atom.to_string(name), context) do
+      source when is_binary(source) ->
+        source
+
+      {:error, message} ->
+        Diagnostic.render(:invalid_identifier, name, message)
+    end
+  end
 
   defp render_assign_op(:add), do: "+"
   defp render_assign_op(:sub), do: "-"

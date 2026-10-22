@@ -15,6 +15,12 @@ defmodule RustQ.Native.Nif do
   @doc "Renders one RustQ AST item as formatted Rust source."
   def render_ast(_ast), do: :erlang.nif_error(:nif_not_loaded)
 
+  @doc """
+  Returns how Rust writes `name` where `context` (`"name"`, `"segment"`, or `"expr"`) expects
+  it, or `{:error, message}` when it cannot.
+  """
+  def rust_identifier(_name, _context), do: :erlang.nif_error(:nif_not_loaded)
+
   @doc "Parses a Rust file into the item metadata `RustQ.Syn` decodes."
   def syn_inspect(_source), do: :erlang.nif_error(:nif_not_loaded)
 

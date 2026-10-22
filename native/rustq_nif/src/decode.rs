@@ -18,7 +18,7 @@ pub(crate) fn decode_function_arg_value(term: Term) -> NifResult<syn::FnArg> {
         Ok(arg) => Ok(arg),
         Err(_) => {
             let (name, ty) = term.decode::<(Term, Term)>()?;
-            let name = ident_from_part(&atom_or_string(name)?);
+            let name = ident_from_part(&atom_or_string(name)?)?;
             let ty = decode_type(ty)?;
             crate::parse_function_arg(name, ty, false)
         }
@@ -518,7 +518,7 @@ pub(crate) fn decode_closure_args(term: Term) -> NifResult<Vec<Pat>> {
             if name == "_" {
                 Ok(syn::parse_quote!(_))
             } else {
-                parse_var_pat(ident_from_part(&name), false)
+                parse_var_pat(ident_from_part(&name)?, false)
             }
         })
         .collect()
@@ -630,7 +630,7 @@ pub(crate) fn parse_field_expr(receiver: Expr, field: Term) -> NifResult<Expr> {
         return parse_syn::<Expr>(quote!(#receiver.#index));
     }
 
-    let field = ident_from_part(&atom_or_string(field)?);
+    let field = ident_from_part(&atom_or_string(field)?)?;
     parse_syn::<Expr>(quote!(#receiver.#field))
 }
 
@@ -696,7 +696,7 @@ pub(crate) fn parse_local_call(name: String, args: Vec<Expr>) -> NifResult<Expr>
         return Err(rustler::Error::BadArg);
     }
 
-    let name = ident_from_part(&name);
+    let name = ident_from_part(&name)?;
     parse_syn::<Expr>(quote!(#name(#(#args),*)))
 }
 
@@ -718,11 +718,11 @@ pub(crate) fn decode_struct_literal_fields(term: Term) -> NifResult<Vec<NamedFie
 }
 
 pub(crate) fn decode_atom_guard_arm(pat_term: Term, block: syn::Block) -> NifResult<Arm> {
-    let name = format_ident_value(atom_key(pat_term, "name")?);
+    let name = format_ident_value(atom_key(pat_term, "name")?)?;
     parse_syn::<Arm>(quote!(value if value == atoms::#name() => #block,))
 }
 
-pub(crate) fn format_ident_value(name: String) -> proc_macro2::Ident {
+pub(crate) fn format_ident_value(name: String) -> NifResult<proc_macro2::Ident> {
     ident_from_part(&name)
 }
 
@@ -895,7 +895,7 @@ pub(crate) fn decode_named_field_list<T>(
         .into_iter()
         .map(|(name, value)| {
             Ok(NamedField {
-                name: ident_from_part(&atom_or_string(name)?),
+                name: ident_from_part(&atom_or_string(name)?)?,
                 value: decoder(value)?,
             })
         })

@@ -390,4 +390,283 @@ defmodule RustQ.Meta.TypeTest do
              types
            )
   end
+
+  # Each form with the Rust argument and return types its `echo` NIF takes and gives, or
+  # `:unsupported` for a form RustQ rejects.
+  @matrix [
+    {quote(do: integer()), {"i64", "i64"}},
+    {quote(do: float()), {"f64", "f64"}},
+    {quote(do: number()), {"f64", "f64"}},
+    {quote(do: boolean()), {"bool", "bool"}},
+    {quote(do: String.t()), {"String", "String"}},
+    {quote(do: binary()), {"Binary<'a>", "Binary<'a>"}},
+    {quote(do: atom()), {"Atom", "Atom"}},
+    {quote(do: term()), {"Term<'a>", "Term<'a>"}},
+    {quote(do: any()), {"Term<'a>", "Term<'a>"}},
+    {quote(do: :ok), {"Atom", "Atom"}},
+    {quote(do: :small | :large), {"Atom", "Atom"}},
+    {quote(do: integer() | nil), {"Option<i64>", "Option<i64>"}},
+    {quote(do: nil | String.t()), {"Option<String>", "Option<String>"}},
+    {quote(do: {:ok, integer()} | {:error, String.t()}),
+     {"Result<i64, String>", "EchoNifResult"}},
+    {quote(do: [integer()]), {"Vec<i64>", "Vec<i64>"}},
+    {quote(do: list(integer())), {"Vec<i64>", "Vec<i64>"}},
+    {quote(do: nonempty_list(integer())), {"Vec<i64>", "Vec<i64>"}},
+    {quote(do: {integer(), float()}), {"(i64, f64)", "(i64, f64)"}},
+    {quote(do: {integer(), String.t(), boolean()}),
+     {"(i64, String, bool)", "(i64, String, bool)"}},
+    {quote(do: [{atom(), integer()}]), {"Vec<(Atom, i64)>", "Vec<(Atom, i64)>"}},
+    {quote(do: %{String.t() => integer()}), {"HashMap<String, i64>", "HashMap<String, i64>"}},
+    {quote(do: HashMap.t(String.t(), integer())),
+     {"HashMap<String, i64>", "HashMap<String, i64>"}},
+    {quote(do: R.u8()), {"u8", "u8"}},
+    {quote(do: R.u32()), {"u32", "u32"}},
+    {quote(do: R.i64()), {"i64", "i64"}},
+    {quote(do: R.usize()), {"usize", "usize"}},
+    {quote(do: R.f32()), {"f32", "f32"}},
+    {quote(do: R.f64()), {"f64", "f64"}},
+    {quote(do: R.bool()), {"bool", "bool"}},
+    {quote(do: R.term()), {"Term<'a>", "Term<'a>"}},
+    {quote(do: R.atom()), {"Atom", "Atom"}},
+    {quote(do: R.vec(integer())), {"Vec<i64>", "Vec<i64>"}},
+    {quote(do: R.option(integer())), {"Option<i64>", "Option<i64>"}},
+    {quote(do: R.result(integer(), String.t())), {"Result<i64, String>", "EchoNifResult"}},
+    {quote(do: point()), {"Point", "Point"}},
+    {quote(do: [point()]), {"Vec<Point>", "Vec<Point>"}},
+    {quote(do: point() | nil), {"Option<Point>", "Option<Point>"}},
+    {quote(do: shape()), {"Shape", "Shape"}},
+    {quote(do: mode()), {"Mode", "Mode"}},
+    {quote(do: nil), :unsupported},
+    {quote(do: 1), :unsupported},
+    {quote(do: 1..10), :unsupported},
+    {quote(do: non_neg_integer()), {"u64", "u64"}},
+    {quote(do: pos_integer()), {"u64", "u64"}},
+    {quote(do: byte()), {"u8", "u8"}},
+    {quote(do: char()), {"u32", "u32"}},
+    {quote(do: map()), :unsupported},
+    {quote(do: keyword()), :unsupported},
+    {quote(do: charlist()), :unsupported},
+    {quote(do: iodata()), :unsupported},
+    {quote(do: pid()), :unsupported},
+    {quote(do: reference()), :unsupported},
+    {quote(do: tuple()), :unsupported},
+    {quote(do: list()), :unsupported},
+    {quote(do: struct()), :unsupported}
+  ]
+
+  # Values each mapped form takes through a built NIF unchanged, and values it rejects.
+  @round_trips [
+    {quote(do: integer()), [0, -5, 9_223_372_036_854_775_807],
+     ["1", 1.5, 9_223_372_036_854_775_808]},
+    {quote(do: float()), [1.5, -2.25], ["x"]},
+    {quote(do: number()), [2.5], ["x"]},
+    {quote(do: boolean()), [true, false], [:maybe, nil]},
+    {quote(do: String.t()), ["héllo", ""], [:a, 1]},
+    {quote(do: binary()), [<<0, 255>>, ""], [1, [1, 2]]},
+    {quote(do: atom()), [:ok, :anything], ["ok"]},
+    {quote(do: term()), [{1, [2]}], []},
+    {quote(do: any()), [%{a: 1}], []},
+    {quote(do: integer() | nil), [nil, 3], [:x]},
+    {quote(do: {:ok, integer()} | {:error, String.t()}), [{:ok, 1}, {:error, "e"}],
+     [{:ok, "x"}, :ok]},
+    {quote(do: [integer()]), [[1, 2], []], [[1, "a"], 1]},
+    {quote(do: nonempty_list(integer())), [[1]], []},
+    {quote(do: {integer(), float()}), [{1, 2.5}], [{1}, {1, 2.5, 3}]},
+    {quote(do: {integer(), String.t(), boolean()}), [{1, "a", true}], [{1, "a"}]},
+    {quote(do: [{atom(), integer()}]), [[a: 1]], [[{"a", 1}]]},
+    {quote(do: %{String.t() => integer()}), [%{"a" => 1}, %{}], [%{a: 1}]},
+    {quote(do: R.u8()), [0, 255], [-1]},
+    {quote(do: R.u32()), [4_294_967_295], [-1, 4_294_967_296]},
+    {quote(do: R.i64()), [-9_223_372_036_854_775_808], [9_223_372_036_854_775_808]},
+    {quote(do: R.usize()), [0], [-1]},
+    {quote(do: R.f32()), [1.5], [1.0e300]},
+    {quote(do: R.bool()), [true], [1]},
+    {quote(do: R.atom()), [:x], ["x"]},
+    {quote(do: R.vec(integer())), [[3]], [[:a]]},
+    {quote(do: R.option(integer())), [nil, 1], ["a"]},
+    {quote(do: R.result(integer(), String.t())), [{:ok, 1}, {:error, "e"}], [{:ok, "x"}]},
+    {quote(do: point()), [%{x: 1.0, y: 2.0}], [%{x: 1.0}, %{x: "a", y: 1.0}]},
+    {quote(do: [point()]), [[%{x: 1.0, y: 2.0}]], [[%{x: 1.0}]]},
+    {quote(do: point() | nil), [nil, %{x: 1.0, y: 2.0}], [%{y: 1.0}]},
+    {quote(do: shape()), [{:circle, 1.0}, :empty], [{:square, 1.0}, :circle]},
+    {quote(do: mode()), [:fast, :slow], [:medium]},
+    {quote(do: byte()), [0, 255], [-1]},
+    {quote(do: non_neg_integer()), [0, 18_446_744_073_709_551_615],
+     [-1, 18_446_744_073_709_551_616]},
+    {quote(do: pos_integer()), [1], [-1]},
+    {quote(do: char()), [?a, ?é, 0x10FFFF], [-1]}
+  ]
+
+  # Values a form's spec excludes that the NIF still takes, each with why. When a gap closes,
+  # its entry fails here: move the value to the form's rejected values above.
+  @known_gaps [
+    {quote(do: R.u8()), 256, "rustler truncates narrow integers; rusterlium/rustler#785"},
+    {quote(do: byte()), 256, "rustler truncates narrow integers; rusterlium/rustler#785"},
+    {quote(do: pos_integer()), 0, "maps to u64 until rustler decodes NonZeroU64"},
+    {quote(do: char()), 0x110000, "maps to u32, wider than a code point"},
+    {quote(do: :ok), :error, "an inline literal atom is any Atom; a named @type is an enum"},
+    {quote(do: :small | :large), :medium,
+     "an inline atom union is any Atom; a named @type is an enum"}
+  ]
+
+  # Values a form's NIF returns in another shape than its spec says, each with the shape it
+  # returns and why. When a gap closes, its entry fails here: move the form to the round trips.
+  @known_output_gaps [
+    {quote(do: {:ok, binary()} | {:error, String.t()}), {:ok, [1, 2]}, {:ok, [1, 2]},
+     "a binary() nested in a NIF's argument or result crosses as a list of bytes; only a " <>
+       "top-level binary() is a binary"}
+  ]
+
+  # Each form passes through a NIF boundary as `@spec echo(form) :: form`; a form RustQ cannot
+  # map is rejected rather than become a Rust type named after it.
+  describe "typespec matrix" do
+    @tag timeout: 300_000
+    test "every mapped form round-trips through a built NIF" do
+      forms =
+        Enum.uniq(
+          Enum.map(@round_trips, &elem(&1, 0)) ++
+            Enum.map(@known_gaps, &elem(&1, 0)) ++ Enum.map(@known_output_gaps, &elem(&1, 0))
+        )
+
+      call = build_echo_nifs!(forms)
+
+      failures =
+        for {form, accepted, rejected} <- @round_trips,
+            failure <-
+              Enum.flat_map(accepted, fn value ->
+                case call.(form, value) do
+                  {:ok, ^value} -> []
+                  other -> [{:accepted, value, other}]
+                end
+              end) ++
+                Enum.flat_map(rejected, fn value ->
+                  case call.(form, value) do
+                    {:raised, _error} -> []
+                    other -> [{:rejected, value, other}]
+                  end
+                end),
+            do: {Macro.to_string(form), failure}
+
+      gaps =
+        for {form, value, reason} <- @known_gaps,
+            match?({:raised, _error}, call.(form, value)),
+            do: {Macro.to_string(form), value, closed: reason}
+
+      output_gaps =
+        for {form, value, returned, reason} <- @known_output_gaps,
+            call.(form, value) != {:ok, returned},
+            do: {Macro.to_string(form), value, closed: reason}
+
+      assert failures == []
+      assert gaps == []
+      assert output_gaps == []
+    end
+
+    test "maps every typespec form to its Rust type, or rejects it" do
+      mismatches =
+        for {form, expected} <- @matrix,
+            actual = echo_signature(form),
+            actual != expected,
+            do: {Macro.to_string(form), expected: expected, actual: actual}
+
+      assert mismatches == []
+    end
+
+    test "rejects a type declared twice instead of following the later one" do
+      error =
+        assert_raise RustQ.Diagnostic.Error, fn ->
+          compile(fn module ->
+            quote do
+              defmodule unquote(module) do
+                use RustQ.Meta
+                @type point :: %{required(:x) => float()}
+                @type point :: %{required(:y) => integer()}
+                @spec y(point()) :: integer()
+                defrust(y(point), do: point.y)
+              end
+            end
+          end)
+        end
+
+      assert %RustQ.Diagnostic{kind: :duplicate_type, details: %{type: {:point, 0}}} =
+               error.diagnostic
+    end
+  end
+
+  # Builds one crate with an `echo` NIF per form and returns a function calling the NIF for
+  # a form with a value, as `{:ok, result}` or `{:raised, error}`.
+  defp build_echo_nifs!(forms) do
+    names =
+      forms |> Enum.with_index() |> Map.new(fn {form, index} -> {form, :"echo_#{index}"} end)
+
+    nifs =
+      for {form, name} <- names do
+        quote do
+          @spec unquote(name)(unquote(form)) :: unquote(form)
+          defnif(unquote(name)(value), do: value)
+        end
+      end
+
+    module =
+      compile(fn module ->
+        quote do
+          defmodule unquote(module) do
+            use RustQ.Native, otp_app: :rustq, crate: :rustq_typespec_matrix, mode: :debug
+            alias RustQ.Type, as: R
+
+            @type point :: %{required(:x) => float(), required(:y) => float()}
+            @type shape :: R.enum(circle: [float()], empty: [])
+            @type mode :: :fast | :slow
+
+            unquote_splicing(nifs)
+          end
+        end
+      end)
+
+    fn form, value ->
+      try do
+        {:ok, apply(module, Map.fetch!(names, form), [value])}
+      rescue
+        error -> {:raised, error}
+      end
+    end
+  end
+
+  defp echo_signature(form) do
+    module =
+      compile(fn module ->
+        quote do
+          defmodule unquote(module) do
+            use RustQ.Native, build: false, load: false
+            alias RustQ.Type, as: R
+
+            @type point :: %{required(:x) => float(), required(:y) => float()}
+            @type shape :: R.enum(circle: [float()], empty: [])
+            @type mode :: :fast | :slow
+
+            @spec echo(unquote(form)) :: unquote(form)
+            defnif(echo(value), do: value)
+          end
+        end
+      end)
+
+    source = RustQ.Native.source(module)
+    assert RustQ.valid?(source, "typespec_matrix.rs")
+
+    [_signature, arg, return] =
+      Regex.run(~r/fn echo(?:<'a>)?\((?:env: Env<'a>, )?value: (.+)\) -> (.+) \{/, source)
+
+    {arg, return}
+  rescue
+    error in RustQ.Diagnostic.Error ->
+      if Exception.message(error) =~ "unsupported_type",
+        do: :unsupported,
+        else: reraise(error, __STACKTRACE__)
+  end
+
+  defp compile(module_ast) do
+    module = Module.concat(__MODULE__, "M#{System.unique_integer([:positive])}")
+    Code.compile_quoted(module_ast.(module))
+    module
+  end
 end

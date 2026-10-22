@@ -74,13 +74,16 @@ defmodule RustQ.Native.Build do
   end
 
   defp native_source(items, module) do
-    imports =
+    imports = [
       A.use(
         {[:rustler], [:Atom, :Binary, :Decoder, :Encoder, :Env, :NifResult, :ResourceArc, :Term]}
-      )
+      ),
+      # `%{key => value}` and `HashMap.t(key, value)` specs name `HashMap`.
+      A.use([:std, :collections, :HashMap])
+    ]
 
     body =
-      [imports | items]
+      (imports ++ items)
       |> Kernel.++([Nif.init(module)])
       |> Enum.map_join("\n\n", &(&1 |> RustQ.Rust.render() |> String.trim()))
 

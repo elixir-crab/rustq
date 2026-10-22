@@ -4,6 +4,7 @@ defmodule RustQ.Native.ABI do
   returning a `Result` get a codec wrapper, map structs and resources get their Rustler
   derives and implementations, and generated code gets the Clippy allows it needs.
   """
+  alias RustQ.Binding.Callable
   alias RustQ.Meta.Type
   alias RustQ.Rust.AST
   alias RustQ.Rust.AST.Builder, as: A
@@ -22,8 +23,12 @@ defmodule RustQ.Native.ABI do
             do: {name, result_implementation_name(name)}
       )
 
-    validate_result_names!(values[:items], result_targets)
-    source_items = redirect_result_calls(values[:items], result_targets)
+    binary_targets = binary_return_targets(values)
+
+    validate_result_names!(values[:items], result_targets, binary_targets)
+
+    source_items =
+      redirect_result_calls(values[:items], Map.merge(result_targets, binary_targets))
 
     map_structs =
       values[:type_aliases]
@@ -76,6 +81,18 @@ defmodule RustQ.Native.ABI do
       end)
       |> Map.new()
 
+    # A public `R.enum` crosses the boundary as Elixir writes it: `{:circle, 1.0}` or `:empty`.
+    tagged_enums =
+      values[:type_aliases]
+      |> Enum.flat_map(fn
+        {_key, %Type{kind: :rust_enum, meta: meta} = type} ->
+          if meta[:private], do: [], else: [to_string(type.rust)]
+
+        _type ->
+          []
+      end)
+      |> MapSet.new()
+
     tuple_enums =
       values[:type_aliases]
       |> Enum.flat_map(fn
@@ -95,32 +112,14 @@ defmodule RustQ.Native.ABI do
 
     items =
       Enum.flat_map(source_items, fn
-        %AST.Struct{name: name} = struct ->
-          name = to_string(name)
+        %AST.Struct{} = struct ->
+          [derive_struct_codec(struct, resource_structs, map_structs, nif_structs)]
 
-          cond do
-            MapSet.member?(resource_structs, name) ->
-              [%{struct | derive: []}]
-
-            MapSet.member?(map_structs, name) ->
-              [%{struct | derive: Enum.uniq(struct.derive ++ ["rustler::NifMap"])}]
-
-            module = Map.get(nif_structs, name) ->
-              [derive_elixir_struct(struct, module)]
-
-            true ->
-              [struct]
-          end
-
-        %AST.Enum{name: name} = enum ->
-          if Map.has_key?(unit_enums, to_string(name)) do
-            [%{enum | derive: Enum.uniq(enum.derive ++ ["rustler::NifUnitEnum"])}]
-          else
-            [enum]
-          end
+        %AST.Enum{} = enum ->
+          [derive_enum_codec(enum, unit_enums, tagged_enums)]
 
         %AST.Function{} = function ->
-          prepare_native_function(function, generated_decoders)
+          prepare_native_function(function, generated_decoders, binary_targets)
 
         item ->
           [item]
@@ -141,12 +140,71 @@ defmodule RustQ.Native.ABI do
     items ++ union_codecs ++ resource_impls
   end
 
-  defp prepare_native_function(%AST.Function{name: name} = function, generated_decoders) do
-    if MapSet.member?(generated_decoders, to_string(name)) do
-      []
-    else
-      function |> expand_nif_result_codec() |> Enum.map(&prepare_expanded_native_item/1)
+  defp prepare_native_function(%AST.Function{name: name} = function, generated_decoders, binaries) do
+    cond do
+      MapSet.member?(generated_decoders, to_string(name)) ->
+        []
+
+      implementation = Map.get(binaries, name) ->
+        function
+        |> expand_binary_return(implementation)
+        |> Enum.map(&prepare_expanded_native_item/1)
+
+      true ->
+        function |> expand_nif_result_codec() |> Enum.map(&prepare_expanded_native_item/1)
     end
+  end
+
+  # NIFs whose spec returns `binary()`. Their bytes are a `Vec<u8>` in Rust, which rustler
+  # would send to Elixir as a list, so each gets a wrapper returning an Elixir binary.
+  defp binary_return_targets(values) do
+    binaries =
+      for %Callable{name: name, returns: %Type{kind: :binary}} <- values[:local_callables] || [],
+          into: MapSet.new(),
+          do: to_string(name)
+
+    for %AST.Function{name: name, attrs: attrs} <- values[:items],
+        MapSet.member?(binaries, to_string(name)),
+        Enum.any?(attrs, &match?(%AST.Attribute{path: [:rustler, :nif]}, &1)),
+        into: %{},
+        do: {name, Identifier.atom!("#{name}_rustq_binary_impl")}
+  end
+
+  # The NIF's body becomes `implementation`, and the NIF copies the bytes it returns into a
+  # new Elixir binary.
+  defp expand_binary_return(%AST.Function{attrs: attrs, args: args} = function, implementation) do
+    implementation_function = %{
+      function
+      | name: implementation,
+        attrs: Enum.reject(attrs, &match?(%AST.Attribute{path: [:rustler, :nif]}, &1))
+    }
+
+    env = %AST.FunctionArg{name: :env, type: T.path(:Env, lifetimes: [:a])}
+
+    nif_args =
+      if match?([%AST.FunctionArg{name: :env} | _rest], args), do: args, else: [env | args]
+
+    arguments = Enum.map(args, fn %AST.FunctionArg{name: name} -> A.expr(name) end)
+
+    body = [
+      A.let(:bytes, A.call(implementation, arguments)),
+      A.let_mut(
+        :binary,
+        A.path_call([:rustler, :NewBinary, :new], [:env, A.method(:bytes, :len)])
+      ),
+      A.stmt(A.method(A.method(:binary, :as_mut_slice), :copy_from_slice, [A.ref(:bytes)])),
+      A.return_stmt(A.method(:binary, :into))
+    ]
+
+    wrapper = %{
+      function
+      | args: nif_args,
+        returns: T.path(:Binary, lifetimes: [:a]),
+        lifetimes: [:a],
+        body: body
+    }
+
+    [implementation_function, wrapper]
   end
 
   defp prepare_expanded_native_item(%AST.Function{} = function) do
@@ -156,6 +214,29 @@ defmodule RustQ.Native.ABI do
   defp prepare_expanded_native_item(item) do
     item
   end
+
+  # A struct crossing the boundary takes the codec its Elixir shape needs; a resource has none.
+  defp derive_struct_codec(%AST.Struct{name: name} = struct, resources, maps, nif_structs) do
+    name = to_string(name)
+
+    cond do
+      MapSet.member?(resources, name) -> %{struct | derive: []}
+      MapSet.member?(maps, name) -> derive(struct, "rustler::NifMap")
+      module = Map.get(nif_structs, name) -> derive_elixir_struct(struct, module)
+      true -> struct
+    end
+  end
+
+  # An atom union crosses as atoms, and a public `R.enum` as tagged tuples and atoms.
+  defp derive_enum_codec(%AST.Enum{name: name} = enum, unit_enums, tagged_enums) do
+    cond do
+      Map.has_key?(unit_enums, to_string(name)) -> derive(enum, "rustler::NifUnitEnum")
+      MapSet.member?(tagged_enums, to_string(name)) -> derive(enum, "rustler::NifTaggedEnum")
+      true -> enum
+    end
+  end
+
+  defp derive(%{derive: derive} = item, codec), do: %{item | derive: Enum.uniq(derive ++ [codec])}
 
   defp derive_elixir_struct(%AST.Struct{} = struct, module) do
     derive =
@@ -172,14 +253,15 @@ defmodule RustQ.Native.ABI do
     }
   end
 
-  defp validate_result_names!(items, targets) do
+  defp validate_result_names!(items, targets, binary_targets) do
     declared =
       MapSet.new(for %{name: name} <- items, do: to_string(name))
 
     generated =
       Enum.flat_map(targets, fn {name, implementation} ->
         [to_string(implementation), Macro.camelize(to_string(name)) <> "NifResult"]
-      end)
+      end) ++
+        Enum.map(binary_targets, fn {_name, implementation} -> to_string(implementation) end)
 
     Enum.reduce(generated, declared, fn name, names ->
       if MapSet.member?(names, name) do

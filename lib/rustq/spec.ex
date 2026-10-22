@@ -58,7 +58,7 @@ defmodule RustQ.Spec do
       |> Enum.reduce({[], [], %{}}, fn
         {:@, meta, [{:type, _, [{:"::", _, [_name_ast, _type_ast]} = type_ast]}]},
         {types, specs, defs} ->
-          {[{:type, type_ast, meta[:line] || 0} | types], specs, defs}
+          {[{:type, type_ast, line(meta)} | types], specs, defs}
 
         {:@, _, [{:spec, _, [{:"::", _, [{name, _, arg_types}, _return]}]}]},
         {types, specs, defs} ->
@@ -141,6 +141,14 @@ defmodule RustQ.Spec do
   end
 
   defp normalize_type_decl(type_decl), do: type_decl
+
+  # A declaration's line, from parsed source or from `quote location: :keep`.
+  defp line(meta) do
+    case Keyword.fetch(meta, :keep) do
+      {:ok, {_file, line}} -> meta[:line] || line
+      :error -> meta[:line] || 0
+    end
+  end
 
   defp arg_name!({name, _meta, context}) when is_atom(name) and is_atom(context), do: name
 

@@ -54,8 +54,9 @@ impl ParseSynTokens for syn::Attribute {
     }
 }
 
+/// Parses generated tokens, keeping syn's message for a node that does not form valid Rust.
 pub(crate) fn parse_syn<T: ParseSynTokens>(tokens: proc_macro2::TokenStream) -> NifResult<T> {
-    T::parse_syn_tokens(tokens).map_err(|_| rustler::Error::BadArg)
+    T::parse_syn_tokens(tokens).map_err(|error| rustler::Error::Term(Box::new(error.to_string())))
 }
 
 pub(crate) fn path_from_parts(parts: Vec<String>) -> NifResult<syn::Path> {
@@ -72,18 +73,26 @@ pub(crate) fn path_from_parts(parts: Vec<String>) -> NifResult<syn::Path> {
     syn::parse_str(&source).map_err(|_| rustler::Error::BadArg)
 }
 
-pub(crate) fn ident_from_part(part: &str) -> syn::Ident {
-    if let Some(raw) = part.strip_prefix("r#") {
-        return syn::Ident::new_raw(raw, proc_macro2::Span::call_site());
-    }
+/// The identifier Rust writes for `part`: itself, or raw for a keyword. `self`, `super`, and
+/// the like are kept for the positions that take them; anything else that is no identifier,
+/// such as a dotted module name, is an error rather than a panic.
+pub(crate) fn ident_from_part(part: &str) -> NifResult<syn::Ident> {
+    use syn::ext::IdentExt;
+    use syn::parse::Parser;
 
-    let part = rust_name(part);
+    let name = rust_name(part);
 
-    if rust_keyword(part) {
-        syn::Ident::new_raw(part, proc_macro2::Span::call_site())
+    let parsed = if part.starts_with("r#") {
+        syn::parse_str::<syn::Ident>(part)
+    } else if rust_keyword(name) {
+        syn::parse_str::<syn::Ident>(&format!("r#{name}"))
     } else {
-        syn::Ident::new(part, proc_macro2::Span::call_site())
-    }
+        syn::Ident::parse_any.parse_str(name)
+    };
+
+    parsed.map_err(|_error| {
+        rustler::Error::Term(Box::new(format!("`{part}` cannot be a Rust identifier")))
+    })
 }
 
 /// An Elixir predicate's name without its `?`, as Rust names predicates.
@@ -101,57 +110,43 @@ fn path_part_source(part: &str) -> String {
     }
 }
 
-fn rust_keyword(part: &str) -> bool {
-    matches!(
-        part,
-        "as" | "async"
-            | "await"
-            | "break"
-            | "const"
-            | "continue"
-            | "dyn"
-            | "else"
-            | "enum"
-            | "extern"
-            | "fn"
-            | "for"
-            | "if"
-            | "impl"
-            | "in"
-            | "let"
-            | "loop"
-            | "match"
-            | "mod"
-            | "move"
-            | "mut"
-            | "pub"
-            | "ref"
-            | "return"
-            | "static"
-            | "struct"
-            | "trait"
-            | "type"
-            | "unsafe"
-            | "use"
-            | "where"
-            | "while"
-            // Reserved for future use.
-            | "abstract"
-            | "become"
-            | "box"
-            | "do"
-            | "final"
-            | "gen"
-            | "macro"
-            | "override"
-            | "priv"
-            | "try"
-            | "typeof"
-            | "unsized"
-            | "virtual"
-            | "yield"
-    )
+/// How Rust writes `name` where `context` expects it: as itself when syn reads it there, as an
+/// identifier (`"name"`), a path segment (`"segment"`, where `self` or `crate` fit), or an
+/// expression (`"expr"`, where `self` fits); as `r#name` for another keyword; otherwise it is
+/// an error.
+pub(crate) fn identifier_source(name: &str, context: &str) -> NifResult<String> {
+    let name = rust_name(name);
+
+    // A keyword is written raw before anything else: `break` parses as an expression and
+    // `try` as a path segment, but neither means the name.
+    let fits = || match context {
+        "segment" => syn::parse_str::<syn::PathSegment>(name).is_ok(),
+        "expr" => syn::parse_str::<syn::Expr>(name).is_ok(),
+        _ => false,
+    };
+
+    if rust_keyword(name) {
+        Ok(format!("r#{name}"))
+    } else if syn::parse_str::<syn::Ident>(name).is_ok() || fits() {
+        Ok(name.to_string())
+    } else {
+        Err(rustler::Error::Term(Box::new(format!(
+            "`{name}` cannot be a Rust identifier"
+        ))))
+    }
 }
+
+/// Whether `part` is a Rust keyword, which Rust writes as a raw identifier: syn reads it as an
+/// identifier only with the `r#` prefix. `self`, `Self`, `super`, and `crate` are neither.
+fn rust_keyword(part: &str) -> bool {
+    EDITION_KEYWORDS.contains(&part)
+        || (syn::parse_str::<syn::Ident>(part).is_err()
+            && syn::parse_str::<syn::Ident>(&format!("r#{part}")).is_ok())
+}
+
+/// Keywords a newer Rust edition reserves that syn, which knows no editions, still reads as
+/// identifiers: `gen` from the 2024 edition. Raw, they are valid in every edition.
+const EDITION_KEYWORDS: &[&str] = &["gen"];
 
 pub(crate) fn parse_expr(source: impl AsRef<str>) -> NifResult<Expr> {
     syn::parse_str(source.as_ref()).map_err(|_| rustler::Error::BadArg)

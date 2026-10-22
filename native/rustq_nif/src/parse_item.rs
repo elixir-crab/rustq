@@ -1,4 +1,4 @@
-use quote::{format_ident, quote, ToTokens};
+use quote::{quote, ToTokens};
 use rustler::{NifResult, Term};
 use syn::{punctuated::Punctuated, token, Expr, Field, FnArg, Item, Stmt, Type};
 
@@ -18,10 +18,11 @@ pub(crate) fn parse_item_use_group(
     names: Vec<String>,
 ) -> NifResult<syn::ItemUse> {
     let base = path_from_parts(base)?;
+    // Each name is a path segment, so a keyword is written raw and `self` stays as it is.
     let names = names
         .into_iter()
-        .map(|name| format_ident!("{}", name))
-        .collect::<Vec<_>>();
+        .map(|name| path_from_parts(vec![name]))
+        .collect::<NifResult<Vec<_>>>()?;
 
     parse_syn(quote!(use #base::{#(#names),*};))
 }
@@ -205,13 +206,13 @@ pub(crate) fn decode_macro_item_arg_list(term: Term) -> NifResult<Vec<MacroItemA
 fn decode_macro_item_arg(term: Term) -> NifResult<MacroItemArg> {
     if let Ok((name, value)) = term.decode::<(Term, String)>() {
         return Ok(MacroItemArg {
-            name: crate::ident_from_part(&crate::atom_or_string(name)?),
+            name: crate::ident_from_part(&crate::atom_or_string(name)?)?,
             value: Some(value),
         });
     }
 
     Ok(MacroItemArg {
-        name: crate::ident_from_part(&crate::atom_or_string(term)?),
+        name: crate::ident_from_part(&crate::atom_or_string(term)?)?,
         value: None,
     })
 }

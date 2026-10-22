@@ -1,4 +1,4 @@
-defmodule RustQ.Corpus.Propagation.LetComparisonPropagation do
+defmodule RustQ.Corpus.Propagation.LetComparison do
   @moduledoc "Propagate a fallible let RHS when downstream comparisons use the success value."
 
   use RustQ.Meta

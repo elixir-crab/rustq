@@ -1,4 +1,4 @@
-defmodule RustQ.Meta.Lower.DefrustLoweringTest do
+defmodule RustQ.Meta.Lower.DefrustTest do
   use RustQ.Test, async: true
 
   alias RustQ.Meta.AST, as: MetaAST
@@ -138,9 +138,9 @@ defmodule RustQ.Meta.Lower.DefrustLoweringTest do
 
   defmodule ImportedTypeCase do
     use RustQ.Meta,
-      callable_modules: [RustQ.Meta.Lower.DefrustLoweringTest.StructUpdateCase]
+      callable_modules: [RustQ.Meta.Lower.DefrustTest.StructUpdateCase]
 
-    alias RustQ.Meta.Lower.DefrustLoweringTest.StructUpdateCase
+    alias RustQ.Meta.Lower.DefrustTest.StructUpdateCase
     alias RustQ.Type, as: R
 
     @typep forest :: R.vec(StructUpdateCase.tree())

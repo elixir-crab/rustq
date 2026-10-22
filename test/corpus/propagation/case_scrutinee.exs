@@ -1,4 +1,4 @@
-defmodule RustQ.Corpus.Propagation.CaseScrutineePropagation do
+defmodule RustQ.Corpus.Propagation.CaseScrutinee do
   @moduledoc "Fallible case scrutinees propagate before matching inner patterns."
 
   use RustQ.Meta

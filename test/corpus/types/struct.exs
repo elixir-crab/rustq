@@ -1,4 +1,4 @@
-defmodule RustQ.Corpus.Types.StructType do
+defmodule RustQ.Corpus.Types.Struct do
   @moduledoc "Struct emission from Elixir @type metadata."
 
   use RustQ.Meta

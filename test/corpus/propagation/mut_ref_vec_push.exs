@@ -1,4 +1,4 @@
-defmodule RustQ.Corpus.Propagation.MutRefVecPushPropagation do
+defmodule RustQ.Corpus.Propagation.MutRefVecPush do
   @moduledoc "Propagate fallible call arguments passed to push on a mutable Vec reference."
 
   use RustQ.Meta

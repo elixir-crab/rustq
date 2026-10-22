@@ -1,4 +1,4 @@
-defmodule RustQ.Corpus.Propagation.ImplAsRefPropagation do
+defmodule RustQ.Corpus.Propagation.ImplAsRef do
   @moduledoc "Propagate fallible values into impl AsRef<T> arguments."
 
   use RustQ.Meta, rust_sources: ["test/fixtures/impl_as_ref.rs"]

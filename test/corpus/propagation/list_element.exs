@@ -1,4 +1,4 @@
-defmodule RustQ.Corpus.Propagation.ListElementPropagation do
+defmodule RustQ.Corpus.Propagation.ListElement do
   use RustQ.Meta
 
   alias RustQ.Type, as: R

@@ -1,4 +1,4 @@
-defmodule RustQ.Corpus.Propagation.ImplIntoOptionPropagation do
+defmodule RustQ.Corpus.Propagation.ImplIntoOption do
   @moduledoc "Propagate fallible values passed to impl Into<Option<T>> arguments."
 
   use RustQ.Meta, rust_sources: ["test/fixtures/into_option_method.rs"]

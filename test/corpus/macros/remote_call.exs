@@ -1,4 +1,4 @@
-defmodule RustQ.Corpus.Macros.RemoteMacroCall do
+defmodule RustQ.Corpus.Macros.RemoteCall do
   @moduledoc "Remote Rust macro call lowering."
 
   use RustQ.Meta

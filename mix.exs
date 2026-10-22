@@ -30,7 +30,9 @@ defmodule RustQ.MixProject do
     [preferred_envs: [ci: :test]]
   end
 
-  defp elixirc_paths(:test), do: ["lib", "test/support"]
+  # dev/ holds tools for working on RustQ itself, kept out of the package.
+  defp elixirc_paths(:test), do: ["lib", "dev", "test/support"]
+  defp elixirc_paths(:dev), do: ["lib", "dev"]
   defp elixirc_paths(_env), do: ["lib"]
 
   defp deps do
@@ -60,6 +62,7 @@ defmodule RustQ.MixProject do
         "rust.check",
         "rust.clippy",
         "rustq.gen --check",
+        "rustq.std --check",
         "rustq.corpus",
         "rustq.templates.check",
         "test",

@@ -10,6 +10,7 @@ defmodule RustQ.Meta.Lower do
   alias RustQ.Meta.RustMacro
   alias RustQ.Meta.Semantics
   alias RustQ.Meta.StandardPointer
+  alias RustQ.Meta.StdMethods
   alias RustQ.Meta.Type
   alias RustQ.Meta.Typing
   alias RustQ.Rust
@@ -118,6 +119,9 @@ defmodule RustQ.Meta.Lower do
   end
 
   @keyed_collections [:HashMap, :HashSet, :BTreeMap, :BTreeSet]
+  @iterator_methods StdMethods.iterator()
+  @iterator_option_methods StdMethods.iterator_option()
+  @mutating_methods StdMethods.mutating()
 
   # An empty map or set filled through `entry(key).or_default()` leaves Rust without its value
   # type; when RustQ knows it, the binding states it.
@@ -363,19 +367,7 @@ defmodule RustQ.Meta.Lower do
 
   # Methods that return an option on whatever they are called, as iterators' `next` does.
   defp option_chain?({{:., _, [_receiver, method]}, _, args}, _context)
-       when method in [
-              :next,
-              :last,
-              :max,
-              :min,
-              :find,
-              :find_map,
-              :position,
-              :max_by_key,
-              :min_by_key,
-              :try_fold
-            ] and
-              is_list(args),
+       when method in @iterator_option_methods and is_list(args),
        do: true
 
   defp option_chain?({{:., _, [receiver, method]}, _, [_argument]}, context)
@@ -1911,31 +1903,6 @@ defmodule RustQ.Meta.Lower do
       {filter_bind(items, guarded_pattern(pattern, filters), binder), binder}
     end
   end
-
-  @iterator_methods [
-    :bytes,
-    :chain,
-    :char_indices,
-    :chars,
-    :cloned,
-    :copied,
-    :drain,
-    :enumerate,
-    :filter,
-    :filter_map,
-    :flat_map,
-    :into_iter,
-    :iter,
-    :iter_mut,
-    :keys,
-    :map,
-    :rev,
-    :skip,
-    :take,
-    :values,
-    :values_mut,
-    :zip
-  ]
 
   # A collection already given as an iterator, as in `values.iter()`, is iterated as it is.
   defp iterator_call?({{:., _, [_receiver, method]}, _, args}) when is_list(args),
@@ -3766,31 +3733,6 @@ defmodule RustQ.Meta.Lower do
 
   defp mutated_chain_root(%AST.MethodCall{receiver: receiver}), do: mutated_chain_root(receiver)
   defp mutated_chain_root(_expression), do: nil
-
-  @mutating_methods [
-    :append,
-    :clear,
-    :dedup,
-    :drain,
-    :entry,
-    :extend,
-    :fill,
-    :insert,
-    :pop,
-    :push,
-    :push_str,
-    :remove,
-    :resize,
-    :retain,
-    :reverse,
-    :sort,
-    :sort_by,
-    :sort_by_key,
-    :sort_unstable,
-    :split_off,
-    :swap,
-    :truncate
-  ]
 
   @doc false
   @spec mutating_method?(atom()) :: boolean()

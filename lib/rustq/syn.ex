@@ -616,13 +616,33 @@ defmodule RustQ.Syn do
   end
 
   defmodule Impl do
-    @moduledoc "Rust impl block metadata, including target type, optional trait, doc comments, and methods."
-    defstruct [:target, :target_ast, :trait, :source_line, :source_path, docs: [], methods: []]
+    @moduledoc """
+    Rust impl block metadata, including target type, optional trait, doc comments, and methods.
+
+    `bounds` pairs each of the impl's `type_parameters` with the traits bounding it, inline or
+    in the where clause, named by the last segment of their path. `types` pairs each associated
+    type the impl defines with its type, as in `{"Target", [T]}` for a `Deref` impl.
+    """
+    defstruct [
+      :target,
+      :target_ast,
+      :trait,
+      :source_line,
+      :source_path,
+      type_parameters: [],
+      bounds: [],
+      types: [],
+      docs: [],
+      methods: []
+    ]
 
     @type t :: %__MODULE__{
             target: String.t(),
             target_ast: RustQ.Syn.type(),
             trait: String.t() | nil,
+            type_parameters: [String.t()],
+            bounds: [{String.t(), [String.t()]}],
+            types: [{String.t(), RustQ.Syn.type()}],
             source_line: pos_integer() | nil,
             source_path: Path.t() | nil,
             docs: [String.t()],
@@ -630,8 +650,35 @@ defmodule RustQ.Syn do
           }
   end
 
+  defmodule Trait do
+    @moduledoc """
+    Rust trait metadata: its name, doc comments, associated types, and the methods it declares
+    or provides.
+
+    `types` pairs each associated type with the traits bounding it, named by the last segment
+    of their path, as in `{"IntoIter", ["Iterator"]}`.
+    """
+    defstruct [:name, :visibility, :source_line, :source_path, docs: [], types: [], methods: []]
+
+    @type t :: %__MODULE__{
+            name: String.t(),
+            visibility: :public | :private,
+            source_line: pos_integer() | nil,
+            source_path: Path.t() | nil,
+            docs: [String.t()],
+            types: [{String.t(), [String.t()]}],
+            methods: [RustQ.Syn.Method.t()]
+          }
+  end
+
   defmodule Method do
-    @moduledoc "Rust impl method metadata, including doc comments, arguments, and return type."
+    @moduledoc """
+    Rust impl or trait method metadata, including doc comments, arguments, and return type.
+
+    `attributes` names the paths of the method's attributes, as `"inline"` or `"unstable"`.
+    `bounds` pairs each of its `type_parameters`, and those of its impl or trait, with the traits
+    bounding it, as `{"R", ["Try"]}` for `Iterator::try_fold`.
+    """
     defstruct [
       :name,
       :visibility,
@@ -640,6 +687,8 @@ defmodule RustQ.Syn do
       :signature,
       :signature_ast,
       type_parameters: [],
+      attributes: [],
+      bounds: [],
       docs: [],
       args: [],
       returns: nil,
@@ -653,6 +702,9 @@ defmodule RustQ.Syn do
             source_path: Path.t() | nil,
             signature: String.t() | nil,
             signature_ast: RustQ.Syn.Signature.t() | nil,
+            type_parameters: [String.t()],
+            attributes: [String.t()],
+            bounds: [{String.t(), [String.t()]}],
             docs: [String.t()],
             args: [RustQ.Syn.Arg.t()],
             returns: String.t() | nil,
@@ -681,6 +733,7 @@ defmodule RustQ.Syn do
           | RustQ.Syn.Struct.t()
           | RustQ.Syn.Function.t()
           | RustQ.Syn.Impl.t()
+          | RustQ.Syn.Trait.t()
 
   @doc """
   Parses Rust source into structural metadata.
@@ -766,6 +819,11 @@ defmodule RustQ.Syn do
   @spec impls(RustQ.Syn.File.t()) :: [RustQ.Syn.Impl.t()]
   def impls(%RustQ.Syn.File{items: items}),
     do: Elixir.Enum.filter(items, &match?(%RustQ.Syn.Impl{}, &1))
+
+  @doc "Returns top-level Rust trait metadata from a parsed file."
+  @spec traits(RustQ.Syn.File.t()) :: [RustQ.Syn.Trait.t()]
+  def traits(%RustQ.Syn.File{items: items}),
+    do: Elixir.Enum.filter(items, &match?(%RustQ.Syn.Trait{}, &1))
 
   @doc """
   Returns methods from all top-level Rust impl blocks in a parsed file.
@@ -1032,8 +1090,34 @@ defmodule RustQ.Syn do
     )
   end
 
-  defp decode_item!({"impl", target, target_ast, trait, {line, _parameters}, docs, methods}),
-    do: decode_item!({"impl", target, target_ast, trait, line, docs, methods})
+  defp decode_item!({"trait", name, visibility, source_line, docs, types, methods}) do
+    %RustQ.Syn.Trait{
+      name: name,
+      visibility: decode_visibility!(visibility),
+      source_line: source_line,
+      docs: docs,
+      types: types,
+      methods: Elixir.Enum.map(methods, &decode_method!/1)
+    }
+  end
+
+  defp decode_item!(
+         {"impl", target, target_ast, trait, {line, _parameters, bounds, types}, docs, methods}
+       ) do
+    impl = decode_item!({"impl", target, target_ast, trait, line, docs, methods})
+
+    %{
+      impl
+      | type_parameters: Elixir.Enum.map(bounds, &elem(&1, 0)),
+        bounds: bounds,
+        types: Elixir.Enum.map(types, &decode_assoc_type!/1)
+    }
+  end
+
+  defp decode_item!({"impl", target, target_ast, trait, {line, parameters}, docs, methods}) do
+    impl = decode_item!({"impl", target, target_ast, trait, line, docs, methods})
+    %{impl | type_parameters: parameters}
+  end
 
   defp decode_item!({"impl", target, target_ast, trait, source_line, docs, methods}) do
     %RustQ.Syn.Impl{
@@ -1045,6 +1129,8 @@ defmodule RustQ.Syn do
       methods: Elixir.Enum.map(methods, &decode_method!/1)
     }
   end
+
+  defp decode_assoc_type!({name, type}), do: {name, decode_type!(type)}
 
   defp decode_variant!({name, kind, fields, docs}) do
     %RustQ.Syn.Variant{
@@ -1061,6 +1147,18 @@ defmodule RustQ.Syn do
 
   defp decode_field!({name, type, type_ast}) do
     %RustQ.Syn.Field{name: name, type: type, type_ast: decode_type!(type_ast)}
+  end
+
+  defp decode_method!(
+         {"method", name, visibility, {line, signature, parameters, attributes, bounds}, docs,
+          args, returns}
+       ) do
+    method =
+      decode_method!(
+        {"method", name, visibility, {line, signature, parameters}, docs, args, returns}
+      )
+
+    %{method | attributes: attributes, bounds: bounds}
   end
 
   defp decode_method!(

@@ -33,8 +33,19 @@
 - A module may use the types its `callable_modules` declare, written remotely
   as `Other.tree()` since Elixir checks local types; they keep their single
   Rust declaration in the module that declares them.
+- `RustQ.Syn` describes traits, as `RustQ.Syn.Trait` with their associated types
+  and methods, and `RustQ.Syn.Index.traits/1` lists them. Impls carry their
+  type parameters' trait bounds and the associated types they define; methods
+  carry their attributes and type parameters' bounds; a negative impl's trait
+  keeps its `!`.
 
 ### Changed
+
+- Which std methods mutate their receiver, return an iterator or an option,
+  belong to `Option` and `Result`, or belong to std collections is derived from
+  the Rust standard library's source rather than listed by hand, so lowering
+  knows every stable method, such as `push_back`, `retain_mut`, or `nth`.
+  `mix rustq.std` regenerates the facts, and `--check` verifies them in CI.
 
 - A callable's arguments are `RustQ.Binding.Callable.Arg` structs rather than
   bare maps with the same keys.

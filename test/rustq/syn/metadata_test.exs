@@ -7,6 +7,7 @@ defmodule RustQ.Syn.MetadataTest do
   alias RustQ.Syn.Method
   alias RustQ.Syn.MethodCall
   alias RustQ.Syn.Signature
+  alias RustQ.Syn.Trait
   alias RustQ.Syn.Type
 
   test "parses top-level Rust metadata" do
@@ -112,6 +113,64 @@ defmodule RustQ.Syn.MetadataTest do
 
     assert Signature.render(offset_signature) ==
              "fn offset(&mut self, dx: f32, dy: f32) -> Self"
+  end
+
+  test "parses traits, impl bounds and associated types, and method attributes" do
+    source = """
+    /// Iteration docs.
+    pub trait IntoIterator {
+        type Item;
+        type IntoIter: Iterator<Item = Self::Item>;
+
+        /// Into iter docs.
+        fn into_iter(self) -> Self::IntoIter;
+    }
+
+    impl<I: Iterator + ?Sized, A> Iterator for Box<I, A> where A: Allocator {
+        type Item = I::Item;
+
+        #[inline]
+        #[unstable(feature = "demo")]
+        fn try_fold<B, F, R>(&mut self, init: B, f: F) -> R
+        where
+            R: Try<Output = B>,
+        {
+            todo!()
+        }
+    }
+
+    impl<I, A> !Iterator for Box<[I], A> {}
+    """
+
+    assert {:ok, file} = Syn.parse(source)
+
+    assert [
+             %Trait{
+               name: "IntoIterator",
+               visibility: :public,
+               docs: ["Iteration docs."],
+               types: [{"Item", []}, {"IntoIter", ["Iterator"]}],
+               methods: [
+                 %Method{
+                   name: "into_iter",
+                   returns_ast: %Type.Path{segments: ["Self", "IntoIter"]}
+                 }
+               ]
+             }
+           ] = Syn.traits(file)
+
+    assert [
+             %Impl{
+               trait: "Iterator",
+               type_parameters: ["I", "A"],
+               bounds: [{"I", ["Iterator", "Sized"]}, {"A", ["Allocator"]}],
+               types: [{"Item", %Type.Path{segments: ["I", "Item"]}}],
+               methods: [%Method{name: "try_fold", attributes: ["inline", "unstable"]} = method]
+             },
+             %Impl{trait: "!Iterator", target_ast: %Type.Path{name: "Box"}}
+           ] = Syn.impls(file)
+
+    assert {"R", ["Try"]} in method.bounds
   end
 
   test "parses path associated type metadata" do

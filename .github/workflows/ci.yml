@@ -13,5 +13,9 @@ jobs:
   ci:
     uses: elixir-vibe/actions/.github/workflows/elixir-rustler-ci.yml@v1
     with:
+      # `mix rustq.std --check` reads the std source of the release lib/rustq/meta/std_methods.ex
+      # was generated from.
+      rust-toolchain: 1.98.1
+      rust-components: rustfmt,clippy,rust-src
       rust-cache-workspaces: |
         native/rustq_nif -> target

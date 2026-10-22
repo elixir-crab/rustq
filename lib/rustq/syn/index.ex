@@ -331,6 +331,14 @@ defmodule RustQ.Syn.Index do
     |> Enum.flat_map(&RustQ.Syn.impls/1)
   end
 
+  @doc "Returns all indexed top-level traits."
+  @spec traits(t()) :: [RustQ.Syn.Trait.t()]
+  def traits(%__MODULE__{files: files}) do
+    files
+    |> Map.values()
+    |> Enum.flat_map(&RustQ.Syn.traits/1)
+  end
+
   @doc "Returns impl blocks whose target type matches `target`."
   @spec impls(t(), String.t()) :: [RustQ.Syn.Impl.t()]
   def impls(%__MODULE__{} = index, target) when is_binary(target) do
@@ -443,7 +451,8 @@ defmodule RustQ.Syn.Index do
     %{file | items: Enum.map(items, &attach_item_source_path(&1, path))}
   end
 
-  defp attach_item_source_path(%{__struct__: RustQ.Syn.Impl, methods: methods} = item, path) do
+  defp attach_item_source_path(%{__struct__: struct, methods: methods} = item, path)
+       when struct in [RustQ.Syn.Impl, RustQ.Syn.Trait] do
     %{item | source_path: path, methods: Enum.map(methods, &%{&1 | source_path: path})}
   end
 

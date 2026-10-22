@@ -3,6 +3,7 @@ defmodule RustQ.Meta.Inference do
 
   alias RustQ.Meta.Pattern
   alias RustQ.Meta.Semantics
+  alias RustQ.Meta.StdMethods
   alias RustQ.Meta.Type
   alias RustQ.Rust.AST
 
@@ -93,36 +94,7 @@ defmodule RustQ.Meta.Inference do
 
   # A binding used through option or result methods, as in `swap.is_some()`, keeps the wrapper
   # its value comes in, unless that value is itself an option or result.
-  @wrapper_methods [
-    :and_then,
-    :as_mut,
-    :as_ref,
-    :cloned,
-    :copied,
-    :expect,
-    :filter,
-    :flatten,
-    :is_err,
-    :is_none,
-    :is_none_or,
-    :is_ok,
-    :is_some,
-    :is_some_and,
-    :map,
-    :map_err,
-    :map_or,
-    :map_or_else,
-    :ok_or,
-    :ok_or_else,
-    :or,
-    :or_else,
-    :unwrap,
-    :unwrap_or,
-    :unwrap_or_default,
-    :unwrap_or_else,
-    :xor,
-    :zip
-  ]
+  @wrapper_methods StdMethods.wrapper()
 
   defp expected_type_for_var(expressions, name, vars, callbacks, rhs_success_type) do
     if not wrapper?(rhs_success_type) and Enum.any?(expressions, &wrapper_receiver?(&1, name)),
@@ -399,33 +371,9 @@ defmodule RustQ.Meta.Inference do
     end)
   end
 
-  # Methods every collection has say a binding holds a plain value, not which type it is.
-  @collection_methods [
-    :as_slice,
-    :clear,
-    :clone,
-    :contains,
-    :contains_key,
-    :extend,
-    :first,
-    :get,
-    :get_mut,
-    :insert,
-    :into_iter,
-    :is_empty,
-    :iter,
-    :iter_mut,
-    :keys,
-    :last,
-    :len,
-    :pop,
-    :push,
-    :remove,
-    :retain,
-    :sort,
-    :to_vec,
-    :values
-  ]
+  # Methods of std collections say a binding holds one of them, not which of the module's
+  # own types it is.
+  @collection_methods StdMethods.collection()
 
   defp collect_downstream_receiver_type(
          {{:., _, [{var_name, _, context}, function]}, _meta, args} = ast,

@@ -315,6 +315,14 @@ defmodule RustQ.Meta.DefrustLoweringTest do
       end
     end
 
+    @spec record_pair(R.mut_ref(R.vec(R.u32())), R.slice(R.u32())) :: R.unit()
+    defrust record_pair(found, values) do
+      with [first, second] <- values,
+           true <- deref(first) < deref(second) do
+        found.push(deref(first) + deref(second))
+      end
+    end
+
     @spec sum(R.slice(R.u32())) :: R.u32()
     defrust(sum(values), do: values.iter().sum())
 
@@ -1102,6 +1110,8 @@ defmodule RustQ.Meta.DefrustLoweringTest do
     assert source =~ "values\n        .iter()\n        .filter_map"
     refute source =~ ".iter()\n        .into_iter()"
     assert source =~ "if let Some(value) = value {"
+    assert source =~ "if let [first, second] = values {"
+    assert source =~ "if *first < *second {"
 
     program =
       """
@@ -1116,6 +1126,8 @@ defmodule RustQ.Meta.DefrustLoweringTest do
           let mut found = vec![];
           tally_first(&mut found, Some(3));
           tally_first(&mut found, Some(0));
+          record_pair(&mut found, &[1, 2]);
+          record_pair(&mut found, &[2, 1]);
           println!("{:?} {:?} {:?}", found, copies(&["a".to_string()]), odd(&[1, 2, 3]));
           println!("{:?} {:?} {} {}", split(&[30, 2, 12, 1]), tally.seen, tally.count, doubled_sum(&[1, 2]));
           println!("{:?} {:?} {:?}", all_checked(&[1, 2]), all_checked(&[1, 0]).is_err(), all_checked(&[]).is_err());
@@ -1131,7 +1143,7 @@ defmodule RustQ.Meta.DefrustLoweringTest do
                stderr_to_stdout: true
              )
 
-    assert {"[1, 3, 0] [\"a\"] [1, 3]\n([1, 2], [12, 30]) [4] 1 6\nOk([1, 2]) true true\n", 0} =
+    assert {"[1, 3, 0, 3] [\"a\"] [1, 3]\n([1, 2], [12, 30]) [4] 1 6\nOk([1, 2]) true true\n", 0} =
              System.cmd(executable, [])
   end
 

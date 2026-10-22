@@ -174,8 +174,11 @@ defmodule RustQ.Meta.Lower do
   defp lower_statement({:cond, _, [[do: clauses]]}, %Context{} = context),
     do: lower_statement(cond_statement(clauses), context)
 
-  defp lower_statement({:with, _, clauses}, %Context{} = context) do
-    %AST.ExprStmt{expr: lower_with(clauses, context)}
+  defp lower_statement({:with, _, clauses} = with, %Context{} = context) do
+    case with_if_lets(clauses) do
+      {:ok, matches, body} -> lower_statement(nested_if_lets(matches, body), context)
+      :error -> %AST.ExprStmt{expr: lower_with(with |> elem(2), context)}
+    end
   end
 
   defp lower_statement(
@@ -214,6 +217,43 @@ defmodule RustQ.Meta.Lower do
   end
 
   defp cond_statement([]), do: nil
+
+  # A `with` run for its effects whose `else` does nothing is a chain of `if let`s.
+  defp with_if_lets(clauses) do
+    {matches, [options]} = Enum.split(clauses, -1)
+
+    case options do
+      [do: body] ->
+        {:ok, matches, body}
+
+      [do: body, else: [{:->, _, [[{:_, _, _}], fallback]}]] when fallback in [:ok, nil] ->
+        {:ok, matches, body}
+
+      _ ->
+        :error
+    end
+  end
+
+  defp nested_if_lets([], body), do: body
+
+  defp nested_if_lets([{:<-, meta, [true, condition]} | rest], body),
+    do: {:if, meta, [condition, [do: nested_if_lets(rest, body)]]}
+
+  defp nested_if_lets([{:<-, meta, [pattern, expression]} | rest], body),
+    do:
+      {:case, meta,
+       [
+         expression,
+         [
+           do: [
+             {:->, meta, [[pattern], nested_if_lets(rest, body)]},
+             {:->, meta, [[{:_, meta, nil}], :ok]}
+           ]
+         ]
+       ]}
+
+  defp nested_if_lets([expression | rest], body),
+    do: {:__block__, [], [expression, nested_if_lets(rest, body)]}
 
   defp lower_return({:case, _, [expression, [do: clauses]]}, %Context{} = context) do
     %AST.Return{expr: lower_case(expression, clauses, context, context.return_type)}
@@ -2309,9 +2349,11 @@ defmodule RustQ.Meta.Lower do
     end)
   end
 
+  # A slice binds its elements by reference; a vector matched as a slice does too.
   defp context_with_list_pattern(pattern, %Type{} = type, %Context{} = context) do
     {elements, rest} = split_list_pattern(pattern)
     inner = list_item_type(type)
+    inner = if inner && type.kind == :slice, do: Type.ref(inner), else: inner
 
     context =
       Enum.reduce(elements, context, fn element, acc ->

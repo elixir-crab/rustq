@@ -84,6 +84,9 @@
 - A comprehension whose collection type is known lowers its body as the item
   type, so tagged tuples and atoms in it name variants, and `extend` on a
   vector takes items of its type.
+- A `with` run for its effects whose `else` does nothing lowers to nested
+  `if let`s, with `true <- condition` as an `if`; variables a slice pattern
+  binds are typed as references to its elements.
 - Keep the grouping of nested operators: `a and (b or c)` rendered as
   `a && b || c`, and `not (a or b)` as `!a || b`. Operands are parenthesized
   by Rust's precedence.

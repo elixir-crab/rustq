@@ -1,5 +1,9 @@
 defmodule RustQ.Meta.Lower do
-  @moduledoc false
+  @moduledoc """
+  Lowers Rusty-Elixir to RustQ AST: expressions, patterns, control flow, comprehensions, and
+  closures, with the borrows, `?` propagation, and wrapping their expected types call for.
+  Calls into Elixir's standard library go through `RustQ.Meta.Lower.Stdlib`.
+  """
 
   alias RustQ.Binding.Index, as: BindingIndex
   alias RustQ.Diagnostic
@@ -27,10 +31,12 @@ defmodule RustQ.Meta.Lower do
                    is_list(elem(tuple, 2))
 
   defmodule Env do
-    @moduledoc false
-    # `scope_return_type` is what the enclosing function or closure returns, which `?` exits
-    # into; `return_type` is what the block being lowered must produce. `captured` names the
-    # variables enclosing closures capture, which a closure called once per item must not move.
+    @moduledoc """
+    What lowering knows at a point in a body. `scope_return_type` is what the enclosing
+    function or closure returns, which `?` exits into; `return_type` is what the block being
+    lowered must produce. `captured` names the variables enclosing closures capture, which a
+    closure called once per item must not move.
+    """
     defstruct [
       :return_type,
       :scope_return_type,
@@ -3822,7 +3828,7 @@ defmodule RustQ.Meta.Lower do
   defp mutated_chain_root(%AST.MethodCall{receiver: receiver}), do: mutated_chain_root(receiver)
   defp mutated_chain_root(_expression), do: nil
 
-  @doc false
+  @doc "Whether a method changes its receiver, as std collections' `&mut self` methods do."
   @spec mutating_method?(atom()) :: boolean()
   def mutating_method?(method),
     do: method in @mutating_methods or String.ends_with?(Atom.to_string(method), "_mut")

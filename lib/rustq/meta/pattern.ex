@@ -1,5 +1,8 @@
 defmodule RustQ.Meta.Pattern do
-  @moduledoc false
+  @moduledoc """
+  Helpers for reading quoted Elixir patterns, such as the elements of a tuple pattern of any
+  size.
+  """
 
   @spec tuple_elements(Macro.t()) :: [Macro.t()] | nil
   def tuple_elements({:{}, _, elements}) when is_list(elements), do: elements

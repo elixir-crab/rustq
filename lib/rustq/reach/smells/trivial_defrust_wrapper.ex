@@ -1,5 +1,8 @@
 defmodule RustQ.Reach.Smells.TrivialDefrustWrapper do
-  @moduledoc false
+  @moduledoc """
+  Reach smell check flagging a `defrust` that only calls one function and returns `:ok`, a
+  wrapper callable metadata and inference make unnecessary.
+  """
 
   use Reach.Smell.Check.AST
 

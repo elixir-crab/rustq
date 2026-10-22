@@ -1,5 +1,8 @@
 defmodule RustQ.Codegen.Helpers do
-  @moduledoc false
+  @moduledoc """
+  Rusty-Elixir helpers for reading fields and values out of RustQ AST terms, which the
+  generated decoders call. Compiled to Rust in `generated_ast.rs`.
+  """
 
   use RustQ.Codegen.DefrustModule,
     callable_modules: [RustQ.Codegen.ModuleHelpers]

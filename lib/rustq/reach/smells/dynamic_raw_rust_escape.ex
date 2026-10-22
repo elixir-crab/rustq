@@ -1,5 +1,9 @@
 defmodule RustQ.Reach.Smells.DynamicRawRustEscape do
-  @moduledoc false
+  @moduledoc """
+  Reach smell check flagging a raw Rust escape (`raw_expr!`, `raw_pat!`, `raw_stmt!`,
+  `raw_arm!`, or an AST `raw`, `escape_expr`, or `macro_item`) built from a non-literal value,
+  which the parser cannot validate where it is written.
+  """
 
   use Reach.Smell.Check.AST
 

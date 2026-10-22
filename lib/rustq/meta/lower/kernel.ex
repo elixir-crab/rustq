@@ -1,5 +1,8 @@
 defmodule RustQ.Meta.Lower.Kernel do
-  @moduledoc false
+  @moduledoc """
+  Lowers `Kernel` operators and functions such as `elem/2`, `put_elem/3`, `abs/1`, and
+  `is_nil/1` for `RustQ.Meta.Lower.Stdlib`, and types such calls.
+  """
 
   import RustQ.Meta.Lower.Stdlib, only: [evaluated_constant: 3, shape_type: 1]
 

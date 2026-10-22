@@ -22,7 +22,7 @@ defmodule RustQ.Config do
 
   alias RustQ.Config.State
 
-  @doc false
+  @doc "Imports the manifest macros into `rustq.exs`."
   defmacro __using__(_opts) do
     quote do
       import RustQ.Config

@@ -1,5 +1,8 @@
 defmodule RustQ.Codegen.Modules do
-  @moduledoc false
+  @moduledoc """
+  Builds the `atoms` and AST-module constant modules of `generated_ast.rs`, naming each
+  RustQ AST node's Elixir module so native code can tell node terms apart.
+  """
 
   alias RustQ.Codegen.ModuleHelpers
   alias RustQ.Rust.AST.Builder, as: A

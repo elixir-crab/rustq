@@ -1,5 +1,7 @@
 defmodule RustQ.Syn.Doc do
-  @moduledoc false
+  @moduledoc """
+  Turns Rust doc comments read by `RustQ.Syn` into Markdown for Elixir docs.
+  """
 
   @doc """
   Renders Rust doc comment lines as Markdown suitable for consumer docs.

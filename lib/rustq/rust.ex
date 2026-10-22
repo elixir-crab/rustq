@@ -47,7 +47,10 @@ defmodule RustQ.Rust do
     |> IO.iodata_to_binary()
   end
 
-  @doc false
+  @doc """
+  Renders a fragment, RustQ AST node, or iodata to Rust source text, dispatching on the
+  node's category. Raises for anything else.
+  """
   def to_fragment(%Fragment{source: source}), do: IO.iodata_to_binary(source)
 
   def to_fragment(%AST.StructField{} = field),
@@ -73,7 +76,7 @@ defmodule RustQ.Rust do
   def to_fragment(value) when is_binary(value), do: value
   def to_fragment(value) when is_list(value), do: IO.iodata_to_binary(value)
 
-  @doc false
+  @doc "Renders an Elixir string, boolean, `nil`, or number as a Rust literal."
   @spec literal(term()) :: String.t()
   def literal(value) when is_binary(value), do: inspect(value)
   def literal(value) when is_boolean(value), do: to_string(value)

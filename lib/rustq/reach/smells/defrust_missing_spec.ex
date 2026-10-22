@@ -1,5 +1,8 @@
 defmodule RustQ.Reach.Smells.DefrustMissingSpec do
-  @moduledoc false
+  @moduledoc """
+  Reach smell check flagging a `defrust` without a `@spec`, which RustQ needs for the Rust
+  signature, typed lowering, and inference.
+  """
 
   use Reach.Smell.Check.AST
 

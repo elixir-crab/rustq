@@ -76,7 +76,10 @@ defmodule RustQ.Meta do
   alias RustQ.Rust
   alias RustQ.Rust.Identifier
 
-  @doc false
+  @doc """
+  Imports the `defrust` family of macros and collects the module's Rust definitions, which
+  are lowered when the module compiles. `opts` are validated by `RustQ.Meta.Options`.
+  """
   defmacro __using__(opts) do
     %{
       rust_sources: rust_sources,
@@ -253,7 +256,10 @@ defmodule RustQ.Meta do
                :rustq_stub_keys
              ) do
         @rustq_stub_keys unquote(escaped_stub_key)
-        @doc false
+        @doc """
+        A Rust function `defrust` generates. It runs only as Rust; calling it from Elixir
+        raises.
+        """
 
         def unquote(name)(unquote_splicing(stub_args)),
           do: :erlang.nif_error(:rustq_defrust_stub)
@@ -361,10 +367,20 @@ defmodule RustQ.Meta do
 
   defp export_definition({name, value}) do
     quote do
-      @doc false
+      @doc unquote(export_doc(name))
       def unquote(name)(), do: unquote(Macro.escape(value))
     end
   end
+
+  defp export_doc(:__rustq_asts__), do: "The RustQ AST of each `defrust` definition."
+  defp export_doc(:__rustq_macro_items__), do: "The `macro_rules!` items `defrustmacro` emits."
+  defp export_doc(:__rustq_macro_definitions__), do: "The module's `defrustmacro` definitions."
+  defp export_doc(:__rustq_types__), do: "The Rust types the module's `@type`s declare."
+  defp export_doc(:__rustq_type_asts__), do: "The RustQ AST of each declared Rust type."
+  defp export_doc(:__rustq_type_items__), do: "The Rust items the module's types generate."
+  defp export_doc(:__rustq_items__), do: "The Rust items the module generates, in order."
+  defp export_doc(:__rustq_callables__), do: "Callable metadata for the module's definitions."
+  defp export_doc(:__rustq_source__), do: "The Rust source the module generates."
 
   defp compile_context(env) do
     defs =

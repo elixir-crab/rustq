@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.0.0 - 2026-10-22
+## 1.0.0-rc.12 - 2026-10-22
 
 ### Added
 
@@ -61,6 +61,13 @@
   argument, as in Elixir. It used to call a method of that name on the value.
 - An Elixir predicate such as `live?` names the Rust function `live`; a module
   defining both is rejected.
+- Document every module and function that was hidden from the API reference.
+  Lowering, code generation, native build, and tooling internals are grouped
+  as such, and the user-facing groups list only user-facing modules.
+- Stub modules `RustQ.Rustler.Nif` generates carry a moduledoc, so checked-in
+  generated stubs need regenerating.
+- The API reference leaves out the tools in `dev/` for working on RustQ itself,
+  which the package does not ship.
 
 ### Fixed
 

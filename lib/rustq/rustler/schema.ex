@@ -58,7 +58,10 @@ defmodule RustQ.Rustler.Schema do
           enums: [enum_decl()]
         }
 
-  @doc false
+  @doc """
+  Imports the schema DSL and registers the attributes it accumulates; the `Ex` Rust prefix
+  is the default.
+  """
   defmacro __using__(_opts) do
     quote do
       import RustQ.Rustler.Schema
@@ -73,7 +76,10 @@ defmodule RustQ.Rustler.Schema do
     end
   end
 
-  @doc false
+  @doc """
+  Defines the schema module's `schema/0`, returning the declared `RustQ.Rustler.Schema`, and
+  `rust_items/0`, returning its Rust items.
+  """
   defmacro __before_compile__(_env) do
     quote do
       alias RustQ.Rustler.Schema, as: RustlerSchema
@@ -137,7 +143,11 @@ defmodule RustQ.Rustler.Schema do
     end
   end
 
-  @doc false
+  @doc """
+  Records the `:rust_prefix`, `:tag_field`, and `:default_attrs` options of a `schema/3`
+  declaration on the schema module.
+  """
+  @spec __apply_schema_opts__(module(), keyword()) :: term()
   def __apply_schema_opts__(module, opts) do
     if prefix = Keyword.get(opts, :rust_prefix) do
       Module.put_attribute(module, :rustq_schema_rust_prefix, prefix)

@@ -1,5 +1,9 @@
 defmodule RustQ.Meta.Inference do
-  @moduledoc false
+  @moduledoc """
+  Infers the types of `let` bindings from how a body uses them later: the arguments they are
+  passed as, the struct fields they fill, the methods called on them, and what the body
+  returns. Lowering uses these types where a binding's own expression says too little.
+  """
 
   alias RustQ.Meta.Pattern
   alias RustQ.Meta.Semantics

@@ -1,5 +1,8 @@
 defmodule RustQ.Meta.Attrs do
-  @moduledoc false
+  @moduledoc """
+  The `@cfg`, `@nif`, and `@allow` attributes pending for the next `defrust` or `defnif`, as
+  Rust attributes, and the Rust module and `impl` the definition belongs to.
+  """
 
   alias RustQ.Rust.AST
 

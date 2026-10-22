@@ -1,11 +1,18 @@
 defmodule RustQ.Rust.AST.Schema do
-  @moduledoc false
+  @moduledoc """
+  Describes every RustQ AST node: its category, fields, and the Rust constant and module
+  names the generated native decoders use for it. RustQ's self-hosted code generation
+  reads it to build `generated_ast.rs`.
+  """
 
   alias RustQ.Rust.AST
   alias RustQ.Rust.Identifier
 
   defmodule Node do
-    @moduledoc false
+    @moduledoc """
+    One RustQ AST node's description: its name, Elixir module, category, fields, and the
+    Rust constant and module that identify it natively.
+    """
     defstruct [:name, :module, :rust_const, :rust_module, :category, fields: []]
 
     @type t :: %__MODULE__{

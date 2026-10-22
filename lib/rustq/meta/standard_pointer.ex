@@ -1,5 +1,9 @@
 defmodule RustQ.Meta.StandardPointer do
-  @moduledoc false
+  @moduledoc """
+  Sees through std's smart pointers: the type a method call on `&T`, `Arc<T>`, `Box<T>`, or a
+  `MutexGuard<T>` reaches, and the guard `Mutex::lock` returns. Only fully qualified std
+  types count, so a user-defined `Arc` or `Mutex` keeps its own semantics.
+  """
 
   alias RustQ.Meta.Type
   alias RustQ.Rust.AST

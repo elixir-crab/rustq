@@ -1,7 +1,7 @@
 defmodule RustQ.MixProject do
   use Mix.Project
 
-  @version "1.0.0"
+  @version "1.0.0-rc.12"
   @source_url "https://github.com/elixir-crab/rustq"
 
   def project do
@@ -145,6 +145,10 @@ defmodule RustQ.MixProject do
         "CHANGELOG.md",
         "LICENSE"
       ],
+      # dev/ holds tools for working on RustQ itself, which the package does not ship.
+      filter_modules: fn _module, %{source_path: path} ->
+        not String.starts_with?(to_string(path), Path.expand("dev"))
+      end,
       groups_for_modules: [
         "Start here": [
           RustQ,
@@ -158,12 +162,14 @@ defmodule RustQ.MixProject do
           RustQ.Rust,
           RustQ.Rust.Identifier
         ],
-        "Rustler generation": ~r/^RustQ\.Rustler\./,
+        "Rustler generation": ~r/^RustQ\.Rustler\.(?!HelperSelection$|Nif$|SourceEncoder)/,
         "Rust AST nodes":
-          ~r/^RustQ\.Rust\.AST\.(?!Builder|ItemBuilder|PatternBuilder|TypeBuilder|Render|Walk$)/,
-        "Rust AST": ~r/^RustQ\.Rust\.AST/,
-        "Rust source metadata": ~r/^RustQ\.(Syn($|\.)|Cargo($|\.)|Native($|\.))/,
-        "Rusty-Elixir metadata": ~r/^RustQ\.(Meta|Binding|Spec)/,
+          ~r/^RustQ\.Rust\.AST\.(?!Builder|ItemBuilder|PatternBuilder|TypeBuilder|Render$|Walk$|NodeDSL$|Schema)/,
+        "Rust AST":
+          ~r/^RustQ\.Rust\.AST($|\.(Builder|ItemBuilder|PatternBuilder|TypeBuilder|Walk)$)/,
+        "Rust source metadata":
+          ~r/^RustQ\.(Syn($|\.(?!Doc$))|Cargo($|\.)|Native\.(Descriptor|EnumDescriptor|Ref)$)/,
+        "Rusty-Elixir metadata": ~r/^RustQ\.(Binding|Spec)($|\.)/,
         "Generation and templates": [
           RustQ.Generated,
           RustQ.Generated.StaleError,
@@ -172,7 +178,19 @@ defmodule RustQ.MixProject do
           RustQ.Sigil,
           RustQ.Rust.Fragment
         ],
-        "Diagnostics and tooling": ~r/^RustQ\.(Diagnostic|Error|Reach)/
+        "Diagnostics and tooling": ~r/^RustQ\.(Diagnostic|Error|Reach)/,
+        "Lowering internals": ~r/^RustQ\.Meta\./,
+        "Code generation internals":
+          ~r/^RustQ\.(Codegen($|\.)|Rust\.AST\.(Render|NodeDSL|Schema)($|\.))/,
+        "Native and Rustler internals":
+          ~r/^RustQ\.(Native\.(ABI|Build|Manifest|Nif|Options)|Rustler\.(HelperSelection|Nif|SourceEncoder))($|\.)/,
+        "Tooling internals": [
+          RustQ.Clippy,
+          RustQ.Corpus,
+          RustQ.Config.State,
+          RustQ.SourceFingerprint,
+          RustQ.Syn.Doc
+        ]
       ],
       skip_undefined_reference_warnings_on: ["CHANGELOG.md"],
       source_ref: "v#{@version}",

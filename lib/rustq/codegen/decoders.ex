@@ -1,5 +1,8 @@
 defmodule RustQ.Codegen.Decoders do
-  @moduledoc false
+  @moduledoc """
+  Collects the generated `syn` decoders for each RustQ AST category (items, types,
+  patterns, statements, expressions, and match arms) into one list of Rust items.
+  """
 
   alias RustQ.Codegen.Decoders.{Arm, Expr, Item, Pat, Stmt, Type}
 

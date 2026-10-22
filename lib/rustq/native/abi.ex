@@ -1,5 +1,9 @@
 defmodule RustQ.Native.ABI do
-  @moduledoc false
+  @moduledoc """
+  Prepares a native module's items for the NIF boundary: `#[rustler::nif]` functions
+  returning a `Result` get a codec wrapper, map structs and resources get their Rustler
+  derives and implementations, and generated code gets the Clippy allows it needs.
+  """
   alias RustQ.Meta.Type
   alias RustQ.Rust.AST
   alias RustQ.Rust.AST.Builder, as: A
@@ -8,6 +12,8 @@ defmodule RustQ.Native.ABI do
   alias RustQ.Rust.AST.Walk
   alias RustQ.Rust.Identifier
 
+  @doc "Returns the ABI-prepared Rust items for the compiled values of a native module."
+  @spec native_items(keyword()) :: [AST.item()]
   def native_items(values) do
     result_targets =
       Map.new(

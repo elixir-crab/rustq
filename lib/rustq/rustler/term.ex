@@ -24,7 +24,10 @@ defmodule RustQ.Rustler.Term do
   require I
 
   defmodule EncoderField do
-    @moduledoc false
+    @moduledoc """
+    One key of a generated map encoder: the field path it reads, whether it is always written
+    or only when `Some`, and how its value is converted, borrowed, or defaulted.
+    """
     @enforce_keys [:key, :source, :mode]
     defstruct [:key, :source, :mode, :via, :with, :map, :optional, :fallback, borrow: true]
   end

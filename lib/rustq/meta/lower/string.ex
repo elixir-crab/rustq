@@ -1,5 +1,8 @@
 defmodule RustQ.Meta.Lower.String do
-  @moduledoc false
+  @moduledoc """
+  Lowers `String` functions whose Rust counterparts keep their semantics, such as
+  `String.replace/3` and `String.trim/1` for `RustQ.Meta.Lower.Stdlib`, and types such calls.
+  """
 
   alias RustQ.Meta.Core.Call
   alias RustQ.Meta.Lower.Stdlib

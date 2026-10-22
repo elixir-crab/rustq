@@ -779,7 +779,7 @@ defmodule RustQ.Rust.AST do
 
   defp category_node?(_term, _category), do: false
 
-  @doc false
+  @doc "Lists every RustQ AST node module, which `RustQ.Rust.AST.Schema` and walking read."
   def __rustq_ast_modules__ do
     [
       Use,

@@ -1,5 +1,9 @@
 defmodule RustQ.Meta.Typing do
-  @moduledoc false
+  @moduledoc """
+  Synthesizes the type of a Rusty-Elixir expression and checks one against an expected type,
+  deciding the coercion lowering applies: propagating with `?`, wrapping in `Some`, borrowing,
+  dereferencing, or none.
+  """
 
   alias RustQ.Binding.Index, as: BindingIndex
   alias RustQ.Meta.Core.Call
@@ -13,7 +17,9 @@ defmodule RustQ.Meta.Typing do
   alias RustQ.Rust.AST
 
   defmodule Env do
-    @moduledoc false
+    @moduledoc """
+    What typing knows: variable types, callables, Rust module aliases, and type aliases.
+    """
     defstruct vars: %{}, callables: %BindingIndex{}, rust_modules: %{}, type_aliases: %{}
 
     @type t :: %__MODULE__{
@@ -25,7 +31,10 @@ defmodule RustQ.Meta.Typing do
   end
 
   defmodule Check do
-    @moduledoc false
+    @moduledoc """
+    The result of checking an expression against an expected type: its type, when known, and
+    the coercion that makes it fit, or `:unknown`.
+    """
     defstruct [:type, :coercion]
 
     @type coercion ::

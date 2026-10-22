@@ -1,5 +1,8 @@
 defmodule RustQ.Meta.Lower.Map do
-  @moduledoc false
+  @moduledoc """
+  Lowers `Map.get`, `Map.fetch!/2`, and `Map.has_key?/2` for `RustQ.Meta.Lower.Stdlib`, and
+  types such calls.
+  """
 
   alias RustQ.Diagnostic
   alias RustQ.Meta.Core.Call

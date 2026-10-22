@@ -14,7 +14,7 @@ defmodule RustQ.Template do
 
   @include_marker "__rq_include!"
 
-  @doc false
+  @doc "Expands `__rq_include!` markers when the `:include_dir` option is given."
   def maybe_expand_includes(source, filename, opts) do
     if Keyword.has_key?(opts, :include_dir) do
       expand_includes(source, filename, opts)
@@ -23,7 +23,10 @@ defmodule RustQ.Template do
     end
   end
 
-  @doc false
+  @doc """
+  Replaces each `__rq_include!(\"path\")` marker with the file it names, relative to
+  `:include_dir` or the template's directory, rejecting include cycles.
+  """
   def expand_includes(source, filename, opts) do
     include_dir = Keyword.get(opts, :include_dir, Path.dirname(filename))
 
@@ -32,7 +35,7 @@ defmodule RustQ.Template do
     |> expand_includes_from(filename, include_dir, [Path.expand(filename)])
   end
 
-  @doc false
+  @doc "Prepends the `:preamble` option to rendered code."
   def with_preamble(code, opts) do
     case Keyword.get(opts, :preamble, "") do
       nil -> code
@@ -41,7 +44,7 @@ defmodule RustQ.Template do
     end
   end
 
-  @doc false
+  @doc "Formats rendered code with `rustfmt`, or the command the `:rustfmt` option names."
   def maybe_rustfmt(code, opts, filename) do
     case Keyword.get(opts, :rustfmt, false) do
       false ->
@@ -55,7 +58,7 @@ defmodule RustQ.Template do
     end
   end
 
-  @doc false
+  @doc "Turns native template errors into maps with atom fields, tagged with the template's file."
   def normalize_errors(errors, filename) do
     Enum.map(errors, fn error ->
       error

@@ -1,5 +1,8 @@
 defmodule RustQ.Meta.Decoder do
-  @moduledoc false
+  @moduledoc """
+  Builds the Rust that decodes BEAM terms into the structs and enums a module's types
+  declare: struct fields, field decoders, and tagged enum decoder bodies.
+  """
 
   alias RustQ.Meta.Type
   alias RustQ.Rust.{AST, Identifier}

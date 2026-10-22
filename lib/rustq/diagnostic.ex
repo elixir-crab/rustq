@@ -31,7 +31,7 @@ defmodule RustQ.Diagnostic do
     end
   end
 
-  @doc false
+  @doc "Raises a `RustQ.Diagnostic.Error` for a lowering failure at `node`."
   @spec lower(atom(), Macro.t(), String.t()) :: no_return()
   @spec lower(atom(), Macro.t(), String.t(), keyword()) :: no_return()
   def lower(kind, node, message, opts \\ []) do
@@ -43,7 +43,7 @@ defmodule RustQ.Diagnostic do
         )
   end
 
-  @doc false
+  @doc "Raises a `RustQ.Diagnostic.Error` for a `defrust` definition that cannot be built."
   @spec defrust(atom(), Macro.t(), String.t()) :: no_return()
   @spec defrust(atom(), Macro.t(), String.t(), keyword()) :: no_return()
   def defrust(kind, node, message, opts \\ []) do
@@ -55,7 +55,7 @@ defmodule RustQ.Diagnostic do
         )
   end
 
-  @doc false
+  @doc "Raises a `RustQ.Diagnostic.Error` for Rust that fails to render."
   @spec render(atom(), term(), String.t()) :: no_return()
   @spec render(atom(), term(), String.t(), keyword()) :: no_return()
   def render(kind, node, message, opts \\ []) do

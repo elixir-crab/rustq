@@ -1,5 +1,8 @@
 defmodule RustQ.Reach.Smells.LowLevelControlFlow do
-  @moduledoc false
+  @moduledoc """
+  Reach smell check flagging `return!`, `break`, or `continue` in a `defrust` body, where
+  ordinary Rusty-Elixir control flow usually says the same thing.
+  """
 
   use Reach.Smell.Check.AST
 

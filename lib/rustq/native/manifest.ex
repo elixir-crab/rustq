@@ -1,6 +1,13 @@
 defmodule RustQ.Native.Manifest do
-  @moduledoc false
+  @moduledoc """
+  Renders the `Cargo.toml` of a crate `RustQ.Native` generates: a `cdylib` depending on
+  Rustler and the crates the module lists in `:crates`.
+  """
 
+  @doc """
+  Renders the manifest of `crate` with its `crates`, each a version string or a keyword of
+  Cargo dependency options. Raises `ArgumentError` on an invalid or duplicate dependency.
+  """
   @spec encode!(String.t(), [{String.t() | atom(), String.t() | keyword()}]) :: String.t()
   def encode!(crate, crates) do
     dependencies =

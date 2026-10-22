@@ -73,7 +73,7 @@ do not port clear domain Rust merely to increase generated-code counts.
 
 Which std methods mutate their receiver, return an iterator or an option, or
 belong to `Option`, `Result`, or std collections lives in the checked-in
-`lib/rustq/meta/std_methods.ex`. `mix rustq.std` derives it from the source
+`lib/rustq/meta/std_methods.ex`. The `rustq.std` Mix task derives it from the source
 rustup installs with `rustup component add rust-src`, reading it through
 `RustQ.Syn.parse(source, unstable: true)`. The task and its derivation live in
 `dev/`, outside the package.
@@ -83,11 +83,11 @@ The file records the Rust release it came from, and CI pins that toolchain in
 To move to a newer Rust:
 
 1. `rustup component add rust-src` for the new stable toolchain.
-2. `mix rustq.std`, and review the diff of `std_methods.ex`.
+2. Run the `rustq.std` Mix task and review the diff of `std_methods.ex`.
 3. Set `rust-toolchain` in `.github/workflows/ci.yml` to the same release.
 4. `mix ci`.
 
-When std adopts unstable syntax syn cannot parse, `mix rustq.std` names the
+When std adopts unstable syntax syn cannot parse, the `rustq.std` task names the
 file; teach `native/rustq_nif/src/unstable_syntax.rs` to rewrite it, with a
 test.
 

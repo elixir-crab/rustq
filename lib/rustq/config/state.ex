@@ -1,5 +1,9 @@
 defmodule RustQ.Config.State do
-  @moduledoc false
+  @moduledoc """
+  Process-local state `RustQ.Config` macros fill while `rustq.exs` is evaluated: the
+  generated targets declared so far and the one being built. `manifest/0` returns them in
+  the shape `RustQ.Generated` reads.
+  """
 
   def start, do: Process.put(:rustq_config_targets, [])
   def delete, do: Process.delete(:rustq_config_targets)

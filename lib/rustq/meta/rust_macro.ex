@@ -1,5 +1,8 @@
 defmodule RustQ.Meta.RustMacro do
-  @moduledoc false
+  @moduledoc """
+  `defrustmacro`: a small Rust `macro_rules!` helper written in Rusty-Elixir. Collects a
+  module's definitions, lowers each body to a macro item, and builds calls to it.
+  """
 
   alias RustQ.Diagnostic
   alias RustQ.Meta.AST, as: MetaAST
@@ -9,7 +12,10 @@ defmodule RustQ.Meta.RustMacro do
   alias RustQ.Rust.AST
 
   defmodule Definition do
-    @moduledoc false
+    @moduledoc """
+    A `defrustmacro` as written: its name, its fragment arguments (`:expr`, `:ty`, `:ident`,
+    `:literal`, labeled or repeated), and the Rust module it belongs to.
+    """
 
     @enforce_keys [:name, :args, :call_ast, :body_ast]
     defstruct [:name, :args, :call_ast, :body_ast, :rust_module]
@@ -29,7 +35,7 @@ defmodule RustQ.Meta.RustMacro do
   end
 
   defmodule Item do
-    @moduledoc false
+    @moduledoc "A lowered `defrustmacro`: the `macro_rules!` item and its Rust module."
 
     @enforce_keys [:name, :ast]
     defstruct [:name, :ast, :rust_module]
@@ -39,7 +45,7 @@ defmodule RustQ.Meta.RustMacro do
 
   @type index :: %{optional(atom()) => Definition.t()}
 
-  @doc false
+  @doc "Builds definitions from the module's `defrustmacro` attributes."
   @spec definitions([{Macro.t(), Macro.t(), [atom()] | nil}]) :: [Definition.t()]
   def definitions(attributes) do
     Enum.map(attributes, fn {call_ast, body_ast, rust_module} ->
@@ -55,7 +61,7 @@ defmodule RustQ.Meta.RustMacro do
     end)
   end
 
-  @doc false
+  @doc "Indexes definitions by name, raising when two share one."
   @spec index!([Definition.t()]) :: index()
   def index!(definitions) do
     Enum.reduce(definitions, %{}, fn %Definition{name: name, call_ast: call_ast} = definition,
@@ -73,13 +79,13 @@ defmodule RustQ.Meta.RustMacro do
     end)
   end
 
-  @doc false
+  @doc "Lowers each definition to its `macro_rules!` item."
   @spec items([Definition.t()], map(), Macro.Env.t(), [term()], index()) :: [Item.t()]
   def items(definitions, rust_modules, env, callables, index) do
     Enum.map(definitions, &item(&1, rust_modules, env, callables, index))
   end
 
-  @doc false
+  @doc "The fragment kinds of a definition's non-repeated arguments, in order."
   @spec fragments(Definition.t()) :: [Definition.fragment()]
   def fragments(%Definition{args: args}) do
     args
@@ -90,7 +96,7 @@ defmodule RustQ.Meta.RustMacro do
     end)
   end
 
-  @doc false
+  @doc "Builds an item-position call to the macro with the given argument values."
   @spec item_call(Definition.t(), keyword()) :: AST.MacroItemCall.t()
   def item_call(%Definition{name: name, args: args}, values) when is_list(values) do
     value_map = Map.new(values)

@@ -1,4 +1,4 @@
-defmodule RustQ.RustlerSchemaTest do
+defmodule RustQ.Rustler.SchemaTest do
   use ExUnit.Case, async: true
 
   alias RustQ.Rust.AST

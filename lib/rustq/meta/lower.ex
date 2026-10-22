@@ -294,14 +294,30 @@ defmodule RustQ.Meta.Lower do
   defp lower_return_expr(expression, return_type, %Context{} = context),
     do: lower_return_expr_context(expression, return_type, context)
 
-  defp lower_return_expr_context(
-         :ok,
-         %Type{kind: :nif_result, rust: "NifResult<()>"},
-         %Context{}
-       ),
-       do: %AST.Ok{}
+  defp lower_return_expr_context(:ok, %Type{kind: kind} = return_type, %Context{} = context)
+       when kind in [:result, :nif_result] do
+    if unit_result?(return_type),
+      do: %AST.Ok{},
+      else: lower_result_return(:ok, return_type, context)
+  end
+
+  # `:ok` where nothing is returned is the unit value; where an atom is, it is that atom.
+  defp lower_return_expr_context(:ok, %Type{kind: :atom} = return_type, %Context{} = context),
+    do: lower_expr(:ok, return_type, context)
 
   defp lower_return_expr_context(:ok, _return_type, %Context{}), do: %AST.Tuple{values: []}
+
+  # A tail `decode_as!` in a NIF returning what it decodes already is the `NifResult`.
+  defp lower_return_expr_context(
+         {:decode_as!, _, [expression, type_ast]} = call,
+         %Type{kind: :nif_result} = return_type,
+         %Context{} = context
+       ) do
+    if same_rust_type?(Typing.synth(call, typing_env(context)), Type.inner(return_type)),
+      do: decode_as_expr(expression, type_ast, context),
+      else: lower_result_return(call, return_type, context)
+  end
+
   defp lower_return_expr_context(nil, %Type{kind: :option}, %Context{}), do: %AST.None{}
 
   defp lower_return_expr_context(
@@ -353,6 +369,14 @@ defmodule RustQ.Meta.Lower do
     end
   end
 
+  defp lower_return_expr_context(
+         expression,
+         %Type{kind: kind} = return_type,
+         %Context{} = context
+       )
+       when kind in [:result, :nif_result],
+       do: lower_result_return(expression, return_type, context)
+
   defp lower_return_expr_context(expression, %Type{} = return_type, %Context{} = context) do
     if infer_propagation?(expression, return_type, context) do
       %AST.Try{expr: lower_expr(expression, context)}
@@ -363,6 +387,85 @@ defmodule RustQ.Meta.Lower do
 
   defp lower_return_expr_context(expression, _return_type, %Context{} = context),
     do: lower_expr(expression, context)
+
+  # A NIF returning `t` in Elixir is `NifResult<T>` in Rust, so a plain value it returns is
+  # `Ok(value)`. A `Result` is Elixir's `{:ok, value} | {:error, reason}`, which a plain value
+  # is not. Branching expressions lower each branch as a return, and values of unknown type
+  # are left as they are.
+  defp lower_result_return(expression, return_type, %Context{} = context) do
+    cond do
+      infer_propagation?(expression, return_type, context) ->
+        %AST.Try{expr: lower_expr(expression, context)}
+
+      plain_value?(expression, context) ->
+        lower_plain_result(expression, return_type, context)
+
+      true ->
+        expression |> lower_expr(return_type, context) |> wrap_atom_result(return_type)
+    end
+  end
+
+  # An atom from the module's atom registry, as `Atoms.args()` reaches, is a plain value even
+  # where typing knows nothing of the call.
+  defp wrap_atom_result(
+         %AST.PathCall{path: %AST.Path{parts: [:atoms, _name]}, args: []} = atom,
+         %Type{kind: :nif_result}
+       ),
+       do: %AST.Ok{expr: atom}
+
+  defp wrap_atom_result(%AST.AtomValue{} = atom, %Type{kind: :nif_result}),
+    do: %AST.Ok{expr: atom}
+
+  defp wrap_atom_result(lowered, _return_type), do: lowered
+
+  defp plain_value?({form, _, _}, _context)
+       when form in [:if, :unless, :case, :cond, :with, :__block__, :for],
+       do: false
+
+  defp plain_value?(atom, _context) when is_atom(atom) and atom not in [nil, true, false],
+    do: true
+
+  defp plain_value?(expression, %Context{} = context) do
+    case Typing.synth(expression, typing_env(context)) do
+      %Type{kind: kind} when kind in [:result, :nif_result, :option, :unit] -> false
+      %Type{} -> true
+      _unknown -> false
+    end
+  end
+
+  # Items collected build the result themselves when they are results, as `Enum.map` over
+  # fallible decodes does.
+  defp lower_plain_result(expression, return_type, %Context{} = context) do
+    case lower_expr(expression, return_type, context) do
+      %AST.MethodCall{method: :collect} = collected ->
+        collected
+
+      _lowered when return_type.kind == :nif_result ->
+        %AST.Ok{expr: lower_expr(expression, Type.inner(return_type), context)}
+
+      _lowered ->
+        plain_result_value(expression, return_type)
+    end
+  end
+
+  @spec plain_result_value(Macro.t(), Type.t()) :: no_return()
+  defp plain_result_value(expression, return_type) do
+    Diagnostic.lower(
+      :plain_result_value,
+      expression,
+      "a function returning #{return_type.rust} returns a plain value",
+      suggestion: "Return `{:ok, value}` or `{:error, reason}`."
+    )
+  end
+
+  # A result carrying nothing, whether its type was parsed from a spec or given as Rust AST.
+  defp unit_result?(%Type{rust: rust} = type),
+    do:
+      match?(%Type{kind: :unit}, Type.inner(type)) or rust == "NifResult<()>" or
+        (is_binary(rust) and String.starts_with?(rust, "Result<(), "))
+
+  defp same_rust_type?(%Type{rust: rust}, %Type{rust: rust}), do: true
+  defp same_rust_type?(_left, _right), do: false
 
   # An option a closure maps or chains, or items collected, already is the option returned.
   defp option_chain?({:|>, _, [left, {method, meta, args}]}, context) when is_list(args),
@@ -421,6 +524,13 @@ defmodule RustQ.Meta.Lower do
        when tag in [:ok, :error] and kind in [:result, :nif_result] do
     lower_return_expr(expression, expected_type, context)
   end
+
+  # `{:some, value}` and `:none` where an option is expected are the option, as patterns read
+  # them and as `{:ok, value}` is a result.
+  defp lower_expected_expr_context({:some, value}, %Type{kind: :option} = expected_type, context),
+    do: %AST.Some{expr: lower_expr(value, Type.inner(expected_type), context)}
+
+  defp lower_expected_expr_context(:none, %Type{kind: :option}, %Context{}), do: %AST.None{}
 
   defp lower_expected_expr_context(
          value,

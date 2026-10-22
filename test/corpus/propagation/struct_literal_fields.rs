@@ -12,7 +12,7 @@ pub fn decode_point<'a>(term: Term<'a>) -> NifResult<Point> {
 }
 
 fn decode_x<'a>(term: Term<'a>) -> NifResult<f32> {
-    term.decode::<f32>()?
+    term.decode::<f32>()
 }
 
 fn consume(_point: Point) -> NifResult<()> {

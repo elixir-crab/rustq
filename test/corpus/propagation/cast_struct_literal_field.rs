@@ -10,7 +10,7 @@ pub fn decode_point<'a>(term: Term<'a>) -> NifResult<Point> {
 }
 
 fn decode_i64<'a>(term: Term<'a>) -> NifResult<i64> {
-    term.decode::<i64>()?
+    term.decode::<i64>()
 }
 
 fn consume(_point: Point) -> NifResult<()> {

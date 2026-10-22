@@ -1,5 +1,5 @@
 fn maybe_size(_key: Atom) -> NifResult<Option<f32>> {
-    Ok((atoms::some(), 12.0))
+    Ok(Some(12.0))
 }
 
 fn apply_size(key: Atom) -> NifResult<f32> {

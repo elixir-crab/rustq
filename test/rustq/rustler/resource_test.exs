@@ -1,4 +1,4 @@
-defmodule RustQ.RustlerResourceTest do
+defmodule RustQ.Rustler.ResourceTest do
   use ExUnit.Case, async: true
 
   alias RustQ.Rust

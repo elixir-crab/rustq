@@ -1,4 +1,4 @@
-defmodule RustQ.RustlerAtomTest do
+defmodule RustQ.Rustler.AtomTest do
   use ExUnit.Case, async: true
 
   alias RustQ.Rust.AST.Builder, as: A

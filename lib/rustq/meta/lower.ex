@@ -3,6 +3,7 @@ defmodule RustQ.Meta.Lower do
 
   alias RustQ.Binding.Index, as: BindingIndex
   alias RustQ.Diagnostic
+  alias RustQ.Meta.Capture
   alias RustQ.Meta.Core.Call
   alias RustQ.Meta.Lower.Stdlib
   alias RustQ.Meta.Lower.Stdlib.Context, as: StdlibContext
@@ -1022,19 +1023,8 @@ defmodule RustQ.Meta.Lower do
        do: lower_function_capture(function, context)
 
   # `&(&1 + &2)` is a closure of its numbered arguments.
-  defp lower_expr_context({:&, meta, [body]}, %Context{} = context) do
-    {body, count} =
-      Macro.prewalk(body, 0, fn
-        {:&, _, [index]}, count when is_integer(index) ->
-          {Macro.var(:"__rustq_arg#{index}", nil), max(count, index)}
-
-        other, count ->
-          {other, count}
-      end)
-
-    args = for index <- 1..count//1, do: Macro.var(:"__rustq_arg#{index}", nil)
-    lower_expr({:fn, meta, [{:->, meta, [args, body]}]}, context)
-  end
+  defp lower_expr_context({:&, _, [_body]} = capture, %Context{} = context),
+    do: capture |> Capture.expand() |> lower_expr(context)
 
   defp lower_expr_context({function, _, args} = call, %Context{} = context)
        when function in [
@@ -3226,6 +3216,9 @@ defmodule RustQ.Meta.Lower do
     Enum.map(statements, &lower_statement(&1, %{context | position: :statement})) ++
       [%AST.Return{expr: lower_expr(final, %{context | position: :return})}]
   end
+
+  defp map_type?(%Type{kind: kind} = type) when kind in [:ref, :mut_ref],
+    do: map_type?(Type.ref_inner(type))
 
   defp map_type?(%Type{rust: rust}) when is_binary(rust),
     do: String.starts_with?(rust, ["HashMap<", "BTreeMap<"])

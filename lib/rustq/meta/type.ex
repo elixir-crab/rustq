@@ -889,6 +889,11 @@ defmodule RustQ.Meta.Type do
     end
   end
 
+  # `%{key => value}` with one key type is a map keyed by that type, as `HashMap.t(key, value)`.
+  def parse({:%{}, meta, [{key, value}]}, aliases)
+      when not is_tuple(key) or elem(key, 0) not in [:required, :optional],
+      do: parse({{:., meta, [{:__aliases__, meta, [:HashMap]}, :t]}, meta, [key, value]}, aliases)
+
   def parse({name, _, args}, aliases) when is_atom(name) and is_list(args) do
     case Map.get(aliases, {name, length(args)}) do
       nil -> parse_local_type(name, args, aliases)

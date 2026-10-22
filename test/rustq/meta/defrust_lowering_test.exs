@@ -414,6 +414,15 @@ defmodule RustQ.Meta.DefrustLoweringTest do
 
     @spec lookup(HashMap.t(R.i64(), R.i64()), R.i64()) :: R.i64()
     defrust(lookup(table, key), do: table[key])
+
+    @spec tripled(R.vec(R.i64())) :: R.vec(R.i64())
+    defrust(tripled(values), do: Enum.map(values, &(&1 * 3)))
+
+    @spec offsets(R.vec(R.i64()), R.i64()) :: R.vec(R.i64())
+    defrust(offsets(values, value), do: Enum.map(values, &(&1 + value)))
+
+    @spec counts(R.ref(%{String.t() => R.i64()}), R.vec(String.t())) :: R.vec(R.i64())
+    defrust(counts(stock, names), do: for(name <- names, do: stock[name]))
   end
 
   defmodule WrapperComparisonCase do
@@ -1246,6 +1255,10 @@ defmodule RustQ.Meta.DefrustLoweringTest do
     source = CaptureIndexCase.__rustq_source__()
     assert source =~ "values.into_iter().map(double).collect()"
     assert source =~ "table[&key]"
+    assert source =~ "values.into_iter().map(|value| value * 3)"
+    assert source =~ "values.into_iter().map(|value_| value_ + value)"
+    assert source =~ "fn counts(stock: &HashMap<String, i64>, names: Vec<String>) -> Vec<i64>"
+    assert source =~ "stock[&name]"
 
     program =
       """
@@ -1254,6 +1267,8 @@ defmodule RustQ.Meta.DefrustLoweringTest do
       fn main() {
           println!("{:?} {:?} {}", doubled(vec![1, 2]), shifted(vec![1, 2]), second(vec![5, 6]));
           println!("{}", lookup(HashMap::from([(1, 10)]), 1));
+          println!("{:?} {:?}", tripled(vec![1, 2]), offsets(vec![1, 2], 10));
+          println!("{:?}", counts(&HashMap::from([("a".to_string(), 7)]), vec!["a".to_string()]));
       }
       """
 
@@ -1267,7 +1282,13 @@ defmodule RustQ.Meta.DefrustLoweringTest do
              )
 
     assert {output, 0} = System.cmd(executable, [])
-    assert String.split(output, "\n", trim: true) == ["[2, 4] [2, 3] 6", "10"]
+
+    assert String.split(output, "\n", trim: true) == [
+             "[2, 4] [2, 3] 6",
+             "10",
+             "[3, 6] [11, 12]",
+             "[7]"
+           ]
   end
 
   test "compares options without propagating them" do

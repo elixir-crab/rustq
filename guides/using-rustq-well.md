@@ -80,11 +80,15 @@ Prefer ordinary Elixir and remote types:
 Use `RustQ.Type` only for Rust-specific precision such as references, fixed-width
 numbers, lifetimes, `NifResult`, slices, options, results, vectors, terms, and
 resources. `R.raw/1` and `R.path/1,2` are low-level escapes, not the default way
-to spell an external Rust type.
+to spell an external Rust type. A function that returns a borrow from one of
+several references names the lifetime: `R.ref(Record.t(), R.lifetime(:a))` is
+`&'a Record`, and `R.slice(type, R.lifetime(:a))` is `&'a [T]`.
 
 Use ordinary `@type` declarations for RustQ-owned shapes. Maps and Elixir
 structs can derive Rust structs and directional codecs; atom unions can derive
-unit enums; unions of structural types can derive tagged enums.
+unit enums; unions of structural types can derive tagged enums. Use `@typep`
+for shapes that never cross the NIF boundary; see
+[Model data as Elixir data](#model-data-as-elixir-data).
 
 ## Let RustQ infer
 
@@ -166,6 +170,97 @@ RustQ deliberately rejects Elixir operations whose semantics cannot be
 preserved. Do not replace a rejected grapheme, dynamic map, range, process, IO,
 or protocol operation with a vaguely similar Rust method. Put the semantic
 choice behind an explicit adapter.
+
+## Model data as Elixir data
+
+Declare the shapes a module works with as types, and build and match them the
+way Elixir does. `@typep` declares a Rust-only type: the struct or enum without
+the term decoder a `@type` gets, so it may hold values that have no term codec.
+An `R.enum` variant is a tagged tuple, or a bare atom when it has no payload:
+
+```elixir
+@typep size :: %{required(:width) => float(), required(:height) => float()}
+@typep shape :: R.enum(circle: [float()], rect: [size()], empty: [])
+
+@spec area(R.ref(shape())) :: float()
+defrust area({:circle, r}), do: 3.14159 * r * r
+defrust area({:rect, size}), do: size.width * size.height
+defrust area(:empty), do: 0.0
+```
+
+```rust
+pub enum Shape {
+    Circle(f64),
+    Rect(Size),
+    Empty,
+}
+
+fn area(arg1: &Shape) -> f64 {
+    match arg1 {
+        Shape::Circle(r) => 3.14159 * r * r,
+        Shape::Rect(size) => size.width * size.height,
+        Shape::Empty => 0.0,
+    }
+}
+```
+
+Tagged tuples construct variants too, wherever the enum is expected:
+`{:circle, 1.0}` is `Shape::Circle(1.0)`. Wrap a declared type in
+`R.hashable/1` to also derive `PartialEq`, `Eq`, and `Hash` so it can key a map
+or set: `@typep id :: R.hashable(R.enum(source: [R.u32()], clone: [path()]))`.
+Within a pattern, a constant such as `Kind.PLAIN` matches the Rust constant
+reached through the module's Rust module aliases.
+
+Update a struct with Elixir's update syntax, and let comprehensions, captures,
+and `container[key]` say what they mean:
+
+```elixir
+@typep item :: %{
+         required(:name) => String.t(),
+         required(:shape) => shape(),
+         required(:count) => integer()
+       }
+
+@spec restock(item(), integer()) :: item()
+defrust restock(item, extra), do: %{item | count: item.count + extra}
+
+@spec in_stock([item()]) :: [String.t()]
+defrust in_stock(items), do: for(item <- items, item.count > 0, do: item.name)
+
+@spec counts(R.ref(%{String.t() => integer()}), [String.t()]) :: [integer()]
+defrust counts(stock, names), do: for(name <- names, do: stock[name])
+
+@spec doubled([integer()]) :: [integer()]
+defrust doubled(values), do: Enum.map(values, &(&1 * 2))
+```
+
+```rust
+fn restock(item: Item, extra: i64) -> Item {
+    Item {
+        count: item.count + extra,
+        ..item
+    }
+}
+
+fn counts(stock: &HashMap<String, i64>, names: Vec<String>) -> Vec<i64> {
+    names.into_iter().map(|name| stock[&name]).collect()
+}
+
+fn doubled(values: Vec<i64>) -> Vec<i64> {
+    values.into_iter().map(|value| value * 2).collect::<Vec<i64>>()
+}
+```
+
+A comprehension used as a value becomes an iterator pipeline collected into the
+expected type, so `into:` follows the target type, as in
+`for {key, value} <- pairs, into: HashMap.new(), do: {key, value}`. Run for its
+effects, it becomes nested `for` loops. Generators may use patterns that can
+fail to match; non-matching items are skipped, as in Elixir. Indexing a map
+borrows the key, and `%{key => value}` in a spec is a `HashMap`.
+
+Types another module declares are available through `callable_modules`. Write
+them remotely, as `Shapes.shape()`, since Elixir checks local types; they keep
+their single Rust declaration in the module that declares them.
 
 ## Compose with ordinary Elixir
 

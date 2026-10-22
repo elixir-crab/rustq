@@ -9,8 +9,11 @@
   collects into the expected type, so `into:` works by the target type; run for
   its effects, it becomes nested `for` loops with `if let` and `if`.
 - Lower `&fun/1` captures in any expression, not only inside `Enum` calls, and
-  `&(&1 + 1)` shorthand to a closure.
-- Lower `container[key]` to Rust indexing, borrowing the key for a map.
+  `&(&1 + 1)` shorthand to a closure, including as an `Enum` mapper.
+- Lower `container[key]` to Rust indexing, borrowing the key for a map, also
+  through a reference to one.
+- A spec's `%{key => value}` with one key type is a `HashMap`, as
+  `HashMap.t(key, value)` is.
 - Match constants such as `Kind.PLAIN` in patterns, resolved through the
   module's Rust module aliases, and `true` or `false` in `with` clauses.
 - Add `R.ref/2` and `R.mut_ref/2` for references with a named lifetime, as in
@@ -45,8 +48,6 @@
   belong to `Option` and `Result`, or belong to std collections is derived from
   the Rust standard library's source rather than listed by hand, so lowering
   knows every stable method, such as `push_back`, `retain_mut`, or `nth`.
-  `mix rustq.std` regenerates the facts, and `--check` verifies them in CI.
-
 - A callable's arguments are `RustQ.Binding.Callable.Arg` structs rather than
   bare maps with the same keys.
 - Piping into a function the module can call passes the value as its first

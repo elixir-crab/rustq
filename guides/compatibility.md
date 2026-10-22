@@ -1,7 +1,7 @@
 # RustQ 1.x compatibility policy
 
-This document defines RustQ's 1.x compatibility contract. The `1.0.0-rc`
-release line validates it before the stable release.
+This document defines RustQ's 1.x compatibility contract, which holds from
+1.0.0 on.
 
 This is a stability policy, not an authoring guide. Start with
 [Using RustQ Well](using-rustq-well.md),

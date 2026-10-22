@@ -33,6 +33,7 @@ defmodule RustQ.Meta.Typing do
             | :propagate
             | :some
             | :to_vec
+            | :deref
             | :borrow
             | :mut_borrow
             | :propagate_borrow

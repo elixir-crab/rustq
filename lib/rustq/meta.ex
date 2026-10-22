@@ -237,7 +237,6 @@ defmodule RustQ.Meta do
                :rustq_stub_keys
              ) do
         @rustq_stub_keys unquote(escaped_stub_key)
-        @doc false
 
         defp unquote(name)(unquote_splicing(stub_args)),
           do: :erlang.nif_error(:rustq_defrust_stub)

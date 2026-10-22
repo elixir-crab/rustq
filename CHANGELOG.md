@@ -36,6 +36,9 @@
 
 ### Changed
 
+- A callable's arguments are `RustQ.Binding.Callable.Arg` structs rather than
+  bare maps with the same keys.
+
 - Piping into a function the module can call passes the value as its first
   argument, as in Elixir. It used to call a method of that name on the value.
 - An Elixir predicate such as `live?` names the Rust function `live`; a module

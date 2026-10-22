@@ -30,7 +30,18 @@ defmodule RustQ.Binding.Callable do
     syn: nil
   ]
 
-  @type arg :: %{name: String.t() | nil, type: Type.t(), syn: Syn.Arg.t()}
+  defmodule Arg do
+    @moduledoc "A callable argument: its name, its type, and the Syn argument it was read from."
+    defstruct [:name, :type, :syn]
+
+    @type t :: %__MODULE__{
+            name: String.t() | nil,
+            type: RustQ.Meta.Type.t(),
+            syn: RustQ.Syn.Arg.t() | nil
+          }
+  end
+
+  @type arg :: Arg.t()
 
   @type t :: %__MODULE__{
           name: String.t(),
@@ -54,7 +65,7 @@ defmodule RustQ.Binding.Callable do
       kind: :function,
       args:
         Enum.with_index(args, fn %Type{} = type, index ->
-          %{name: "arg#{index}", type: type, syn: nil}
+          %Arg{name: "arg#{index}", type: type, syn: nil}
         end),
       returns: returns,
       syn: nil
@@ -121,7 +132,7 @@ defmodule RustQ.Binding.Callable do
   defp function_target(%Syn.Function{}), do: nil
 
   defp arg(%Syn.Arg{} = arg) do
-    %{name: arg.name, type: Spec.from_syn(arg.type_ast), syn: arg}
+    %Arg{name: arg.name, type: Spec.from_syn(arg.type_ast), syn: arg}
   end
 
   defp maybe_type(nil), do: nil

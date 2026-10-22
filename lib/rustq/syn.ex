@@ -619,7 +619,8 @@ defmodule RustQ.Syn do
     @moduledoc """
     Rust impl block metadata, including target type, optional trait, doc comments, and methods.
 
-    `bounds` pairs each of the impl's `type_parameters` with the traits bounding it, inline or
+    `trait_ast` is the implemented trait's path, and `negative` marks an impl such as
+    `impl !Send for T`. `bounds` pairs each of the impl's `type_parameters` with the traits bounding it, inline or
     in the where clause, named by the last segment of their path. `types` pairs each associated
     type the impl defines with its type, as in `{"Target", [T]}` for a `Deref` impl.
     """
@@ -627,8 +628,10 @@ defmodule RustQ.Syn do
       :target,
       :target_ast,
       :trait,
+      :trait_ast,
       :source_line,
       :source_path,
+      negative: false,
       type_parameters: [],
       bounds: [],
       types: [],
@@ -640,6 +643,8 @@ defmodule RustQ.Syn do
             target: String.t(),
             target_ast: RustQ.Syn.type(),
             trait: String.t() | nil,
+            trait_ast: RustQ.Syn.Type.Path.t() | nil,
+            negative: boolean(),
             type_parameters: [String.t()],
             bounds: [{String.t(), [String.t()]}],
             types: [{String.t(), RustQ.Syn.type()}],
@@ -740,10 +745,21 @@ defmodule RustQ.Syn do
 
   Returns `{:ok, %RustQ.Syn.File{}}` on success. Parser errors are returned in
   RustQ's normal template-error shape.
+
+  Pass `unstable: true` to read source that uses unstable syntax which does not change an
+  item's signature, as the Rust standard library does: `[const]` and `~const` bounds, `const`
+  traits and impls, `final` trait methods, restricted `impl(...)` visibility, and `*impl Trait`
+  pointers. The source is lexed and that syntax rewritten token by token, so comments and
+  strings are never touched.
   """
-  @spec parse(String.t()) :: {:ok, RustQ.Syn.File.t()} | {:error, term()}
-  def parse(source) when is_binary(source) do
-    with {:ok, raw_items} <- Nif.syn_inspect(source) do
+  @spec parse(String.t(), keyword()) :: {:ok, RustQ.Syn.File.t()} | {:error, term()}
+  def parse(source, opts \\ []) when is_binary(source) and is_list(opts) do
+    inspect =
+      if Keyword.get(opts, :unstable, false),
+        do: &Nif.syn_inspect_unstable/1,
+        else: &Nif.syn_inspect/1
+
+    with {:ok, raw_items} <- inspect.(source) do
       {:ok, %RustQ.Syn.File{items: Elixir.Enum.map(raw_items, &decode_item!/1)}}
     end
   end
@@ -1102,13 +1118,16 @@ defmodule RustQ.Syn do
   end
 
   defp decode_item!(
-         {"impl", target, target_ast, trait, {line, _parameters, bounds, types}, docs, methods}
+         {"impl", target, target_ast, trait,
+          {line, _parameters, bounds, types, trait_ast, negative}, docs, methods}
        ) do
     impl = decode_item!({"impl", target, target_ast, trait, line, docs, methods})
 
     %{
       impl
-      | type_parameters: Elixir.Enum.map(bounds, &elem(&1, 0)),
+      | trait_ast: trait_ast && decode_type!(trait_ast),
+        negative: negative,
+        type_parameters: Elixir.Enum.map(bounds, &elem(&1, 0)),
         bounds: bounds,
         types: Elixir.Enum.map(types, &decode_assoc_type!/1)
     }

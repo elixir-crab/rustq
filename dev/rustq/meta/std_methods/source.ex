@@ -77,27 +77,15 @@ defmodule RustQ.Meta.StdMethods.Source do
     %{impls: impls, traits: Map.new(traits, &{&1.name, &1})}
   end
 
-  # syn parses stable Rust; std also uses unstable `const` traits, restricted `impl` visibility,
-  # `final` trait methods, and `*impl Trait` pointers, none of which change which methods it has
-  # or what they take and return.
+  # std uses unstable syntax, which `unstable: true` reads without changing what methods it
+  # has or what they take and return.
   defp parse_file(path) do
-    source =
-      path
-      |> File.read!()
-      |> String.replace(~r/\[const\]\s*/, "")
-      |> String.replace(~r/~const\s*/, "")
-      |> String.replace(~r/\bimpl(\s*<[^{]*?>)?\s+const\s+/, "impl\\1 ")
-      |> String.replace(~r/\bconst\s+(unsafe\s+)?(impl|trait)\b/, "\\1\\2")
-      |> String.replace(~r/\bpub\s+impl\([^)]*\)\s+/, "pub ")
-      |> String.replace(~r/\bfinal\s+fn\b/, "fn")
-      |> String.replace(~r/\*impl\b/, "*const impl")
-
-    case Syn.parse(source) do
+    case path |> File.read!() |> Syn.parse(unstable: true) do
       {:ok, file} ->
         Syn.impls(file) ++ Syn.traits(file)
 
       {:error, [error | _errors]} ->
-        raise "cannot parse #{path}: #{error.message}; teach #{inspect(__MODULE__)} its syntax"
+        raise "cannot parse #{path}: #{error.message}; teach native/rustq_nif/src/unstable_syntax.rs its syntax"
     end
   end
 
@@ -277,16 +265,9 @@ defmodule RustQ.Meta.StdMethods.Source do
   # Method names are Rust identifiers, so each is a plain atom literal.
   defp atoms(names), do: "[" <> Enum.map_join(names, ", ", &":#{&1}") <> "]"
 
-  defp trait_name(%Syn.Impl{trait: nil}), do: nil
-
-  defp trait_name(%Syn.Impl{trait: trait}),
-    do:
-      trait
-      |> String.split("<", parts: 2)
-      |> hd()
-      |> String.split("::")
-      |> List.last()
-      |> String.trim()
+  defp trait_name(%Syn.Impl{negative: true}), do: nil
+  defp trait_name(%Syn.Impl{trait_ast: %Type.Path{name: name}}), do: name
+  defp trait_name(%Syn.Impl{}), do: nil
 
   defp target_name(%Syn.Impl{target_ast: target} = impl) do
     name = type_name(target)

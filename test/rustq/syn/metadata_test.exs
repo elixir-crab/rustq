@@ -167,10 +167,39 @@ defmodule RustQ.Syn.MetadataTest do
                types: [{"Item", %Type.Path{segments: ["I", "Item"]}}],
                methods: [%Method{name: "try_fold", attributes: ["inline", "unstable"]} = method]
              },
-             %Impl{trait: "!Iterator", target_ast: %Type.Path{name: "Box"}}
+             %Impl{
+               trait: "Iterator",
+               trait_ast: %Type.Path{name: "Iterator"},
+               negative: true,
+               target_ast: %Type.Path{name: "Box"}
+             }
            ] = Syn.impls(file)
 
     assert {"R", ["Try"]} in method.bounds
+  end
+
+  test "reads unstable syntax std uses, leaving comments and strings alone" do
+    source = """
+    /// A `[const] Trait` bound.
+    pub const trait Default: [const] Sized {
+        final fn default() -> Self;
+    }
+
+    impl<T: ~const Clone> const Default for Wrapper<T> {
+        fn default() -> Self { todo!() }
+    }
+
+    pub fn from_raw(data: *const impl Thin) -> &'static str { "~const" }
+    """
+
+    assert {:error, _errors} = Syn.parse(source)
+    assert {:ok, file} = Syn.parse(source, unstable: true)
+
+    assert [%Trait{name: "Default", docs: ["A `[const] Trait` bound."]}] = Syn.traits(file)
+    assert [%Impl{trait: "Default", bounds: [{"T", ["Clone"]}]}] = Syn.impls(file)
+
+    assert [%RustQ.Syn.Function{args: [%Arg{type: "* const impl Thin"}]}] =
+             Syn.functions(file)
   end
 
   test "parses path associated type metadata" do

@@ -44,8 +44,10 @@
 - `RustQ.Syn` describes traits, as `RustQ.Syn.Trait` with their associated types
   and methods, and `RustQ.Syn.Index.traits/1` lists them. Impls carry their
   type parameters' trait bounds and the associated types they define; methods
-  carry their attributes and type parameters' bounds; a negative impl's trait
-  keeps its `!`.
+  carry their attributes and type parameters' bounds. Impls also carry their
+  trait's structured path as `trait_ast`, and `negative` marks `impl !Trait`. `RustQ.Syn.parse(source, unstable: true)` reads source that
+  uses unstable syntax which does not change an item's signature, as the Rust
+  standard library does.
 
 ### Changed
 

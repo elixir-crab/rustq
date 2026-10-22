@@ -17,6 +17,13 @@ pub(crate) fn inspect_source<'a>(env: Env<'a>, source: String) -> NifResult<Term
     }
 }
 
+pub(crate) fn inspect_unstable_source<'a>(env: Env<'a>, source: String) -> NifResult<Term<'a>> {
+    match crate::unstable_syntax::parse_file(&source) {
+        Ok(file) => Ok((atoms::ok(), items(env, file.items)).encode(env)),
+        Err(error) => Ok((atoms::error(), vec![template_error(error)]).encode(env)),
+    }
+}
+
 pub(crate) fn atom_references<'a>(
     env: Env<'a>,
     source: String,
@@ -225,14 +232,9 @@ fn item_terms<'a>(env: Env<'a>, item: Item, module_path: Vec<String>) -> Vec<Ter
             "impl",
             type_string(&item.self_ty),
             type_metadata(env, &item.self_ty),
-            item.trait_.map(|(bang, path, _for)| {
-                let path = path.to_token_stream().to_string();
-                if bang.is_some() {
-                    format!("!{path}")
-                } else {
-                    path
-                }
-            }),
+            item.trait_
+                .as_ref()
+                .map(|(_bang, path, _for)| path.to_token_stream().to_string()),
             (
                 line(item.impl_token.span),
                 type_parameters(&item.generics),
@@ -246,6 +248,10 @@ fn item_terms<'a>(env: Env<'a>, item: Item, module_path: Vec<String>) -> Vec<Ter
                         _ => None,
                     })
                     .collect::<Vec<_>>(),
+                item.trait_.as_ref().map(|(_bang, path, _for)| {
+                    path_type_metadata(env, path.to_token_stream().to_string(), path)
+                }),
+                matches!(&item.trait_, Some((Some(_bang), _path, _for))),
             ),
             docs(&item.attrs),
             item.items

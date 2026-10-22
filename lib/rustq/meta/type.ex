@@ -18,6 +18,7 @@ defmodule RustQ.Meta.Type do
   parsing rendered Rust type strings.
   """
 
+  alias RustQ.Diagnostic
   alias RustQ.Rust
   alias RustQ.Rust.AST
   alias RustQ.Rust.Identifier
@@ -615,6 +616,7 @@ defmodule RustQ.Meta.Type do
   @spec type_aliases(term(), map()) :: %{{atom(), non_neg_integer()} => t()}
   def type_aliases(types, imported \\ %{}) do
     types = types |> List.wrap() |> Enum.reverse()
+    reject_duplicate_types!(types)
 
     raw =
       Map.new(types, fn {_kind, {:"::", _, [{name, _, args}, ast]}, _location} ->
@@ -638,6 +640,48 @@ defmodule RustQ.Meta.Type do
       if MapSet.member?(private, key), do: {key, private_type(type)}, else: {key, type}
     end)
   end
+
+  # Elixir rejects a type declared twice, but only after RustQ has read the module's types, and
+  # declarations read from source are never compiled; either way, a later duplicate would
+  # otherwise silently win.
+  defp reject_duplicate_types!(types) do
+    types
+    |> Enum.group_by(fn {_kind, {:"::", _, [{name, _, args}, _ast]}, _location} ->
+      {name, type_alias_arity(args)}
+    end)
+    |> Enum.find(&match?({_key, [_first, _second | _rest]}, &1))
+    |> case do
+      nil ->
+        :ok
+
+      {{name, arity}, [{_kind, _first, first_at}, {_kind2, duplicate, duplicate_at} | _rest]} ->
+        lines = Enum.map([first_at, duplicate_at], &location_line/1)
+
+        where =
+          if Enum.all?(lines, &(is_integer(&1) and &1 > 0)),
+            do: ", at lines #{Enum.join(lines, " and ")}",
+            else: ""
+
+        raise Diagnostic.Error,
+          diagnostic:
+            Diagnostic.new(
+              :type,
+              :duplicate_type,
+              duplicate,
+              "type #{name}/#{arity} is declared more than once#{where}",
+              suggestion:
+                "Keep one declaration of `#{name}`; RustQ cannot tell which one to follow.",
+              details: %{type: {name, arity}, lines: lines}
+            )
+    end
+  end
+
+  # A declaration's line, from a module attribute's `{module, {line, column}}`, a source
+  # declaration's line, or nothing for types read from BEAM files.
+  defp location_line({_module, {line, _column}}) when is_integer(line), do: line
+  defp location_line({_module, line}) when is_integer(line), do: line
+  defp location_line(line) when is_integer(line), do: line
+  defp location_line(_location), do: nil
 
   defp private_type(%__MODULE__{meta: meta} = type),
     do: %{type | meta: Map.put(meta, :private, true)}
@@ -913,9 +957,13 @@ defmodule RustQ.Meta.Type do
     tuple_type(tuple_types)
   end
 
+  def parse(nil, _aliases), do: unsupported_type!(nil)
+
   def parse(atom, _aliases) when is_atom(atom) do
     if literal_atom?(atom), do: type(:enum, path(:Atom)), else: type(:type, path(atom))
   end
+
+  def parse(other, _aliases), do: unsupported_type!(other)
 
   defp parse_remote(module, function, args, aliases) do
     if type_module?(module),
@@ -934,7 +982,7 @@ defmodule RustQ.Meta.Type do
   defp parse_local_type(:float, [], _aliases), do: type(:f64, path(:f64))
   defp parse_local_type(:number, [], _aliases), do: type(:f64, path(:f64))
 
-  defp parse_local_type(:term, [], _aliases),
+  defp parse_local_type(term, [], _aliases) when term in [:term, :any],
     do: type(:term, %AST.TypePath{parts: [:Term], lifetimes: [:a]})
 
   defp parse_local_type(:binary, [], _aliases), do: type(:binary, %AST.TypeVec{inner: path(:u8)})
@@ -1079,11 +1127,24 @@ defmodule RustQ.Meta.Type do
     type(:nif_result, %AST.TypeNifResult{inner: inner.ast}, %{inner: inner})
   end
 
-  defp parse_rust_type(function, args, aliases) do
-    type(:type, %AST.TypePath{
-      parts: [function],
-      generics: Enum.map(args, &parse(&1, aliases).ast)
-    })
+  # A type RustQ has no Rust counterpart for, such as `pid()` or `keyword()`, would otherwise
+  # name a Rust type after it that does not exist.
+  defp parse_rust_type(function, args, _aliases),
+    do: unsupported_type!({function, [], args})
+
+  @spec unsupported_type!(Macro.t()) :: no_return()
+  defp unsupported_type!(ast) do
+    raise Diagnostic.Error,
+      diagnostic:
+        Diagnostic.new(
+          :type,
+          :unsupported_type,
+          ast,
+          "RustQ has no Rust type for `#{Macro.to_string(ast)}`",
+          suggestion:
+            "Spell the Rust type with `RustQ.Type`, as `R.u64()` or `R.vec(R.u8())`, or pass " <>
+              "the value through as `R.term()`."
+        )
   end
 
   defp reference_lifetime!({{:., _, [_type_module, :lifetime]}, _, [name]}),

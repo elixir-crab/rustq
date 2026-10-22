@@ -26,10 +26,6 @@ defmodule RustQ.Meta.Lower do
   # A vector whose item type Rust infers, for collecting where none is known.
   @any_vec %AST.TypeVec{inner: %AST.TypeRaw{source: "_"}}
 
-  defguardp macro_call_tuple?(tuple)
-            when tuple_size(tuple) == 3 and is_atom(elem(tuple, 0)) and is_list(elem(tuple, 1)) and
-                   is_list(elem(tuple, 2))
-
   defmodule Env do
     @moduledoc """
     What lowering knows at a point in a body. `scope_return_type` is what the enclosing
@@ -725,8 +721,8 @@ defmodule RustQ.Meta.Lower do
          %Type{kind: :tuple, meta: %{elements: types}},
          %Context{} = context
        )
-       when is_tuple(tuple) and tuple_size(tuple) == length(types) and
-              not macro_call_tuple?(tuple) do
+       when is_tuple(tuple) and tuple_size(tuple) == length(types) and tuple_size(tuple) != 3 do
+    # A 3-tuple in Elixir's AST is a variable or a call, never a tuple literal.
     tuple
     |> Tuple.to_list()
     |> lower_expected_tuple(types, context)

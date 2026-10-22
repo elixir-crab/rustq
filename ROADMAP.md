@@ -1,13 +1,15 @@
 # RustQ roadmap
 
-Last reviewed 2026-10-02, at 1.0.0-rc.11. The [changelog](CHANGELOG.md) records
+Last reviewed 2026-10-22, at 1.0.0-rc.12. The [changelog](CHANGELOG.md) records
 what shipped; this file covers where RustQ stands and what comes next.
 
 ## Where things stand
 
 RustQ has been on the 1.0.0 release-candidate line since July. The
 [compatibility policy](guides/compatibility.md) defines what 1.x will promise,
-and the RC line exists to test that contract before it is frozen.
+and the RC line exists to test that contract before it is frozen. 1.0.0 was
+published on 2026-10-22 and reverted within the hour, because the conditions
+below did not hold yet; the same work shipped as rc.12.
 
 The core pieces are in place:
 
@@ -37,10 +39,11 @@ The core pieces are in place:
 | vize_ex | rc.3, moving to rc.11 | NIF wrappers and stubs, `@type` result codecs, encoders generated from `vize_atelier_vapor`'s source |
 | skia_ex | rc.3 | `defrust` drawing commands with generated targets |
 | folio | rc.6 | Rustler generation |
-| figler | rc.3 | `defrust` helpers over scene storage |
-| kiwi_codec | rc.3 | `defrust` helpers and Rustler term helpers |
+| figler | rc.3, moving to rc.12 | `defrust` helpers over scene storage, an effective graph interpreted natively |
+| kiwi_codec | rc.3, moving to rc.12 | `defrust` helpers, Rustler term helpers, and native Kiwi records |
 
-Only oxc_ex is within one release of the current RC.
+oxc_ex is within two releases of the current RC; kiwi_codec and figler are
+moving to it.
 
 ## Road to 1.0.0
 
@@ -54,27 +57,13 @@ Only oxc_ex is within one release of the current RC.
 4. The compatibility policy decides whether it needs an experimental tier.
    Today every documented API is covered in full, so anything shipped in 1.0.0
    is frozen for 1.x.
-5. The identifier and typespec matrices below pass.
+5. The identifier and typespec matrices pass. They do since rc.13, which fixed
+   what they found.
 
 ## Before 1.0.0
 
-**Identifier and typespec matrices.** rc.11 fixed three bugs in surfaces that
-had simply never been exercised. Rust keywords failed to render as field
-accesses, as struct fields, and as macro arguments, and a literal atom in a
-typespec produced a Rust type named after the atom. Instead of waiting for the
-next one, add two generated tests: one that renders every identifier-bearing AST
-position with every Rust keyword, and one over the typespec forms that the
-codecs accept.
-
-**Duplicate type declarations.** A module with two `@type encoded_binding`
-declarations generates Rust from one of them without a word. RustQ reads `@type`
-attributes before Elixir rejects the duplicate, and `Type.type_aliases/1` keeps
-the later declaration. Report a `RustQ.Diagnostic` naming both locations, and
-add the duplicate to the typespec matrix. vize_ex hit this in
-`codegen/vize/codegen/native_types.ex`.
-
-**Consumer upgrades.** Move the consumers to rc.11 and note any API friction
-here.
+**Consumer upgrades.** Move the consumers to the latest RC and note any API
+friction here.
 
 ## 1.x
 

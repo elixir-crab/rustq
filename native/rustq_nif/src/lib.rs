@@ -42,11 +42,24 @@ fn render<'a>(
 #[rustler::nif(schedule = "DirtyCpu")]
 fn render_ast(ast: Term) -> NifResult<String> {
     let item = decode_ast_item(ast)?;
-    Ok(prettyplease::unparse(&File {
+    let source = prettyplease::unparse(&File {
         shebang: None,
         attrs: Vec::new(),
         items: vec![item],
-    }))
+    });
+
+    // Nodes built without parsing, such as a function named `self`, can still unparse into
+    // Rust that does not parse; report them rather than return it.
+    syn::parse_file(&source).map_err(|error| {
+        rustler::Error::Term(Box::new(format!("renders invalid Rust: {error}")))
+    })?;
+
+    Ok(source)
+}
+
+#[rustler::nif]
+fn rust_identifier(name: String, context: String) -> NifResult<String> {
+    parse::identifier_source(&name, &context)
 }
 
 #[rustler::nif(schedule = "DirtyCpu")]

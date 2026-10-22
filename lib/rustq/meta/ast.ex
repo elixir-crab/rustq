@@ -976,6 +976,7 @@ defmodule RustQ.Meta.AST do
   rescue
     ArgumentError -> :error
     FunctionClauseError -> :error
+    RustQ.Diagnostic.Error -> :error
   end
 
   defp find_spec!(specs, name, arity, type_aliases) do

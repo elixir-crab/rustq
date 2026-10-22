@@ -26,4 +26,24 @@ defmodule RustQ.Spec.DeclarationsTest do
     assert defs.line == [:document, :point, :opts]
     assert defs.helper == [:value]
   end
+
+  test "rejects a type declared more than once, which would otherwise silently win" do
+    quoted =
+      Code.string_to_quoted!("""
+      defmodule Sample do
+        @type point :: {number(), number()}
+        @type point :: %{required(:x) => number()}
+      end
+      """)
+
+    error = assert_raise RustQ.Diagnostic.Error, fn -> RustQ.Spec.declarations(quoted) end
+
+    assert %RustQ.Diagnostic{kind: :duplicate_type, details: %{type: {:point, 0}}} =
+             error.diagnostic
+
+    assert error.message =~
+             "type duplicate_type: type point/0 is declared more than once, at lines 2 and 3"
+
+    assert error.message =~ "point :: %{required(:x) => number()}"
+  end
 end

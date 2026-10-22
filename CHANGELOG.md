@@ -1,5 +1,40 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- A type declared twice in a module is a `:duplicate_type` diagnostic naming
+  both lines. RustQ reads types before Elixir rejects the duplicate, and used
+  to follow the later declaration silently; types read from source with
+  `RustQ.Spec` were never checked at all.
+
+### Changed
+
+- A typespec RustQ has no Rust type for, such as `pid()`, `keyword()`,
+  `map()`, `non_neg_integer()`, a bare `nil`, or a literal `1` or `1..10`, is an
+  `:unsupported_type` diagnostic suggesting a `RustQ.Type` spelling. It used to
+  become a Rust type named after it, which never compiled. `any()` is `Term`,
+  as `term()` is.
+- Which words are Rust keywords, written as raw identifiers, comes from syn
+  rather than a list kept in RustQ, in the native and the text renderer alike.
+
+### Fixed
+
+- A function returning a variable typed as a 3-tuple returned the variable's
+  Elixir AST as a tuple of atoms.
+- `true` and `false` render as raw identifiers wherever a name goes, and
+  `macro_rules!` names and grouped `use` names are escaped as other names are.
+- Rendering a node on its own escapes keywords in variables, fields, methods,
+  closure arguments, patterns, and atom names, as rendering it inside an item
+  does.
+- A name Rust cannot use as an identifier, such as a field named `self`, is a
+  diagnostic carrying syn's message. It used to render invalid Rust, fail with
+  "argument error", or crash the native renderer.
+- Rendered Rust is checked to parse before it is returned.
+- `RustQ.Rust.AST.Builder.expr(true)` builds the literal, not a variable named
+  `true`.
+
 ## 1.0.0-rc.12 - 2026-10-22
 
 ### Added

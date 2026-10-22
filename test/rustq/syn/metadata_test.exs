@@ -7,6 +7,7 @@ defmodule RustQ.Syn.MetadataTest do
   alias RustQ.Syn.Method
   alias RustQ.Syn.MethodCall
   alias RustQ.Syn.Signature
+  alias RustQ.Syn.Trait
   alias RustQ.Syn.Type
 
   test "parses top-level Rust metadata" do
@@ -112,6 +113,93 @@ defmodule RustQ.Syn.MetadataTest do
 
     assert Signature.render(offset_signature) ==
              "fn offset(&mut self, dx: f32, dy: f32) -> Self"
+  end
+
+  test "parses traits, impl bounds and associated types, and method attributes" do
+    source = """
+    /// Iteration docs.
+    pub trait IntoIterator {
+        type Item;
+        type IntoIter: Iterator<Item = Self::Item>;
+
+        /// Into iter docs.
+        fn into_iter(self) -> Self::IntoIter;
+    }
+
+    impl<I: Iterator + ?Sized, A> Iterator for Box<I, A> where A: Allocator {
+        type Item = I::Item;
+
+        #[inline]
+        #[unstable(feature = "demo")]
+        fn try_fold<B, F, R>(&mut self, init: B, f: F) -> R
+        where
+            R: Try<Output = B>,
+        {
+            todo!()
+        }
+    }
+
+    impl<I, A> !Iterator for Box<[I], A> {}
+    """
+
+    assert {:ok, file} = Syn.parse(source)
+
+    assert [
+             %Trait{
+               name: "IntoIterator",
+               visibility: :public,
+               docs: ["Iteration docs."],
+               types: [{"Item", []}, {"IntoIter", ["Iterator"]}],
+               methods: [
+                 %Method{
+                   name: "into_iter",
+                   returns_ast: %Type.Path{segments: ["Self", "IntoIter"]}
+                 }
+               ]
+             }
+           ] = Syn.traits(file)
+
+    assert [
+             %Impl{
+               trait: "Iterator",
+               type_parameters: ["I", "A"],
+               bounds: [{"I", ["Iterator", "Sized"]}, {"A", ["Allocator"]}],
+               types: [{"Item", %Type.Path{segments: ["I", "Item"]}}],
+               methods: [%Method{name: "try_fold", attributes: ["inline", "unstable"]} = method]
+             },
+             %Impl{
+               trait: "Iterator",
+               trait_ast: %Type.Path{name: "Iterator"},
+               negative: true,
+               target_ast: %Type.Path{name: "Box"}
+             }
+           ] = Syn.impls(file)
+
+    assert {"R", ["Try"]} in method.bounds
+  end
+
+  test "reads unstable syntax std uses, leaving comments and strings alone" do
+    source = """
+    /// A `[const] Trait` bound.
+    pub const trait Default: [const] Sized {
+        final fn default() -> Self;
+    }
+
+    impl<T: ~const Clone> const Default for Wrapper<T> {
+        fn default() -> Self { todo!() }
+    }
+
+    pub fn from_raw(data: *const impl Thin) -> &'static str { "~const" }
+    """
+
+    assert {:error, _errors} = Syn.parse(source)
+    assert {:ok, file} = Syn.parse(source, unstable: true)
+
+    assert [%Trait{name: "Default", docs: ["A `[const] Trait` bound."]}] = Syn.traits(file)
+    assert [%Impl{trait: "Default", bounds: [{"T", ["Clone"]}]}] = Syn.impls(file)
+
+    assert [%RustQ.Syn.Function{args: [%Arg{type: "* const impl Thin"}]}] =
+             Syn.functions(file)
   end
 
   test "parses path associated type metadata" do

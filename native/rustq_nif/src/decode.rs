@@ -18,7 +18,7 @@ pub(crate) fn decode_function_arg_value(term: Term) -> NifResult<syn::FnArg> {
         Ok(arg) => Ok(arg),
         Err(_) => {
             let (name, ty) = term.decode::<(Term, Term)>()?;
-            let name = format_ident!("{}", atom_or_string(name)?);
+            let name = ident_from_part(&atom_or_string(name)?);
             let ty = decode_type(ty)?;
             crate::parse_function_arg(name, ty, false)
         }
@@ -367,6 +367,7 @@ pub(crate) fn parse_ident_expr(ident: proc_macro2::Ident) -> NifResult<Expr> {
 }
 
 pub(crate) fn parse_ref_expr(expr: Expr, mutable: bool) -> NifResult<Expr> {
+    let expr = prefix_operand(expr);
     if mutable {
         parse_syn::<Expr>(quote!(&mut #expr))
     } else {
@@ -377,12 +378,17 @@ pub(crate) fn parse_ref_expr(expr: Expr, mutable: bool) -> NifResult<Expr> {
 pub(crate) fn parse_struct_literal_expr(
     path: Expr,
     fields: Vec<NamedField<Expr>>,
+    base: Option<Expr>,
 ) -> NifResult<Expr> {
     let Expr::Path(path) = path else {
         return Err(rustler::Error::BadArg);
     };
 
-    let mut expression = parse_syn::<Expr>(quote!(#path { #(#fields),* }))?;
+    let mut expression = match base {
+        Some(base) if fields.is_empty() => parse_syn::<Expr>(quote!(#path { ..#base }))?,
+        Some(base) => parse_syn::<Expr>(quote!(#path { #(#fields),*, ..#base }))?,
+        None => parse_syn::<Expr>(quote!(#path { #(#fields),* }))?,
+    };
     if let Expr::Struct(value) = &mut expression {
         for field in &mut value.fields {
             if let (syn::Member::Named(name), Expr::Path(path)) = (&field.member, &field.expr) {
@@ -399,7 +405,68 @@ pub(crate) fn parse_raise_atom_expr(name: String) -> NifResult<Expr> {
     parse_syn::<Expr>(quote!(rustler::Error::RaiseAtom(#name)))
 }
 
+/// How tightly an expression binds as an operand, by Rust's operator precedence; `None` for
+/// expressions that never need parentheses.
+fn operand_precedence(expr: &Expr) -> Option<u8> {
+    use syn::BinOp::*;
+    match expr {
+        Expr::Binary(binary) => Some(match binary.op {
+            Mul(_) | Div(_) | Rem(_) => 10,
+            Add(_) | Sub(_) => 9,
+            Shl(_) | Shr(_) => 8,
+            BitAnd(_) => 7,
+            BitXor(_) => 6,
+            BitOr(_) => 5,
+            Eq(_) | Ne(_) | Lt(_) | Le(_) | Gt(_) | Ge(_) => 4,
+            And(_) => 3,
+            Or(_) => 2,
+            _ => 1,
+        }),
+        Expr::Cast(_) => Some(11),
+        Expr::Range(_) | Expr::Assign(_) | Expr::Closure(_) | Expr::Let(_) => Some(0),
+        _ => None,
+    }
+}
+
+fn parenthesized(expr: Expr) -> Expr {
+    Expr::Paren(syn::ExprParen {
+        attrs: Vec::new(),
+        paren_token: Default::default(),
+        expr: Box::new(expr),
+    })
+}
+
+/// An operand of an operator binding at `precedence`, parenthesized when it binds more
+/// loosely, or as tightly on the right, since Rust's binary operators group to the left and
+/// comparisons do not chain.
+fn operand(expr: Expr, precedence: u8, right: bool) -> Expr {
+    match operand_precedence(&expr) {
+        Some(inner) if inner < precedence || (inner == precedence && (right || inner == 4)) => {
+            parenthesized(expr)
+        }
+        _ => expr,
+    }
+}
+
+/// The operand of a prefix operator, which binds more tightly than any binary one.
+fn prefix_operand(expr: Expr) -> Expr {
+    operand(expr, 12, true)
+}
+
 pub(crate) fn parse_binary_expr(left: Expr, op: String, right: Expr) -> NifResult<Expr> {
+    let precedence = match op.as_str() {
+        "mul" | "div" | "rem" => 10,
+        "add" | "sub" => 9,
+        "shr" => 8,
+        "bitand" => 7,
+        "eq" | "ne" | "lt" | "lte" | "gt" | "gte" => 4,
+        "and" => 3,
+        "or" => 2,
+        _ => return Err(rustler::Error::BadArg),
+    };
+    let left = operand(left, precedence, false);
+    let right = operand(right, precedence, true);
+
     match op.as_str() {
         "eq" => parse_syn::<Expr>(quote!(#left == #right)),
         "ne" => parse_syn::<Expr>(quote!(#left != #right)),
@@ -451,7 +518,7 @@ pub(crate) fn decode_closure_args(term: Term) -> NifResult<Vec<Pat>> {
             if name == "_" {
                 Ok(syn::parse_quote!(_))
             } else {
-                parse_var_pat(format_ident!("{}", name), false)
+                parse_var_pat(ident_from_part(&name), false)
             }
         })
         .collect()
@@ -490,8 +557,29 @@ pub(crate) fn parse_err_expr(expr: Expr) -> NifResult<Expr> {
     parse_syn::<Expr>(quote!(Err(#expr)))
 }
 
+/// `expr?`, parenthesizing an operand that binds more loosely than `?`.
 pub(crate) fn parse_try_expr(expr: Expr) -> NifResult<Expr> {
-    parse_syn::<Expr>(quote!(#expr?))
+    let expr = match expr {
+        Expr::Binary(_)
+        | Expr::Unary(_)
+        | Expr::Cast(_)
+        | Expr::Range(_)
+        | Expr::Assign(_)
+        | Expr::Closure(_)
+        | Expr::Reference(_)
+        | Expr::Let(_) => Expr::Paren(syn::ExprParen {
+            attrs: Vec::new(),
+            paren_token: Default::default(),
+            expr: Box::new(expr),
+        }),
+        expr => expr,
+    };
+
+    Ok(Expr::Try(syn::ExprTry {
+        attrs: Vec::new(),
+        expr: Box::new(expr),
+        question_token: Default::default(),
+    }))
 }
 
 pub(crate) fn parse_expr_stmt(expr: Expr) -> NifResult<Stmt> {
@@ -575,6 +663,7 @@ pub(crate) fn parse_cast_expr(expr: Expr, ty: Type) -> NifResult<Expr> {
 }
 
 pub(crate) fn parse_unary_expr(op: String, expr: Expr) -> NifResult<Expr> {
+    let expr = prefix_operand(expr);
     match op.as_str() {
         "not" => parse_syn::<Expr>(quote!( !#expr )),
         "neg" => parse_syn::<Expr>(quote!( -#expr )),
@@ -607,7 +696,7 @@ pub(crate) fn parse_local_call(name: String, args: Vec<Expr>) -> NifResult<Expr>
         return Err(rustler::Error::BadArg);
     }
 
-    let name = format_ident!("{}", name);
+    let name = ident_from_part(&name);
     parse_syn::<Expr>(quote!(#name(#(#args),*)))
 }
 

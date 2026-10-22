@@ -420,23 +420,46 @@ Atom unions become Rust enums, and struct unions become tuple enums:
 ```
 
 Use `R.enum(...)` when you need an explicit Rust enum with tuple payloads but do
-not want to overload ordinary Elixir tuple unions:
+not want to overload ordinary Elixir tuple unions. Each variant takes at most one
+payload; use a struct for several fields:
 
 ```elixir
-@type skip_kind :: R.enum(one: [skip_fn()], repeated: [skip_fn()], bytes: [])
+@typep size :: %{required(:width) => float(), required(:height) => float()}
+@typep shape :: R.enum(circle: [float()], rect: [size()], empty: [])
 ```
 
-Construct those variants from `defrust` with `enum_variant/2+`, not token macros:
+Build and match variants with tagged tuples, as in Elixir, not with token macros:
+`{:circle, r}` is `Shape::Circle(r)` and `:empty` is `Shape::Empty`, wherever the
+enum is expected or matched:
 
 ```elixir
-defrust kind(repeated, skip) do
-  if repeated do
-    enum_variant(SkipKind, :repeated, skip)
-  else
-    enum_variant(SkipKind, :one, skip)
-  end
-end
+@spec area(R.ref(shape())) :: float()
+defrust area({:circle, r}), do: 3.14159 * r * r
+defrust area({:rect, size}), do: size.width * size.height
+defrust area(:empty), do: 0.0
 ```
+
+`enum_variant/2+` still works, but tagged tuples read as Elixir.
+
+Use `@typep` for a type that never crosses the NIF boundary: it declares the Rust
+struct, enum, or alias without a term decoder, so it may hold values without a
+term codec. Wrap a declared type in `R.hashable/1` to also derive `PartialEq`,
+`Eq`, and `Hash` when it keys a map or set. Spell a map keyed by one type as
+`%{String.t() => integer()}` or `HashMap.t(String.t(), integer())`. Types another
+module declares come through `callable_modules`, written remotely as
+`Shapes.shape()`.
+
+Write data operations the Elixir way:
+
+- `%{item | count: item.count + 1}` on a struct is Rust's struct update syntax.
+  It needs the struct type known: from a parameter's `@spec`, or as an item of a
+  typed list a comprehension or `Enum` function iterates.
+- Comprehensions, with filters, several generators, patterns that may not match,
+  and `into:`, become iterator pipelines collected into the expected type.
+- `&fun/1` and `&(&1 * 2)` captures become closures, including as `Enum`
+  mappers.
+- `container[key]` indexes, borrowing the key for a map.
+- Constants such as `Kind.PLAIN` match in patterns.
 
 Type items are available through `__rustq_type_items__/0`; use them in
 generators just like generated `defrust` items from `__rustq_items__/0`. This is

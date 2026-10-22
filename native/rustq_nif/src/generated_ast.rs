@@ -789,6 +789,7 @@ pub(crate) fn decode_expr_struct_literal<'a>(term: Term<'a>) -> NifResult<Expr> 
     super::parse_struct_literal_expr(
         required_expr(term, "path")?,
         super::decode_struct_literal_fields(required_field(term, "fields")?)?,
+        super::decode_optional_expr_field(term, "base")?,
     )
 }
 pub(crate) fn decode_expr_nif_raise_atom<'a>(term: Term<'a>) -> NifResult<Expr> {

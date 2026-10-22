@@ -141,10 +141,34 @@ defmodule RustQ.Rust.AST.Render do
       Diagnostic.render(
         :native_render_failed,
         item,
-        "native AST rendering failed for #{inspect(item.__struct__)}: #{Exception.message(error)}",
+        "native AST rendering failed for #{inspect(item.__struct__)}: #{Exception.message(error)}" <>
+          unrenderable_hint(item),
         details: %{ast_module: item.__struct__, cause: error},
         snippet: inspect(item, pretty: true, limit: 20)
       )
+  end
+
+  # Patterns an atom guard sits inside cannot render: the guard only works as a whole arm.
+  defp unrenderable_hint(item) do
+    nested =
+      Walk.reduce(item, [], fn
+        %{patterns: patterns}, acc when is_list(patterns) ->
+          acc ++ for(%PatAtomGuard{name: name} <- patterns, do: name)
+
+        %PatSome{pattern: %PatAtomGuard{name: name}}, acc ->
+          [name | acc]
+
+        _node, acc ->
+          acc
+      end)
+
+    case nested do
+      [] ->
+        ""
+
+      names ->
+        "; atoms matched inside a pattern, which no type resolved: #{inspect(Elixir.Enum.uniq(names))}"
+    end
   end
 
   def render_use(%Use{parts: parts}) when is_list(parts),
@@ -666,10 +690,11 @@ defmodule RustQ.Rust.AST.Render do
   def render_expr(%LocalCall{name: name, args: args}),
     do: [to_string(name), "(", render_args(args), ")"]
 
-  def render_expr(%StructLiteral{path: path, fields: fields}) do
+  def render_expr(%StructLiteral{path: path, fields: fields, base: base}) do
     rendered_fields =
       fields
       |> Elixir.Enum.map(fn {name, expr} -> [to_string(name), ": ", render_expr(expr)] end)
+      |> Kernel.++(if base, do: [["..", render_expr(base)]], else: [])
       |> Elixir.Enum.intersperse(", ")
 
     [render_expr(path), " { ", rendered_fields, " }"]

@@ -3,6 +3,7 @@ defmodule RustQ.Meta.Lower do
 
   alias RustQ.Binding.Index, as: BindingIndex
   alias RustQ.Diagnostic
+  alias RustQ.Meta.Capture
   alias RustQ.Meta.Core.Call
   alias RustQ.Meta.Lower.Stdlib
   alias RustQ.Meta.Lower.Stdlib.Context, as: StdlibContext
@@ -10,6 +11,7 @@ defmodule RustQ.Meta.Lower do
   alias RustQ.Meta.RustMacro
   alias RustQ.Meta.Semantics
   alias RustQ.Meta.StandardPointer
+  alias RustQ.Meta.StdMethods
   alias RustQ.Meta.Type
   alias RustQ.Meta.Typing
   alias RustQ.Rust
@@ -17,15 +19,23 @@ defmodule RustQ.Meta.Lower do
   alias RustQ.Rust.AST.Walk
   alias RustQ.Rust.Identifier
 
+  # A vector whose item type Rust infers, for collecting where none is known.
+  @any_vec %AST.TypeVec{inner: %AST.TypeRaw{source: "_"}}
+
   defguardp macro_call_tuple?(tuple)
             when tuple_size(tuple) == 3 and is_atom(elem(tuple, 0)) and is_list(elem(tuple, 1)) and
                    is_list(elem(tuple, 2))
 
   defmodule Env do
     @moduledoc false
+    # `scope_return_type` is what the enclosing function or closure returns, which `?` exits
+    # into; `return_type` is what the block being lowered must produce. `captured` names the
+    # variables enclosing closures capture, which a closure called once per item must not move.
     defstruct [
       :return_type,
+      :scope_return_type,
       vars: %{},
+      captured: MapSet.new(),
       lexical_vars: %{},
       type_aliases: %{},
       position: :return,
@@ -42,6 +52,7 @@ defmodule RustQ.Meta.Lower do
   def quoted_body(body_ast, return_type, vars \\ %{}, opts \\ []) do
     context = %Context{
       return_type: return_type,
+      scope_return_type: return_type,
       type_aliases: Keyword.get(opts, :type_aliases, %{}),
       vars: vars,
       rust_modules: Keyword.get(opts, :rust_modules, %{}),
@@ -88,8 +99,16 @@ defmodule RustQ.Meta.Lower do
     return_context = %{context | position: :return}
 
     Enum.map(statements, &lower_statement(&1, statement_context)) ++
-      [lower_return(final, return_context)]
+      [lower_final(final, statement_context, return_context)]
   end
+
+  # A body returning nothing runs its last expression for its effects, as a statement.
+  defp lower_final(final, statement_context, %Context{return_type: %Type{kind: :unit}})
+       when final not in [:ok, nil],
+       do: lower_statement(final, statement_context)
+
+  defp lower_final(final, _statement_context, return_context),
+    do: lower_return(final, return_context)
 
   defp lower_expected_block(expressions, %Context{} = context, %Type{} = expected_type) do
     context = context_with_downstream_let_types(expressions, context)
@@ -101,6 +120,22 @@ defmodule RustQ.Meta.Lower do
     Enum.map(statements, &lower_statement(&1, statement_context)) ++
       [%AST.Return{expr: lower_expr(final, expected_type, return_context)}]
   end
+
+  @keyed_collections [:HashMap, :HashSet, :BTreeMap, :BTreeSet]
+  @iterator_methods StdMethods.iterator()
+  @iterator_option_methods StdMethods.iterator_option()
+  @mutating_methods StdMethods.mutating()
+
+  # An empty map or set filled through `entry(key).or_default()` leaves Rust without its value
+  # type; when RustQ knows it, the binding states it.
+  defp empty_collection_type(
+         {{:., _, [{:__aliases__, _, [collection]}, constructor]}, _, _args},
+         %Type{ast: ast}
+       )
+       when collection in @keyed_collections and constructor in [:new, :with_capacity, :default],
+       do: ast
+
+  defp empty_collection_type(_expression, _expected_type), do: nil
 
   defp split_final([]), do: {[], :ok}
   defp split_final(expressions), do: {Enum.drop(expressions, -1), List.last(expressions)}
@@ -123,7 +158,11 @@ defmodule RustQ.Meta.Lower do
 
     %AST.Let{
       pattern: lower_binding_pattern(pattern),
-      expr: lower_expr(expression, expected_type, expression_context)
+      expr:
+        expression
+        |> lower_expr(expected_type, expression_context)
+        |> collect_as(collect_target(expected_type)),
+      type: empty_collection_type(expression, expected_type)
     }
   end
 
@@ -138,8 +177,15 @@ defmodule RustQ.Meta.Lower do
     %AST.ExprStmt{expr: lower_if(condition, branches, context)}
   end
 
-  defp lower_statement({:with, _, clauses}, %Context{} = context) do
-    %AST.ExprStmt{expr: lower_with(clauses, context)}
+  # Run for its effects, a `cond` is a chain of `if`s; a final branch doing nothing is left out.
+  defp lower_statement({:cond, _, [[do: clauses]]}, %Context{} = context),
+    do: lower_statement(cond_statement(clauses), context)
+
+  defp lower_statement({:with, _, clauses} = with, %Context{} = context) do
+    case with_if_lets(clauses) do
+      {:ok, matches, body} -> lower_statement(nested_if_lets(matches, body), context)
+      :error -> %AST.ExprStmt{expr: lower_with(with |> elem(2), context)}
+    end
   end
 
   defp lower_statement(
@@ -150,25 +196,71 @@ defmodule RustQ.Meta.Lower do
     %AST.ExprStmt{expr: lower_statement_expr(expression, context)}
   end
 
-  defp lower_statement(
-         {:for, _, [{:<-, _, [pattern, expression]}, [do: body]]},
-         %Context{} = context
-       ) do
-    body_context = context_with_for_pattern(pattern, expression, context)
-
-    %AST.For{
-      pattern: lower_binding_pattern(pattern),
-      expr: lower_expr(expression, context),
-      body: lower_clause_body(body, body_context)
-    }
+  defp lower_statement({:for, _, args} = expression, %Context{} = context) when is_list(args) do
+    case comprehension_parts(expression) do
+      {qualifiers, [do: body]} -> lower_for_loop(qualifiers, body, context)
+      _other -> %AST.ExprStmt{expr: lower_comprehension(expression, nil, context)}
+    end
   end
 
   defp lower_statement(:ok, %Context{}), do: %AST.ExprStmt{expr: %AST.Tuple{values: []}}
+
+  defp lower_statement({:__block__, _, [expression]}, context),
+    do: lower_statement(expression, context)
+
   defp lower_statement(nil, %Context{}), do: %AST.ExprStmt{expr: %AST.Tuple{values: []}}
 
   defp lower_statement(expression, %Context{} = context) do
     %AST.ExprStmt{expr: lower_statement_expr(expression, context)}
   end
+
+  defp cond_statement([{:->, _, [[true], body]} | _rest]), do: body
+
+  defp cond_statement([{:->, meta, [[condition], body]} | rest]) do
+    case cond_statement(rest) do
+      nothing when nothing in [:ok, nil] -> {:if, meta, [condition, [do: body]]}
+      other -> {:if, meta, [condition, [do: body, else: other]]}
+    end
+  end
+
+  defp cond_statement([]), do: nil
+
+  # A `with` run for its effects whose `else` does nothing is a chain of `if let`s.
+  defp with_if_lets(clauses) do
+    {matches, [options]} = Enum.split(clauses, -1)
+
+    case options do
+      [do: body] ->
+        {:ok, matches, body}
+
+      [do: body, else: [{:->, _, [[{:_, _, _}], fallback]}]] when fallback in [:ok, nil] ->
+        {:ok, matches, body}
+
+      _ ->
+        :error
+    end
+  end
+
+  defp nested_if_lets([], body), do: body
+
+  defp nested_if_lets([{:<-, meta, [true, condition]} | rest], body),
+    do: {:if, meta, [condition, [do: nested_if_lets(rest, body)]]}
+
+  defp nested_if_lets([{:<-, meta, [pattern, expression]} | rest], body),
+    do:
+      {:case, meta,
+       [
+         expression,
+         [
+           do: [
+             {:->, meta, [[pattern], nested_if_lets(rest, body)]},
+             {:->, meta, [[{:_, meta, nil}], :ok]}
+           ]
+         ]
+       ]}
+
+  defp nested_if_lets([expression | rest], body),
+    do: {:__block__, [], [expression, nested_if_lets(rest, body)]}
 
   defp lower_return({:case, _, [expression, [do: clauses]]}, %Context{} = context) do
     %AST.Return{expr: lower_case(expression, clauses, context, context.return_type)}
@@ -253,7 +345,9 @@ defmodule RustQ.Meta.Lower do
         lower_checked_coercion(check, expression, context)
 
       %Typing.Check{} ->
-        %AST.Some{expr: lower_expr(expression, context)}
+        if option_chain?(expression, context),
+          do: lower_expr(expression, return_type, context),
+          else: %AST.Some{expr: lower_expr(expression, context)}
     end
   end
 
@@ -268,10 +362,47 @@ defmodule RustQ.Meta.Lower do
   defp lower_return_expr_context(expression, _return_type, %Context{} = context),
     do: lower_expr(expression, context)
 
+  # An option a closure maps or chains, or items collected, already is the option returned.
+  defp option_chain?({:|>, _, [left, {method, meta, args}]}, context) when is_list(args),
+    do: option_chain?({{:., meta, [left, method]}, meta, args}, context)
+
+  defp option_chain?({{:., _, [_receiver, :collect]}, _, []}, _context), do: true
+
+  # Methods that return an option on whatever they are called, as iterators' `next` does.
+  defp option_chain?({{:., _, [_receiver, method]}, _, args}, _context)
+       when method in @iterator_option_methods and is_list(args),
+       do: true
+
+  defp option_chain?({{:., _, [receiver, method]}, _, [_argument]}, context)
+       when method in [:map, :and_then, :or, :or_else, :filter] do
+    match?(
+      %Type{kind: :option},
+      infer_expr_type(receiver, context.vars) || Typing.synth(receiver, typing_env(context))
+    )
+  end
+
+  defp option_chain?(_expression, _context), do: false
+
   defp lower_expr(expression, %Context{} = context), do: lower_expr_context(expression, context)
 
   defp lower_expr(expression, expected_type, %Context{} = context),
-    do: lower_expected_expr_context(expression, expected_type, context)
+    do: lower_expected_expr_context(expression, declared_type(expected_type, context), context)
+
+  # A type a recursive declaration names inside itself, resolved to the whole declaration.
+  defp declared_type(%Type{meta: %{recursive: name}} = type, %Context{type_aliases: aliases}),
+    do: Map.get(aliases, {name, 0}, type)
+
+  defp declared_type(type, %Context{}), do: type
+
+  defp declared_case_type(%Type{kind: kind, meta: %{inner: %Type{} = inner}} = type, context)
+       when kind in [:ref, :mut_ref] do
+    case declared_type(inner, context) do
+      ^inner -> type
+      declared -> %{type | meta: Map.put(type.meta, :inner, declared)}
+    end
+  end
+
+  defp declared_case_type(type, context), do: declared_type(type, context)
 
   defp lower_expected_expr_context(
          {:__block__, _, [expression]},
@@ -296,6 +427,23 @@ defmodule RustQ.Meta.Lower do
        )
        when is_binary(value),
        do: %AST.MethodCall{receiver: %AST.Literal{value: value}, method: :to_string, args: []}
+
+  # A borrowed list literal is a borrowed array, which coerces to the slice expected.
+  defp lower_expected_expr_context({:ref, _, [values]}, %Type{} = expected_type, context)
+       when is_list(values) do
+    item_type = Type.slice_inner(Type.expected_value(expected_type))
+
+    %AST.Ref{
+      expr: %AST.ArrayLiteral{
+        values:
+          Enum.map(values, fn value ->
+            if item_type,
+              do: lower_expr(value, item_type, context),
+              else: lower_expr(value, context)
+          end)
+      }
+    }
+  end
 
   defp lower_expected_expr_context(
          {:ref, _, [expression]},
@@ -326,11 +474,12 @@ defmodule RustQ.Meta.Lower do
   end
 
   defp lower_expected_expr_context(
-         {:for, _, [{:<-, _, [pattern, collection]}, [do: body]]},
-         %Type{} = _expected_type,
+         {:for, _, args} = expression,
+         %Type{} = expected_type,
          %Context{} = context
-       ),
-       do: lower_for_map(pattern, collection, body, context)
+       )
+       when is_list(args),
+       do: lower_comprehension(expression, expected_type, context)
 
   defp lower_expected_expr_context(
          {:struct_literal, _, [path, fields]},
@@ -370,6 +519,67 @@ defmodule RustQ.Meta.Lower do
       args: [lower_expr(expression, inner, context)]
     }
   end
+
+  # A tagged tuple or atom where a Rust enum is expected names its variant, as in
+  # `{:float, value}` for `Value::Float(value)`.
+  defp lower_expected_expr_context(
+         expression,
+         %Type{kind: :rust_enum, rust: rust_name} = type,
+         context
+       )
+       when is_atom(expression) or (is_tuple(expression) and tuple_size(expression) == 2) or
+              (is_tuple(expression) and elem(expression, 0) == :{}) do
+    case rust_enum_variant(expression, type) do
+      {variant, [], _types} ->
+        %AST.Path{parts: [rust_name, rust_variant(variant)]}
+
+      {variant, payloads, types} when length(payloads) == length(types) ->
+        %AST.PathCall{
+          path: %AST.Path{parts: [rust_name, rust_variant(variant)]},
+          args: Enum.zip_with(payloads, types, &lower_expr(&1, &2, context))
+        }
+
+      _other ->
+        lower_checked_expr(expression, type, context)
+    end
+  end
+
+  # `ok(value)` where a result is expected lowers the value as its success type.
+  defp lower_expected_expr_context(
+         {:ok, _, [value]},
+         %Type{kind: kind} = expected_type,
+         %Context{} = context
+       )
+       when kind in [:result, :nif_result] do
+    case Type.inner(expected_type) do
+      %Type{} = inner -> %AST.Ok{expr: lower_expr(value, inner, context)}
+      nil -> %AST.Ok{expr: lower_expr(value, context)}
+    end
+  end
+
+  # `:ok` where nothing is expected is the unit value, as in `ok(:ok)`.
+  defp lower_expected_expr_context(:ok, %Type{kind: :unit}, %Context{}),
+    do: %AST.Tuple{values: []}
+
+  # An atom where an atom-union enum is expected names its variant.
+  defp lower_expected_expr_context(
+         atom,
+         %Type{kind: :enum, rust: rust_name, meta: %{variants: variants}},
+         %Context{} = context
+       )
+       when is_atom(atom) and atom not in [nil, true, false] and is_list(variants) do
+    if atom in variants,
+      do: %AST.Path{parts: [rust_name, rust_variant(atom)]},
+      else: lower_expr(atom, context)
+  end
+
+  defp lower_expected_expr_context(
+         {:%{}, _, [{:|, _, [base, fields]}]},
+         %Type{} = _expected_type,
+         %Context{} = context
+       )
+       when is_list(fields),
+       do: lower_struct_update(base, fields, context)
 
   defp lower_expected_expr_context(
          {:%{}, _, fields},
@@ -535,6 +745,64 @@ defmodule RustQ.Meta.Lower do
     end
   end
 
+  # Collected where a slice is expected, values are collected into a vector and borrowed;
+  # where an option or result is expected, the items collect into it, failing at the first
+  # that fails.
+  defp lower_expected_expr_context(
+         {{:., _, [_receiver, :collect]}, _, []} = expression,
+         %Type{} = expected_type,
+         %Context{} = context
+       ) do
+    cond do
+      slice_type?(Type.expected_value(expected_type)) ->
+        %AST.Ref{expr: expression |> lower_expr(context) |> collect_as(@any_vec)}
+
+      expected_type.kind in [:option, :result] ->
+        expression |> lower_expr(context) |> collect_as(expected_type.ast)
+
+      true ->
+        lower_checked_expr(expression, expected_type, context)
+    end
+  end
+
+  # The closure `Option::map` or `and_then` takes gives the expected option's value, or the
+  # expected option itself.
+  defp lower_expected_expr_context(
+         {{:., _, [receiver, method]}, _, [{:fn, _, [{:->, _, [[arg], body]}]}]} = expression,
+         %Type{kind: :option} = expected_type,
+         %Context{} = context
+       )
+       when method in [:map, :and_then] do
+    case infer_expr_type(receiver, context.vars) || Typing.synth(receiver, typing_env(context)) do
+      %Type{kind: :option} = receiver_type ->
+        closure_return = if method == :map, do: Type.inner(expected_type), else: expected_type
+
+        closure_context =
+          context
+          |> then(&closure_context([arg], &1))
+          |> then(&context_with_match_pattern(arg, Type.inner(receiver_type), &1))
+          |> Map.merge(%{
+            return_type: closure_return,
+            scope_return_type: closure_return,
+            position: :expr
+          })
+
+        %AST.MethodCall{
+          receiver: lower_expr(receiver, context),
+          method: method,
+          args: [
+            %AST.Closure{
+              args: [closure_arg!(arg)],
+              body: lower_closure_body(body, closure_return, closure_context)
+            }
+          ]
+        }
+
+      _other ->
+        lower_checked_expr(expression, expected_type, context)
+    end
+  end
+
   defp lower_expected_expr_context(expression, %Type{} = expected_type, %Context{} = context) do
     lower_checked_expr(expression, expected_type, context)
   end
@@ -609,6 +877,10 @@ defmodule RustQ.Meta.Lower do
 
   defp lower_expr_context({:decode_as, _, [expression, type_ast]}, %Context{} = context),
     do: decode_as_expr(expression, type_ast, context)
+
+  # A borrowed list literal is a slice of an array, not of a vector built for the borrow.
+  defp lower_expr_context({:ref, _, [values]}, %Context{} = context) when is_list(values),
+    do: %AST.Ref{expr: %AST.ArrayLiteral{values: Enum.map(values, &lower_expr(&1, context))}}
 
   defp lower_expr_context({:ref, _, [expression]}, %Context{} = context),
     do: %AST.Ref{expr: lower_expr(expression, context)}
@@ -690,11 +962,28 @@ defmodule RustQ.Meta.Lower do
   defp lower_expr_context({:badarg, _, []}, %Context{}),
     do: %AST.Path{parts: [:rustler, :Error, :BadArg]}
 
-  defp lower_expr_context({:struct_literal, _, [path, fields]}, %Context{} = context),
-    do: %AST.StructLiteral{
-      path: lower_struct_literal_path(path, context),
-      fields: lower_named_fields(fields, context)
-    }
+  defp lower_expr_context({:%{}, _, [{:|, _, [base, fields]}]}, %Context{} = context)
+       when is_list(fields),
+       do: lower_struct_update(base, fields, context)
+
+  defp lower_expr_context(
+         {:__rustq_typed__, _, [expression, %Type{} = type]},
+         %Context{} = context
+       ),
+       do: lower_expr(expression, type, context)
+
+  defp lower_expr_context({:struct_literal, _, [path, fields]} = literal, %Context{} = context) do
+    case declared_struct_type(path, context) do
+      %Type{} = type ->
+        lower_expected_expr_context(literal, type, context)
+
+      nil ->
+        %AST.StructLiteral{
+          path: lower_struct_literal_path(path, context),
+          fields: lower_named_fields(fields, context)
+        }
+    end
+  end
 
   defp lower_expr_context({:enum_variant, _, [path, variant]}, %Context{} = context),
     do: enum_variant_path(path, variant, context)
@@ -718,6 +1007,26 @@ defmodule RustQ.Meta.Lower do
 
   defp lower_expr_context({:index, _, [receiver, index]}, %Context{} = context),
     do: %AST.Index{receiver: lower_expr(receiver, context), index: lower_expr(index, context)}
+
+  # `container[key]` indexes; a map is indexed by a reference to its key.
+  defp lower_expr_context({{:., _, [Access, :get]}, _, [receiver, key]}, %Context{} = context) do
+    index = lower_expr(key, context)
+
+    index =
+      if map_type?(infer_expr_type(receiver, context.vars)),
+        do: %AST.Ref{expr: index},
+        else: index
+
+    %AST.Index{receiver: lower_expr(receiver, context), index: index}
+  end
+
+  defp lower_expr_context({:&, _, [{:/, _, [function, arity]}]}, %Context{} = context)
+       when is_integer(arity),
+       do: lower_function_capture(function, context)
+
+  # `&(&1 + &2)` is a closure of its numbered arguments.
+  defp lower_expr_context({:&, _, [_body]} = capture, %Context{} = context),
+    do: capture |> Capture.expand() |> lower_expr(context)
 
   defp lower_expr_context({function, _, args} = call, %Context{} = context)
        when function in [
@@ -786,11 +1095,9 @@ defmodule RustQ.Meta.Lower do
        ),
        do: lower_for_reduce_expr(expression, context)
 
-  defp lower_expr_context(
-         {:for, _, [{:<-, _, [pattern, collection]}, [do: body]]},
-         %Context{} = context
-       ),
-       do: lower_for_map(pattern, collection, body, context)
+  defp lower_expr_context({:for, _, args} = expression, %Context{} = context)
+       when is_list(args),
+       do: lower_comprehension(expression, nil, context)
 
   defp lower_expr_context(
          {{:., _meta, [receiver, field_or_function]}, call_meta, []},
@@ -802,6 +1109,8 @@ defmodule RustQ.Meta.Lower do
   defp lower_expr_context({{:., _meta, [receiver, function]}, _, args}, %Context{} = context) do
     lower_remote_or_method_call(receiver, function, args, context)
   end
+
+  defp lower_expr_context({:__rustq_path__, _, parts}, %Context{}), do: %AST.Path{parts: parts}
 
   defp lower_expr_context({:__aliases__, _, parts}, %Context{} = context),
     do: %AST.Path{parts: mapped_alias_parts(parts, context.rust_modules)}
@@ -887,6 +1196,16 @@ defmodule RustQ.Meta.Lower do
   defp propagation_allowed?(nil), do: true
   defp propagation_allowed?(_type), do: false
 
+  # A literal is a plain value whatever type the context expects.
+  defp fallible_expression?(literal, %Context{})
+       when is_number(literal) or is_binary(literal) or is_boolean(literal),
+       do: false
+
+  # An operator's operands propagate on their own; the result is a plain value.
+  defp fallible_expression?({operator, _, [_left, _right]}, %Context{})
+       when operator in [:+, :-, :*, :/, :==, :!=, :<, :<=, :>, :>=, :and, :or, :div, :rem],
+       do: false
+
   defp fallible_expression?(expression, %Context{} = context) do
     case Typing.synth(expression, typing_env(context)) do
       %Type{} = type -> Type.propagates?(type)
@@ -927,6 +1246,13 @@ defmodule RustQ.Meta.Lower do
     |> lower_checked_coercion(expression, context)
   end
 
+  # `?` needs a function returning an option or result; a plain value keeps it wrapped.
+  defp lower_checked_coercion(%Typing.Check{coercion: coercion}, expression, context)
+       when coercion in [:propagate, :propagate_borrow, :propagate_mut_borrow, :propagate_as_ref] and
+              is_struct(context.scope_return_type, Type) and
+              context.scope_return_type.kind not in [:option, :result, :nif_result, :unit],
+       do: lower_expr(expression, context)
+
   defp lower_checked_coercion(%Typing.Check{coercion: :propagate} = check, expression, context) do
     if option_propagation_in_result_context?(check, context) do
       lower_expr(expression, context)
@@ -934,6 +1260,15 @@ defmodule RustQ.Meta.Lower do
       %AST.Try{expr: lower_expr(expression, context)}
     end
   end
+
+  # An expression the author already borrowed is not borrowed again.
+  defp lower_checked_coercion(
+         %Typing.Check{coercion: coercion},
+         {borrow, _, [_]} = expression,
+         context
+       )
+       when coercion in [:borrow, :mut_borrow] and borrow in [:ref, :mut_ref],
+       do: lower_expr(expression, context)
 
   defp lower_checked_coercion(%Typing.Check{coercion: :borrow}, expression, context),
     do: %AST.Ref{expr: lower_expr(expression, context)}
@@ -956,6 +1291,9 @@ defmodule RustQ.Meta.Lower do
 
   defp lower_checked_coercion(%Typing.Check{coercion: :propagate_as_ref}, expression, context),
     do: option_as_ref_expr(%AST.Try{expr: lower_expr(expression, context)})
+
+  defp lower_checked_coercion(%Typing.Check{coercion: :deref}, expression, context),
+    do: %AST.UnaryOp{op: :deref, expr: lower_expr(expression, context)}
 
   defp lower_checked_coercion(%Typing.Check{coercion: :some}, expression, context),
     do: %AST.Some{expr: lower_expr(expression, context)}
@@ -990,6 +1328,7 @@ defmodule RustQ.Meta.Lower do
       infer_expr_type(expression, context.vars) || Typing.synth(expression, typing_env(context))
 
     {case_type, match_expr} = case_scrutinee(expression, expression_type, clauses, context)
+    case_type = declared_case_type(case_type, context)
 
     arms =
       Enum.map(clauses, fn {:->, _, [[pattern], body]} ->
@@ -1000,7 +1339,9 @@ defmodule RustQ.Meta.Lower do
 
         %AST.Arm{
           pattern:
-            pattern |> lower_match_pattern(case_type) |> mark_mutable_pattern_vars(mutable_vars),
+            pattern
+            |> lower_match_pattern(case_type, context)
+            |> mark_mutable_pattern_vars(mutable_vars),
           guard: lower_guard_expr(guard, body_context),
           body: body
         }
@@ -1155,30 +1496,71 @@ defmodule RustQ.Meta.Lower do
         callables: context.callables,
         rust_modules: context.rust_modules,
         vars: context.vars
-      )
+      ) || infer_expr_type(expression, context.vars) ||
+        Typing.synth(expression, typing_env(context))
 
+    match_type = declared_case_type(match_type, context)
     body_context = context_with_match_pattern(pattern, match_type, context)
 
     %AST.Match{
       expr: lower_expr(expression, context),
       arms: [
         %AST.Arm{
-          pattern: lower_match_pattern(pattern, nil),
+          pattern: lower_with_pattern(pattern, match_type, context),
           body: [
             %AST.Return{
               expr: lower_with_matches(rest, body, else_clauses, body_context, expected_type)
             }
           ]
         },
-        %AST.Arm{
-          pattern: %AST.PatVar{name: with_value},
-          body: [
-            %AST.Return{expr: lower_with_else(with_value, else_clauses, context, expected_type)}
-          ]
-        }
+        with_fallback_arm(with_value, pattern, else_clauses, context, expected_type)
       ]
     }
   end
+
+  # A `with` pattern matches what its expression gives; a bare variable binds all of it.
+  defp lower_with_pattern({name, _, ast_context} = pattern, _type, %Context{} = context)
+       when is_atom(name) and is_atom(ast_context),
+       do: lower_match_pattern(pattern, nil, context)
+
+  defp lower_with_pattern(pattern, type, %Context{} = context),
+    do: lower_match_pattern(pattern, type, context)
+
+  # Without `else`, an unmatched result or option passes its error or `None` on, as in Elixir.
+  defp with_fallback_arm(_value_name, {:ok, _value}, [], _context, _expected_type),
+    do:
+      passthrough_arm(%AST.PatErr{pattern: %AST.PatVar{name: :error}}, %AST.Err{
+        expr: %AST.Var{name: :error}
+      })
+
+  defp with_fallback_arm(_value_name, {:some, _value}, [], _context, _expected_type),
+    do: passthrough_arm(%AST.PatNone{}, %AST.None{})
+
+  # A lone catch-all `else` is the fallback arm itself, not a match on the unmatched value.
+  defp with_fallback_arm(
+         _value_name,
+         _pattern,
+         [{:->, _, [[{:_, _, _}], body]}],
+         context,
+         expected_type
+       ) do
+    %AST.Arm{
+      pattern: %AST.PatWildcard{},
+      body: lower_clause_body(body, %{context | position: :return}, expected_type)
+    }
+  end
+
+  defp with_fallback_arm(value_name, _pattern, else_clauses, context, expected_type) do
+    %AST.Arm{
+      pattern: %AST.PatVar{name: value_name},
+      body: [
+        %AST.Return{expr: lower_with_else(value_name, else_clauses, context, expected_type)}
+      ]
+    }
+  end
+
+  defp passthrough_arm(pattern, expr),
+    do: %AST.Arm{pattern: pattern, body: [%AST.Return{expr: expr}]}
 
   defp lower_with_else(value_name, [], _context, _expected_type), do: %AST.Var{name: value_name}
 
@@ -1188,7 +1570,7 @@ defmodule RustQ.Meta.Lower do
       arms:
         Enum.map(else_clauses, fn {:->, _, [[pattern], body]} ->
           %AST.Arm{
-            pattern: lower_match_pattern(pattern, nil),
+            pattern: lower_match_pattern(pattern, nil, context),
             body: lower_clause_body(body, %{context | position: :return}, expected_type)
           }
         end)
@@ -1237,8 +1619,38 @@ defmodule RustQ.Meta.Lower do
 
   defp lower_option_if_let_statement(expression, clauses, %Context{} = context) do
     lower_result_if_let_statement(expression, clauses, context) ||
-      lower_some_if_let_statement(expression, clauses, context)
+      lower_some_if_let_statement(expression, clauses, context) ||
+      lower_single_arm_if_let_statement(expression, clauses, context)
   end
+
+  # A case run for one pattern, whose other branch does nothing, is an `if let`.
+  defp lower_single_arm_if_let_statement(
+         expression,
+         [{:->, _, [[pattern], body]}, {:->, _, [[{:_, _, _}], fallback]}] = clauses,
+         %Context{} = context
+       ) do
+    if unit_body?(fallback) and not match?({:when, _, _}, pattern) do
+      expression_type =
+        infer_expr_type(expression, context.vars) || Typing.synth(expression, typing_env(context))
+
+      {case_type, match_expr} = case_scrutinee(expression, expression_type, clauses, context)
+      case_type = declared_case_type(case_type, context)
+      then_context = context_with_match_pattern(pattern, case_type, context)
+      then_body = lower_clause_body(body, then_context)
+      mutable_vars = then_body |> collect_pattern_mutations(then_context) |> MapSet.new()
+
+      %AST.IfLet{
+        pattern:
+          pattern
+          |> lower_match_pattern(case_type, context)
+          |> mark_mutable_pattern_vars(mutable_vars),
+        expr: match_expr,
+        then: then_body
+      }
+    end
+  end
+
+  defp lower_single_arm_if_let_statement(_expression, _clauses, %Context{}), do: nil
 
   defp lower_result_if_let_statement(
          expression,
@@ -1254,7 +1666,7 @@ defmodule RustQ.Meta.Lower do
       %AST.IfLet{
         pattern:
           pattern
-          |> lower_match_pattern(%Type{kind: :result})
+          |> lower_match_pattern(%Type{kind: :result}, context)
           |> mark_mutable_pattern_vars(mutable),
         expr: lower_expr(expression, context),
         then: body
@@ -1276,7 +1688,7 @@ defmodule RustQ.Meta.Lower do
       %AST.IfLet{
         pattern:
           some_pattern
-          |> lower_match_pattern(%Type{kind: :option})
+          |> lower_match_pattern(%Type{kind: :option}, context)
           |> mark_mutable_pattern_vars(mutable_vars),
         expr: lower_option_case_scrutinee(expression, expression_type, option_type, context),
         then: then_body
@@ -1325,14 +1737,334 @@ defmodule RustQ.Meta.Lower do
     |> Enum.all?(&(&1 in [:ok, nil]))
   end
 
-  defp lower_for_map(pattern, collection, body, %Context{} = context) do
-    closure = lower_closure_args([pattern], body, context)
+  # A comprehension with any generators, filters, and refutable patterns, lowered through an
+  # iterator pipeline: each generator filters and binds in one `filter_map`, its filters as the
+  # match guard; later generators nest through `flat_map`, collecting each inner pipeline so
+  # its closures never outlive the outer item they borrow.
+  defp lower_comprehension(expression, expected_type, %Context{} = context) do
+    {qualifiers, opts} = comprehension_parts(expression)
 
-    collection
-    |> lower_expr(context)
-    |> method_chain(:into_iter)
-    |> method_chain(:map, [closure])
-    |> method_chain(:collect)
+    if Keyword.has_key?(opts, :reduce) do
+      Diagnostic.lower(
+        :unsupported_for_reduce,
+        expression,
+        "unsupported defrust for/reduce expression",
+        suggestion: "Use `for pattern <- enumerable, reduce: initial do acc_pattern -> body end`."
+      )
+    end
+
+    body =
+      typed_body(Keyword.fetch!(opts, :do), expected_type && collection_item_type(expected_type))
+
+    pipeline =
+      quote(
+        do:
+          unquote(comprehension_pipeline(qualifiers, body, context, {false, []}))
+          |> collect()
+      )
+
+    case expected_type do
+      %Type{} = type ->
+        lowered = lower_expr(pipeline, type, context)
+
+        cond do
+          slice_type?(type) -> collect_as(lowered, @any_vec)
+          context.position == :statement -> collect_as(lowered, type.ast)
+          true -> lowered
+        end
+
+      nil ->
+        pipeline |> lower_expr(context) |> collect_as(@any_vec)
+    end
+  end
+
+  # A comprehension bound in a statement states what it collects into, since Rust may only
+  # learn it from a later borrow; without a collection, it makes a list, as in Elixir.
+  defp collect_as(lowered, nil), do: lowered
+
+  defp collect_as(%AST.MethodCall{method: :collect, generics: []} = call, type),
+    do: %{call | generics: [type]}
+
+  defp collect_as(lowered, _type), do: lowered
+
+  # Without a known type, a binding collects a list, as Elixir's enumerables do.
+  defp collect_target(%Type{ast: ast} = type), do: if(slice_type?(type), do: @any_vec, else: ast)
+  defp collect_target(nil), do: @any_vec
+
+  defp comprehension_parts({:for, _, args}) do
+    {opts, qualifiers} = args |> Enum.reverse() |> Enum.split_while(&Keyword.keyword?/1)
+    {Enum.reverse(qualifiers), opts |> Enum.reverse() |> Enum.concat()}
+  end
+
+  # `nested?` says whether earlier generators enclose this one, and `generated` names the
+  # variables they bound.
+  defp comprehension_pipeline(
+         [{:<-, _, [pattern, collection]} | rest],
+         body,
+         context,
+         {nested?, generated}
+       ) do
+    {filters, rest} = Enum.split_while(rest, &(not generator?(&1)))
+    item_type = comprehension_item_type(collection, context)
+    root = root_variable(collection)
+    reused? = nested? and root != nil and root not in generated
+    {stage, binder} = generator_stage(pattern, collection, filters, item_type, reused?)
+    bound = context_with_match_pattern(pattern, item_type, context)
+
+    generated = binding_pattern_names(pattern) ++ generated
+
+    binder_type = binder_type(binder, bound)
+
+    case rest do
+      [] ->
+        comprehension_map(stage, binder, binder_type, body)
+
+      _ ->
+        quote(
+          do:
+            unquote(stage)
+            |> flat_map(fn unquote(typed_arg(binder, binder_type)) ->
+              Vec.from_iter(unquote(comprehension_pipeline(rest, body, bound, {true, generated})))
+            end)
+        )
+    end
+  end
+
+  defp comprehension_pipeline(qualifiers, _body, _context, _generated) do
+    Diagnostic.lower(
+      :unsupported_comprehension,
+      qualifiers,
+      "unsupported defrust comprehension",
+      suggestion: "Start the comprehension with a `pattern <- enumerable` generator."
+    )
+  end
+
+  # A comprehension body lowers as the item type of the collection it builds, when known.
+  defp typed_body(body, %Type{} = item_type), do: {:__rustq_typed__, [], [body, item_type]}
+  defp typed_body(body, _item_type), do: body
+
+  defp untyped({:__rustq_typed__, _, [body, _type]}), do: body
+  defp untyped(body), do: body
+
+  # A generator over a list gives its closures the list's items, which they may then use as
+  # that type; other collections leave their items untyped.
+  defp comprehension_item_type(collection, %Context{} = context) do
+    unless iterator_call?(collection) do
+      case infer_expr_type(collection, context.vars) ||
+             Typing.synth(collection, typing_env(context)) do
+        %Type{kind: :vec} = type -> Type.vec_inner(type)
+        _unknown -> nil
+      end
+    end
+  end
+
+  # The type of the variables a generator binds, as one variable or a tuple of them.
+  defp binder_type({name, _, ast_context}, %Context{vars: vars}) when is_atom(ast_context),
+    do: Map.get(vars, name)
+
+  defp binder_type(binder, %Context{} = context) do
+    with [_ | _] = elements <- Pattern.tuple_elements(binder),
+         types = Enum.map(elements, &binder_type(&1, context)),
+         true <- Enum.all?(types, &match?(%Type{}, &1)) do
+      Type.tuple(types)
+    else
+      _unknown -> nil
+    end
+  end
+
+  defp typed_arg(arg, %Type{} = type), do: {:__rustq_typed_arg__, [], [arg, type]}
+  defp typed_arg(arg, nil), do: arg
+
+  # An item the body returns as it is needs no mapping, and one it clones is `cloned()`.
+  defp comprehension_map(stage, binder, binder_type, body) do
+    plain = untyped(body)
+
+    cond do
+      same_variables?(binder, plain) ->
+        stage
+
+      match?({{:., _, [_, :clone]}, _, []}, plain) and
+          same_variables?(binder, plain |> elem(0) |> elem(2) |> hd()) ->
+        quote(do: unquote(stage) |> cloned())
+
+      true ->
+        binder = binder |> unused_as_underscored(body) |> typed_arg(binder_type)
+        quote(do: unquote(stage) |> map(fn unquote(binder) -> unquote(body) end))
+    end
+  end
+
+  # A binder variable the body does not use is ignored.
+  defp unused_as_underscored(binder, body) do
+    {_body, used} =
+      Macro.prewalk(body, MapSet.new(), fn
+        {name, _, context} = node, used when is_atom(name) and is_atom(context) ->
+          {node, MapSet.put(used, name)}
+
+        node, used ->
+          {node, used}
+      end)
+
+    Macro.prewalk(binder, fn
+      {name, meta, context} = node when is_atom(name) and is_atom(context) ->
+        if MapSet.member?(used, name), do: node, else: {:_, meta, context}
+
+      node ->
+        node
+    end)
+  end
+
+  defp same_variables?({name, _, context}, {name, _, context}) when is_atom(context), do: true
+
+  defp same_variables?(left, right) do
+    case {Pattern.tuple_elements(left), Pattern.tuple_elements(right)} do
+      {lefts, rights}
+      when is_list(lefts) and is_list(rights) and length(lefts) == length(rights) ->
+        lefts |> Enum.zip_with(rights, &same_variables?/2) |> Enum.all?()
+
+      _different ->
+        false
+    end
+  end
+
+  defp generator?({:<-, _, [_pattern, _collection]}), do: true
+  defp generator?(_qualifier), do: false
+
+  # A generator that cannot fail and has no filters iterates as it is; otherwise its items are
+  # matched, filtered, and reduced to the variables the pattern binds.
+  # A later generator over a collection from outside the comprehension iterates it once per
+  # item of the earlier ones, so it copies its items rather than consuming it.
+  defp generator_stage(pattern, collection, filters, item_type, reused?) do
+    items =
+      cond do
+        iterator_call?(collection) -> collection
+        reused? -> quote(do: unquote(collection) |> iter() |> cloned())
+        true -> quote(do: unquote(collection) |> into_iter())
+      end
+
+    if filters == [] and binding_pattern?(pattern) do
+      {items, pattern}
+    else
+      binder = pattern_binder(pattern)
+      {filter_bind(items, guarded_pattern(pattern, filters), binder, item_type), binder}
+    end
+  end
+
+  defp root_variable({name, _, ast_context}) when is_atom(name) and is_atom(ast_context), do: name
+  # The variable a collection is, or is a field of; a call or literal makes a fresh one.
+  defp root_variable({{:., _, [receiver, _field]}, meta, []}),
+    do: if(meta[:no_parens], do: root_variable(receiver))
+
+  defp root_variable(_collection), do: nil
+
+  # A collection already given as an iterator, as in `values.iter()`, is iterated as it is.
+  defp iterator_call?({{:., _, [_receiver, method]}, _, args}) when is_list(args),
+    do: method in @iterator_methods
+
+  defp iterator_call?({:|>, _, [_left, {method, _, args}]}) when is_list(args),
+    do: method in @iterator_methods
+
+  defp iterator_call?(_collection), do: false
+
+  defp filter_bind(items, guarded, binder, item_type) do
+    item = quote(do: item)
+
+    quote do
+      unquote(items)
+      |> filter_map(fn unquote(typed_arg(item, item_type)) ->
+        case unquote(item) do
+          unquote(guarded) -> some(unquote(binder))
+          _ -> nil
+        end
+      end)
+    end
+  end
+
+  defp guarded_pattern(pattern, []), do: pattern
+
+  defp guarded_pattern(pattern, filters) do
+    guard =
+      Enum.reduce(filters, fn filter, guard -> quote(do: unquote(guard) and unquote(filter)) end)
+
+    quote(do: unquote(pattern) when unquote(guard))
+  end
+
+  defp binding_pattern?({name, _meta, context}) when is_atom(name) and is_atom(context), do: true
+
+  defp binding_pattern?(pattern) do
+    case Pattern.tuple_elements(pattern) do
+      elements when is_list(elements) -> Enum.all?(elements, &binding_pattern?/1)
+      _not_tuple -> false
+    end
+  end
+
+  # The variables a pattern binds, as one variable or a tuple of them.
+  defp pattern_binder(pattern) do
+    case pattern_variables(pattern) do
+      [] -> quote(do: {})
+      [variable] -> variable
+      variables -> {:{}, [], variables}
+    end
+  end
+
+  defp pattern_variables(pattern) do
+    {_pattern, variables} =
+      Macro.prewalk(pattern, [], fn
+        {:^, _meta, _args}, variables ->
+          {:pinned, variables}
+
+        {name, meta, context} = variable, variables when is_atom(name) and is_atom(context) ->
+          if name |> Atom.to_string() |> String.starts_with?("_"),
+            do: {variable, variables},
+            else: {variable, [{name, meta, context} | variables]}
+
+        other, variables ->
+          {other, variables}
+      end)
+
+    variables |> Enum.reverse() |> Enum.uniq_by(fn {name, _meta, context} -> {name, context} end)
+  end
+
+  # A comprehension evaluated for its effects: nested loops, `if let` for patterns that can fail,
+  # and `if` for filters, so the body may return early.
+  defp lower_for_loop([{:<-, _, [pattern, collection]} | rest], body, %Context{} = context) do
+    body_context = context_with_for_pattern(pattern, collection, context)
+
+    if binding_pattern?(pattern) do
+      %AST.For{
+        pattern: lower_binding_pattern(pattern),
+        expr: lower_expr(collection, context),
+        body: lower_for_loop_body(rest, body, body_context)
+      }
+    else
+      %AST.For{
+        pattern: %AST.PatVar{name: :__rustq_item},
+        expr: lower_expr(collection, context),
+        body: [
+          %AST.IfLet{
+            pattern: lower_match_pattern(pattern, nil, context),
+            expr: %AST.Var{name: :__rustq_item},
+            then:
+              lower_for_loop_body(rest, body, context_with_match_pattern(pattern, nil, context))
+          }
+        ]
+      }
+    end
+  end
+
+  defp lower_for_loop_body([], body, %Context{} = context), do: lower_clause_body(body, context)
+
+  defp lower_for_loop_body([{:<-, _, _} | _] = qualifiers, body, %Context{} = context),
+    do: [lower_for_loop(qualifiers, body, context)]
+
+  defp lower_for_loop_body([filter | rest], body, %Context{} = context) do
+    [
+      %AST.ExprStmt{
+        expr: %AST.If{
+          condition: lower_expr(filter, context),
+          then: lower_for_loop_body(rest, body, context)
+        }
+      }
+    ]
   end
 
   defp lower_for_reduce_expr(expression, %Context{return_type: %Type{} = return_type} = context),
@@ -1408,7 +2140,7 @@ defmodule RustQ.Meta.Lower do
       body_context = context_with_match_pattern(pattern, return_type, context)
 
       %AST.Arm{
-        pattern: lower_match_pattern(pattern, return_type),
+        pattern: lower_match_pattern(pattern, return_type, context),
         body:
           lower_clause_body(
             body,
@@ -1548,6 +2280,10 @@ defmodule RustQ.Meta.Lower do
   defp context_with_match_pattern([], %Type{kind: :vec} = type, %Context{} = context),
     do: context_with_list_pattern([], type, context)
 
+  defp context_with_match_pattern(pattern, %Type{} = type, %Context{} = context)
+       when is_list(pattern) and type.kind == :slice,
+       do: context_with_list_pattern(pattern, type, context)
+
   defp context_with_match_pattern(
          [_head | _tail] = pattern,
          %Type{kind: :vec} = type,
@@ -1580,6 +2316,17 @@ defmodule RustQ.Meta.Lower do
     %{context | vars: Map.put(context.vars, name, type)}
   end
 
+  defp context_with_match_pattern(pattern, %Type{kind: :rust_enum} = type, %Context{} = context),
+    do: context_with_variant_pattern(pattern, type, & &1, context)
+
+  defp context_with_match_pattern(
+         pattern,
+         %Type{kind: kind, meta: %{inner: %Type{kind: :rust_enum} = inner}},
+         %Context{} = context
+       )
+       when kind in [:ref, :mut_ref],
+       do: context_with_variant_pattern(pattern, inner, &Type.ref/1, context)
+
   defp context_with_match_pattern(pattern, %Type{kind: :tuple, meta: %{elements: types}}, context) do
     case Pattern.tuple_elements(pattern) do
       elements when is_list(elements) and length(elements) == length(types) ->
@@ -1594,7 +2341,25 @@ defmodule RustQ.Meta.Lower do
     end
   end
 
-  defp context_with_match_pattern(_pattern, _type, %Context{} = context), do: context
+  # A pattern of unknown type still shadows the names it binds; they lose their old types.
+  defp context_with_match_pattern(pattern, _type, %Context{} = context) do
+    names = pattern |> pattern_variables() |> Enum.map(&elem(&1, 0))
+    %{context | vars: Map.drop(context.vars, names)}
+  end
+
+  defp context_with_variant_pattern(pattern, type, payload_type, %Context{} = context) do
+    case rust_enum_variant(pattern, type) do
+      {_variant, payloads, types} when length(payloads) == length(types) ->
+        payloads
+        |> Enum.zip(types)
+        |> Enum.reduce(context, fn {payload, type}, acc ->
+          context_with_match_pattern(payload, payload_type.(type), acc)
+        end)
+
+      _other ->
+        context
+    end
+  end
 
   defp context_with_struct_pattern(fields, %Type{} = type, %Context{} = context) do
     Enum.reduce(fields, context, fn {field, pattern}, acc ->
@@ -1605,9 +2370,11 @@ defmodule RustQ.Meta.Lower do
     end)
   end
 
+  # A slice binds its elements by reference; a vector matched as a slice does too.
   defp context_with_list_pattern(pattern, %Type{} = type, %Context{} = context) do
     {elements, rest} = split_list_pattern(pattern)
-    inner = Type.vec_inner(type)
+    inner = list_item_type(type)
+    inner = if inner && type.kind == :slice, do: Type.ref(inner), else: inner
 
     context =
       Enum.reduce(elements, context, fn element, acc ->
@@ -1659,6 +2426,35 @@ defmodule RustQ.Meta.Lower do
   defp lower_guard_expr(nil, %Context{}), do: nil
   defp lower_guard_expr(guard, %Context{} = context), do: lower_expr(guard, context)
 
+  # Patterns name constants and enum variants through the module's Rust module aliases.
+  defp lower_match_pattern(pattern, case_type, %Context{} = context),
+    do: pattern |> resolve_pattern_paths(context) |> lower_match_pattern(case_type)
+
+  defp resolve_pattern_paths(pattern, %Context{} = context) do
+    Macro.prewalk(pattern, fn
+      {:enum_variant, meta, [{:__aliases__, _, parts} | rest]} ->
+        {:enum_variant, meta, [rust_path_marker(parts, context) | rest]}
+
+      {:__aliases__, _, parts} = alias ->
+        if constant_alias?(parts), do: rust_path_marker(parts, context), else: alias
+
+      other ->
+        other
+    end)
+  end
+
+  defp rust_path_marker(parts, %Context{} = context),
+    do: {:__rustq_path__, [], mapped_alias_parts(parts, context.rust_modules)}
+
+  # A constant ends in an upper-case segment such as `Kind.PLAIN`.
+  defp constant_alias?(parts) do
+    name = parts |> List.last() |> Atom.to_string()
+    name == String.upcase(name) and String.length(name) > 1
+  end
+
+  defp lower_match_pattern({:__rustq_path__, _, parts}, _case_type),
+    do: %AST.PatPath{path: %AST.Path{parts: parts}}
+
   defp lower_match_pattern(:ok, %Type{kind: kind}) when kind in [:result, :nif_result],
     do: %AST.PatOk{pattern: %AST.PatTuple{patterns: []}}
 
@@ -1668,8 +2464,9 @@ defmodule RustQ.Meta.Lower do
   defp lower_match_pattern(:none, _case_type), do: %AST.PatNone{}
   defp lower_match_pattern({:_, _, _}, _case_type), do: %AST.PatWildcard{}
 
-  defp lower_match_pattern(value, _case_type) when is_binary(value) or is_integer(value),
-    do: %AST.PatLiteral{value: value}
+  defp lower_match_pattern(value, _case_type)
+       when is_binary(value) or is_integer(value) or is_boolean(value),
+       do: %AST.PatLiteral{value: value}
 
   defp lower_match_pattern([ok: pattern], _case_type),
     do: %AST.PatOk{pattern: lower_match_pattern(pattern, nil)}
@@ -1683,14 +2480,14 @@ defmodule RustQ.Meta.Lower do
   defp lower_match_pattern({:error, pattern}, _case_type),
     do: %AST.PatErr{pattern: lower_match_pattern(pattern, nil)}
 
-  defp lower_match_pattern({:some, pattern}, %Type{kind: :option}),
-    do: %AST.PatSome{pattern: lower_match_pattern(pattern, nil)}
+  defp lower_match_pattern({:some, pattern}, %Type{kind: :option} = type),
+    do: %AST.PatSome{pattern: lower_tuple_element_pattern(pattern, Type.inner(type))}
 
   defp lower_match_pattern({:some, pattern}, _case_type),
     do: %AST.PatSome{pattern: lower_match_pattern(pattern, nil)}
 
-  defp lower_match_pattern({:{}, _, [:some, pattern]}, %Type{kind: :option}),
-    do: %AST.PatSome{pattern: lower_match_pattern(pattern, nil)}
+  defp lower_match_pattern({:{}, _, [:some, pattern]}, %Type{kind: :option} = type),
+    do: %AST.PatSome{pattern: lower_tuple_element_pattern(pattern, Type.inner(type))}
 
   defp lower_match_pattern({:{}, _, [:some, pattern]}, _case_type),
     do: %AST.PatSome{pattern: lower_match_pattern(pattern, nil)}
@@ -1707,6 +2504,14 @@ defmodule RustQ.Meta.Lower do
   end
 
   defp lower_match_pattern([], %Type{kind: :vec} = type), do: lower_list_pattern([], type)
+
+  defp lower_match_pattern(pattern, %Type{kind: :slice} = type) when is_list(pattern),
+    do: lower_list_pattern(pattern, type)
+
+  # A list pattern on a value of unknown type matches it as a slice.
+  defp lower_match_pattern(pattern, nil)
+       when is_list(pattern) and pattern != [] and not is_tuple(hd(pattern)),
+       do: lower_list_pattern(pattern, nil)
 
   defp lower_match_pattern([_head | _tail] = pattern, %Type{kind: :vec} = type),
     do: lower_list_pattern(pattern, type)
@@ -1759,6 +2564,31 @@ defmodule RustQ.Meta.Lower do
        when is_atom(name) and is_atom(context),
        do: %AST.PatVar{name: name}
 
+  # A borrowed enum matches its variants as they are, binding payloads by reference.
+  defp lower_match_pattern(
+         pattern,
+         %Type{kind: kind, meta: %{inner: %Type{kind: :rust_enum} = inner}}
+       )
+       when kind in [:ref, :mut_ref] and (is_atom(pattern) or is_tuple(pattern)),
+       do: lower_match_pattern(pattern, inner)
+
+  defp lower_match_pattern(pattern, %Type{kind: :rust_enum, rust: rust_name} = type)
+       when is_atom(pattern) or is_tuple(pattern) do
+    case rust_enum_variant(pattern, type) do
+      {variant, [], _types} ->
+        %AST.PatPath{path: %AST.Path{parts: [rust_name, rust_variant(variant)]}}
+
+      {variant, payloads, types} when length(payloads) == length(types) ->
+        %AST.PatPathTuple{
+          path: %AST.Path{parts: [rust_name, rust_variant(variant)]},
+          patterns: Enum.zip_with(payloads, types, &lower_tuple_element_pattern/2)
+        }
+
+      _other ->
+        lower_match_pattern(pattern, nil)
+    end
+  end
+
   defp lower_match_pattern(atom, %Type{kind: :enum, rust: rust_name}) when is_atom(atom),
     do: %AST.PatPath{path: %AST.Path{parts: [rust_name, rust_variant(atom)]}}
 
@@ -1767,13 +2597,11 @@ defmodule RustQ.Meta.Lower do
 
   defp lower_match_pattern(atom, _case_type) when is_atom(atom), do: %AST.PatAtomGuard{name: atom}
 
-  defp lower_match_pattern({:{}, _, values}, _case_type) do
-    %AST.PatTuple{patterns: Enum.map(values, &lower_tuple_pattern/1)}
-  end
+  defp lower_match_pattern({:{}, _, values}, case_type),
+    do: lower_tuple_match_pattern(values, case_type)
 
-  defp lower_match_pattern({left, right}, _case_type) do
-    %AST.PatTuple{patterns: Enum.map([left, right], &lower_tuple_pattern/1)}
-  end
+  defp lower_match_pattern({left, right}, case_type),
+    do: lower_tuple_match_pattern([left, right], case_type)
 
   defp lower_match_pattern(other, _case_type) do
     Diagnostic.lower(
@@ -1794,32 +2622,39 @@ defmodule RustQ.Meta.Lower do
     end)
   end
 
-  defp lower_list_pattern(pattern, %Type{} = type) do
+  defp lower_list_pattern(pattern, type) do
     {elements, rest} = split_list_pattern(pattern)
-    inner = Type.vec_inner(type)
+    inner = type && list_item_type(type)
 
     %AST.PatSlice{
-      patterns: Enum.map(elements, &lower_match_pattern(&1, inner)),
-      rest: if(rest, do: lower_match_pattern(rest, Type.slice_ref(inner)))
+      patterns: Enum.map(elements, &lower_tuple_element_pattern(&1, inner)),
+      rest: if(rest, do: lower_match_pattern(rest, inner && Type.slice_ref(inner)))
     }
   end
 
-  defp lower_tuple_pattern({name, _, context}) when is_atom(name) and is_atom(context),
-    do: %AST.PatVar{name: name}
+  defp list_item_type(%Type{} = type), do: Type.vec_inner(type) || Type.slice_inner(type)
 
-  defp lower_tuple_pattern({:{}, _, patterns}),
-    do: %AST.PatTuple{patterns: Enum.map(patterns, &lower_tuple_pattern/1)}
+  # Each element is a pattern of its own, such as `{:some, Kind.PLAIN}`.
+  defp lower_tuple_match_pattern(values, case_type) do
+    types =
+      case case_type && Type.expected_value(case_type) do
+        %Type{kind: :tuple, meta: %{elements: elements}}
+        when length(elements) == length(values) ->
+          elements
 
-  defp lower_tuple_pattern({:_, _, _}), do: %AST.PatWildcard{}
+        _unknown ->
+          List.duplicate(nil, length(values))
+      end
 
-  defp lower_tuple_pattern(patterns) when is_tuple(patterns),
-    do: %AST.PatTuple{patterns: patterns |> Tuple.to_list() |> Enum.map(&lower_tuple_pattern/1)}
+    %AST.PatTuple{patterns: Enum.zip_with(values, types, &lower_tuple_element_pattern/2)}
+  end
 
-  defp lower_tuple_pattern(value) when is_binary(value) or is_integer(value),
-    do: %AST.PatLiteral{value: value}
+  # A variable binds the whole element, whatever its type.
+  defp lower_tuple_element_pattern({name, _, context} = pattern, _type)
+       when is_atom(name) and is_atom(context),
+       do: lower_match_pattern(pattern, nil)
 
-  defp lower_tuple_pattern(nil), do: %AST.PatNone{}
-  defp lower_tuple_pattern(atom) when is_atom(atom), do: %AST.PatAtomGuard{name: atom}
+  defp lower_tuple_element_pattern(pattern, type), do: lower_match_pattern(pattern, type)
 
   defp mark_mutable_pattern_vars(%AST.PatVar{name: name} = pattern, mutable_vars) do
     if MapSet.member?(mutable_vars, name), do: %{pattern | mutable: true}, else: pattern
@@ -1870,6 +2705,15 @@ defmodule RustQ.Meta.Lower do
             parts: alias_parts(receiver, context.rust_modules) ++ [field_or_function]
           },
           args: []
+        }
+
+      field_or_function == :into_iter ->
+        receiver_type =
+          infer_expr_type(receiver, context.vars) || Typing.synth(receiver, typing_env(context))
+
+        %AST.MethodCall{
+          receiver: lower_dot_receiver(receiver, :into_iter, context),
+          method: borrowed_iteration(:into_iter, [], receiver_type)
         }
 
       true ->
@@ -1927,7 +2771,7 @@ defmodule RustQ.Meta.Lower do
 
         %AST.MethodCall{
           receiver: lower_method_receiver(receiver, receiver_type, function, context),
-          method: function,
+          method: borrowed_iteration(function, args, receiver_type),
           args: lower_method_call_args(receiver_type, target, function, args, context)
         }
     end
@@ -2016,9 +2860,24 @@ defmodule RustQ.Meta.Lower do
 
     case Type.vec_inner(receiver_type) do
       %Type{} = inner -> lower_args_with_expected([inner], [arg], context)
+      nil -> [lower_wrapper_arg_expr(arg, context)]
+    end
+  end
+
+  # Extending a vector takes items of its type.
+  defp lower_method_call_args(%Type{} = receiver_type, _target, :extend, [arg], context) do
+    vec_type = Type.ref_inner(receiver_type) || receiver_type
+
+    case Type.vec_inner(vec_type) do
+      %Type{} = inner -> lower_args_with_expected([Type.vec(inner)], [arg], context)
       nil -> [lower_expr(arg, context)]
     end
   end
+
+  # Pushing a call that fails as the function does keeps its value, as Elixir would, when the
+  # vector's item type is not known yet.
+  defp lower_method_call_args(nil, _target, :push, [arg], %Context{} = context),
+    do: [lower_wrapper_arg_expr(arg, context)]
 
   defp lower_method_call_args(
          %Type{} = receiver_type,
@@ -2200,6 +3059,33 @@ defmodule RustQ.Meta.Lower do
   defp rust_module_name?(<<"_", _rest::binary>>), do: true
   defp rust_module_name?(_name), do: false
 
+  # Iterating a borrowed collection with `into_iter` is `iter`.
+  defp borrowed_iteration(:into_iter, [], nil), do: :into_iter
+
+  defp borrowed_iteration(:into_iter, [], %Type{} = receiver_type) do
+    if slice_type?(receiver_type) or receiver_type.kind in [:ref, :mut_ref],
+      do: if(receiver_type.kind == :mut_ref, do: :iter_mut, else: :iter),
+      else: :into_iter
+  end
+
+  defp borrowed_iteration(function, _args, _receiver_type), do: function
+
+  # The variant a tagged tuple or atom names, with its payloads and their declared types.
+  defp rust_enum_variant(pattern, %Type{meta: %{variants: variants}}) do
+    {tag, payloads} =
+      case pattern do
+        tag when is_atom(tag) -> {tag, []}
+        {:{}, _, [tag | payloads]} -> {tag, payloads}
+        {tag, payload} -> {tag, [payload]}
+        _other -> {nil, []}
+      end
+
+    case is_atom(tag) && List.keyfind(variants, tag, 0) do
+      {^tag, types} -> {tag, payloads, types}
+      _missing -> nil
+    end
+  end
+
   defp callable_target_from_type(%Type{} = type), do: Type.callable_target(type)
   defp callable_target_from_type(_type), do: nil
 
@@ -2230,6 +3116,20 @@ defmodule RustQ.Meta.Lower do
 
   defp lower_pipe(left, right, %Context{} = context),
     do: lower_pipe(left, right, nil, context)
+
+  # Piping into a function the module can call passes the value as its first argument, as
+  # in Elixir; piping into any other name calls a method on the value.
+  defp lower_pipe(left, {name, meta, args}, expected_type, %Context{} = context)
+       when is_atom(name) and is_list(args) and name not in [:cast] do
+    call =
+      if BindingIndex.get(context.callables, nil, name, length(args) + 1),
+        do: {name, meta, [left | args]},
+        else: {{:., meta, [left, name]}, meta, args}
+
+    if expected_type,
+      do: lower_expr(call, expected_type, context),
+      else: lower_expr(call, context)
+  end
 
   defp lower_pipe(left, right, expected_type, %Context{} = context) do
     case Call.pipe_remote(left, right) do
@@ -2313,6 +3213,7 @@ defmodule RustQ.Meta.Lower do
     context = %{
       closure_context(args, context)
       | return_type: closure_return_type(expected_type),
+        scope_return_type: closure_return_type(expected_type),
         position: :expr
     }
 
@@ -2340,14 +3241,41 @@ defmodule RustQ.Meta.Lower do
 
   defp lower_closure_args(args, body, %Context{} = context, expected_return_type \\ nil)
        when is_list(args) do
-    context = closure_context(args, context)
-    context = %{context | return_type: expected_return_type, position: :expr}
+    {args, typed} = Enum.map_reduce(args, [], &untyped_closure_arg/2)
+
+    captured =
+      context.vars
+      |> Map.keys()
+      |> MapSet.new()
+      |> MapSet.union(context.captured)
+      |> MapSet.difference(MapSet.new(Enum.flat_map(args, &binding_pattern_names/1)))
+
+    context =
+      Enum.reduce(typed, closure_context(args, context), fn {arg, type}, context ->
+        context_with_match_pattern(arg, type, context)
+      end)
+
+    context = %{context | captured: captured}
+
+    context = %{
+      context
+      | return_type: expected_return_type,
+        scope_return_type: expected_return_type,
+        position: :expr
+    }
 
     %AST.Closure{
       args: Enum.map(args, &closure_arg!/1),
       body: lower_closure_body(body, expected_return_type, context)
     }
   end
+
+  # A closure argument may carry the type of the items it is given, as an element of the list
+  # an `Enum` function or comprehension iterates.
+  defp untyped_closure_arg({:__rustq_typed_arg__, _, [arg, %Type{} = type]}, typed),
+    do: {arg, [{arg, type} | typed]}
+
+  defp untyped_closure_arg(arg, typed), do: {arg, typed}
 
   defp lower_closure_body(
          {:__block__, _, [_first, _second | _rest] = expressions},
@@ -2373,6 +3301,14 @@ defmodule RustQ.Meta.Lower do
     Enum.map(statements, &lower_statement(&1, %{context | position: :statement})) ++
       [%AST.Return{expr: lower_expr(final, %{context | position: :return})}]
   end
+
+  defp map_type?(%Type{kind: kind} = type) when kind in [:ref, :mut_ref],
+    do: map_type?(Type.ref_inner(type))
+
+  defp map_type?(%Type{rust: rust}) when is_binary(rust),
+    do: String.starts_with?(rust, ["HashMap<", "BTreeMap<"])
+
+  defp map_type?(_type), do: false
 
   defp lower_function_capture({name, _, capture_context}, %Context{})
        when is_atom(name) and is_atom(capture_context),
@@ -2437,9 +3373,6 @@ defmodule RustQ.Meta.Lower do
         nil
     end
   end
-
-  defp method_chain(receiver, method, args \\ []),
-    do: %AST.MethodCall{receiver: receiver, method: method, args: args}
 
   defp macro_call_name?(name), do: name |> Atom.to_string() |> String.ends_with?("!")
 
@@ -2569,7 +3502,9 @@ defmodule RustQ.Meta.Lower do
   defp lower_semantic_pat(nil, %Context{}), do: %AST.PatNone{}
   defp lower_semantic_pat(:_, %Context{}), do: %AST.PatWildcard{}
   defp lower_semantic_pat({:_, _, _}, %Context{}), do: %AST.PatWildcard{}
-  defp lower_semantic_pat(other, %Context{}), do: lower_match_pattern(other, nil)
+
+  defp lower_semantic_pat(other, %Context{} = context),
+    do: lower_match_pattern(other, nil, context)
 
   defp lower_semantic_pat_fields(fields, %Context{} = context) when is_list(fields) do
     Enum.map(fields, fn {name, pattern} -> {name, lower_semantic_pat(pattern, context)} end)
@@ -2671,6 +3606,51 @@ defmodule RustQ.Meta.Lower do
     %AST.Path{parts: parts ++ [rust_variant(semantic_atom!(variant))]}
   end
 
+  # The struct a type declaration of this module, or of a callable module, names `name`.
+  defp declared_struct_type({:__aliases__, _, [name]}, %Context{type_aliases: aliases}) do
+    rust_name = Atom.to_string(name)
+
+    Enum.find_value(aliases, fn
+      {_key, %Type{kind: :struct, ast: %AST.TypePath{parts: [part]}} = type} ->
+        if to_string(part) == rust_name, do: type
+
+      _other ->
+        nil
+    end)
+  end
+
+  defp declared_struct_type(_path, %Context{}), do: nil
+
+  # A closure may run once per item, so a value it captures is copied rather than moved.
+  defp clone_captured(lowered, {name, _, ast_context}, %Context{captured: captured})
+       when is_atom(name) and is_atom(ast_context) do
+    if MapSet.member?(captured, name),
+      do: %AST.MethodCall{receiver: lowered, method: :clone, args: []},
+      else: lowered
+  end
+
+  defp clone_captured(lowered, _base, _context), do: lowered
+
+  # `%{value | field: new}` copies the struct with the listed fields replaced.
+  defp lower_struct_update(base, fields, %Context{} = context) do
+    case infer_expr_type(base, context.vars) || Typing.synth(base, typing_env(context)) do
+      %Type{kind: :struct, ast: %AST.TypePath{parts: parts}} = type ->
+        %AST.StructLiteral{
+          path: %AST.Path{parts: parts},
+          fields: lower_named_fields(fields, type, context),
+          base: base |> lower_expr(type, context) |> clone_captured(base, context)
+        }
+
+      _unknown ->
+        Diagnostic.lower(
+          :unsupported_struct_update,
+          base,
+          "struct update needs a value of a known struct type",
+          suggestion: "Annotate the value's struct type in the function's @spec."
+        )
+    end
+  end
+
   defp lower_named_fields(fields, %Context{} = context) when is_list(fields) do
     Enum.map(fields, fn {name, expression} -> {name, lower_expr(expression, context)} end)
   end
@@ -2755,7 +3735,8 @@ defmodule RustQ.Meta.Lower do
         callable_argument_types(callables, target, function, arity)
       end,
       target_type: &callable_target_from_type/1,
-      method_receiver_type: &method_receiver_type(&1, &2, callables)
+      method_receiver_type: &method_receiver_type(&1, &2, callables),
+      struct_type: &declared_struct_type(&1, context)
     }
   end
 
@@ -2809,10 +3790,42 @@ defmodule RustQ.Meta.Lower do
       %AST.Let{pattern: %AST.PatVar{name: name}} = let ->
         %{let | mutable: MapSet.member?(mutable_vars, name)}
 
+      %AST.Let{pattern: %AST.PatTuple{} = pattern} = let ->
+        %{let | pattern: mark_mutable_pattern_vars(pattern, mutable_vars)}
+
+      %AST.Closure{args: args, body: closure_body} = closure ->
+        %{closure | args: mutable_closure_args(args, closure_body)}
+
       other ->
         other
     end)
   end
+
+  # A closure argument its body changes, such as a fold accumulator, is bound `mut`.
+  defp mutable_closure_args(args, body) do
+    mutated = body |> collect_mutable_let_refs() |> MapSet.new()
+
+    Enum.map(args, fn
+      name when is_atom(name) ->
+        if MapSet.member?(mutated, name), do: %AST.PatVar{name: name, mutable: true}, else: name
+
+      pattern ->
+        pattern
+    end)
+  end
+
+  # The variable a statement-level method chain starts from, when its first method changes
+  # its receiver, as in `map.entry(key).or_default().push(value)`.
+  defp mutated_chain_root(%AST.MethodCall{receiver: %AST.Var{name: name}, method: method}),
+    do: if(mutating_method?(method), do: name)
+
+  defp mutated_chain_root(%AST.MethodCall{receiver: receiver}), do: mutated_chain_root(receiver)
+  defp mutated_chain_root(_expression), do: nil
+
+  @doc false
+  @spec mutating_method?(atom()) :: boolean()
+  def mutating_method?(method),
+    do: method in @mutating_methods or String.ends_with?(Atom.to_string(method), "_mut")
 
   defp rebound_or_borrowed?(body, name) do
     Walk.reduce(body, false, fn
@@ -2866,15 +3879,45 @@ defmodule RustQ.Meta.Lower do
 
   defp collect_mutable_let_refs(term) do
     Walk.reduce(term, [], fn
-      %AST.ExprStmt{expr: %AST.MethodCall{receiver: %AST.Var{name: name}}}, acc -> [name | acc]
-      %AST.Assign{target: %AST.Var{name: name}}, acc -> [name | acc]
-      %AST.AssignOp{target: %AST.Var{name: name}}, acc -> [name | acc]
-      %AST.Assign{target: %AST.Index{receiver: %AST.Var{name: name}}}, acc -> [name | acc]
-      %AST.AssignOp{target: %AST.Index{receiver: %AST.Var{name: name}}}, acc -> [name | acc]
-      %AST.Assign{target: %AST.Field{receiver: %AST.Var{name: name}}}, acc -> [name | acc]
-      %AST.AssignOp{target: %AST.Field{receiver: %AST.Var{name: name}}}, acc -> [name | acc]
-      %AST.Ref{mutable: true, expr: %AST.Var{name: name}}, acc -> [name | acc]
-      _other, acc -> acc
+      %AST.ExprStmt{expr: %AST.MethodCall{receiver: %AST.Var{name: name}}}, acc ->
+        [name | acc]
+
+      %AST.ExprStmt{expr: %AST.MethodCall{} = call}, acc ->
+        case mutated_chain_root(call) do
+          nil -> acc
+          name -> [name | acc]
+        end
+
+      %AST.Assign{target: %AST.Var{name: name}}, acc ->
+        [name | acc]
+
+      %AST.AssignOp{target: %AST.Var{name: name}}, acc ->
+        [name | acc]
+
+      %AST.Assign{target: %AST.Index{receiver: %AST.Var{name: name}}}, acc ->
+        [name | acc]
+
+      %AST.AssignOp{target: %AST.Index{receiver: %AST.Var{name: name}}}, acc ->
+        [name | acc]
+
+      %AST.Assign{target: %AST.Field{receiver: %AST.Var{name: name}}}, acc ->
+        [name | acc]
+
+      %AST.AssignOp{target: %AST.Field{receiver: %AST.Var{name: name}}}, acc ->
+        [name | acc]
+
+      %AST.Ref{mutable: true, expr: %AST.Var{name: name}}, acc ->
+        [name | acc]
+
+      # A changing method used as a value, as in `if seen.insert(key)`.
+      %AST.MethodCall{} = call, acc ->
+        case mutated_chain_root(call) do
+          nil -> acc
+          name -> [name | acc]
+        end
+
+      _other, acc ->
+        acc
     end)
   end
 

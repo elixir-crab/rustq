@@ -33,6 +33,7 @@ defmodule RustQ.Meta.Typing do
             | :propagate
             | :some
             | :to_vec
+            | :deref
             | :borrow
             | :mut_borrow
             | :propagate_borrow
@@ -101,6 +102,17 @@ defmodule RustQ.Meta.Typing do
     end
   end
 
+  # A struct update has the type of the struct it updates.
+  def synth({:%{}, _meta, [{:|, _, [base, fields]}]}, %Env{} = env) when is_list(fields),
+    do: synth(base, env)
+
+  def synth({:ref, _meta, [expression]}, %Env{} = env) do
+    case synth(expression, env) do
+      %Type{} = type -> Type.ref(type)
+      nil -> nil
+    end
+  end
+
   def synth({:deref, _meta, [expression]}, %Env{} = env) do
     case synth(expression, env) do
       %Type{} = type -> Type.ref_inner(type)
@@ -118,9 +130,16 @@ defmodule RustQ.Meta.Typing do
   def synth({:|>, _meta, [left, right]}, %Env{} = env) do
     case Call.pipe_remote(left, right) do
       {:ok, call} -> synth(call, env)
-      :unsupported -> nil
+      :unsupported -> synth_piped_call(left, right, env)
     end
   end
+
+  # A tuple of expressions whose types are all known, such as a `case` on `{left, right}`.
+  def synth({left, right}, %Env{} = env) when not is_atom(left),
+    do: synth_tuple([left, right], env)
+
+  def synth({:{}, _meta, [first | _rest] = elements}, %Env{} = env) when not is_atom(first),
+    do: synth_tuple(elements, env)
 
   def synth(call_ast, %Env{} = env) do
     case synth_stdlib(call_ast, env) do
@@ -193,7 +212,24 @@ defmodule RustQ.Meta.Typing do
         {name, inferred_binding_type(type, Map.get(rhs_types, name))}
       end)
 
-    Map.merge(rhs_types, inferred_types)
+    # An option or result nothing downstream unwraps stays one, unless the binding's type is
+    # already known.
+    wrapped_types =
+      expressions
+      |> Enum.flat_map(&let_rhs_type(&1, env))
+      |> Map.new()
+      |> Map.filter(fn {name, type} ->
+        Type.propagates?(type) and not Map.has_key?(env.vars, name)
+      end)
+
+    wrapped_types
+    |> Map.merge(rhs_types)
+    |> Map.merge(inferred_types)
+  end
+
+  defp synth_tuple(elements, %Env{} = env) do
+    types = Enum.map(elements, &synth(&1, env))
+    if Enum.all?(types, &match?(%Type{}, &1)), do: Type.tuple(types)
   end
 
   defp stdlib_type_context(%Env{} = env) do
@@ -237,9 +273,11 @@ defmodule RustQ.Meta.Typing do
       %Type{} = type ->
         inner = Type.ref_inner(type) || type
 
-        case inner.ast do
-          %AST.TypePath{parts: [:String], generics: []} -> inner
-          %AST.TypeVec{} -> inner
+        case inner do
+          %Type{ast: %AST.TypePath{parts: [:String], generics: []}} -> inner
+          %Type{ast: %AST.TypeVec{}} -> inner
+          # Cloning a borrowed struct or option gives an owned one.
+          %Type{kind: kind} when kind in [:struct, :option, :tuple, :enum, :alias] -> inner
           _ -> nil
         end
 
@@ -267,6 +305,48 @@ defmodule RustQ.Meta.Typing do
     |> option_unwrap_type()
   end
 
+  # An option chained with another keeps its type.
+  defp synth_method_call({{:., _, [receiver, method]}, _meta, [_other]}, %Env{} = env)
+       when method in [:or, :or_else, :xor] do
+    case synth(receiver, env) do
+      %Type{kind: :option} = option -> option
+      _unknown -> nil
+    end
+  end
+
+  defp synth_method_call({{:., _, [_receiver, :to_string]}, _meta, []}, %Env{}),
+    do: RustQ.Spec.type(quote(do: String.t()))
+
+  defp synth_method_call({{:., _, [receiver, :as_slice]}, _meta, []}, %Env{} = env) do
+    with %Type{} = type <- synth(receiver, env),
+         %Type{} = item <- Type.vec_inner(type) || borrowed_vec_inner(type) do
+      Type.slice_ref(item)
+    else
+      _unknown -> nil
+    end
+  end
+
+  defp synth_method_call({{:., _, [receiver, :to_vec]}, _meta, []}, %Env{} = env) do
+    with %Type{} = type <- synth(receiver, env),
+         %Type{} = item <-
+           Type.slice_inner(type) || Type.vec_inner(type) || borrowed_vec_inner(type) do
+      Type.vec(item)
+    else
+      _unknown -> nil
+    end
+  end
+
+  defp synth_method_call({{:., _, [receiver, method]}, _meta, []}, %Env{} = env)
+       when method in [:copied, :cloned] do
+    with %Type{kind: :option} = option <- synth(receiver, env),
+         %Type{} = inner <- Type.inner(option),
+         %Type{} = value <- Type.ref_inner(inner) do
+      option_type(value)
+    else
+      _unknown -> nil
+    end
+  end
+
   defp synth_method_call({{:., _, [receiver, :as_ref]}, _meta, []}, %Env{} = env) do
     receiver
     |> synth(env)
@@ -283,15 +363,33 @@ defmodule RustQ.Meta.Typing do
     do: result_type(RustQ.Spec.type(quote(do: String.t())))
 
   defp synth_method_call({{:., _, [receiver, :get]}, _meta, [_index]}, %Env{} = env) do
-    receiver
-    |> synth(env)
-    |> slice_get_type()
+    case synth(receiver, env) do
+      %Type{} = type -> slice_get_type(type) || map_get_type(type)
+      nil -> nil
+    end
+  end
+
+  defp synth_method_call(
+         {{:., _, [receiver, :and_then]}, _meta,
+          [{:fn, _, [{:->, _, [[{name, _, context}], body]}]}]},
+         %Env{} = env
+       )
+       when is_atom(name) and is_atom(context) do
+    with %Type{kind: :option} = option <- synth(receiver, env),
+         %Type{} = inner <- Type.inner(option),
+         %Type{kind: :option} = chained <-
+           synth(body, %{env | vars: Map.put(env.vars, name, inner)}) do
+      chained
+    else
+      _unknown -> nil
+    end
   end
 
   defp synth_method_call({{:., _, [receiver, :first]}, _meta, []}, %Env{} = env) do
-    receiver
-    |> synth(env)
-    |> slice_get_type()
+    case synth(receiver, env) do
+      %Type{} = type -> slice_get_type(type)
+      nil -> nil
+    end
   end
 
   defp synth_method_call({{:., _, [receiver, :map_get]}, _meta, [_key]}, %Env{} = env) do
@@ -361,13 +459,48 @@ defmodule RustQ.Meta.Typing do
 
   defp field_receiver_type(%Type{} = type), do: Type.ref_inner(type) || type
 
+  # A pipe into a call that is not the module's own function calls the method on the value, as
+  # lowering does.
+  defp synth_piped_call(left, {name, meta, args}, %Env{} = env)
+       when is_atom(name) and is_list(args) do
+    Lower.callable_return_type(
+      {name, meta, [left | args]},
+      callables: env.callables,
+      rust_modules: env.rust_modules,
+      vars: env.vars
+    ) || synth_method_call({{:., meta, [left, name]}, meta, args}, env)
+  end
+
+  defp synth_piped_call(_left, _right, %Env{}), do: nil
+
+  defp map_get_type(%Type{} = type) do
+    case Type.expected_value(Type.ref_inner(type) || type) do
+      %Type{ast: %AST.TypePath{parts: [map], generics: [_key, value]}}
+      when map in [:HashMap, :BTreeMap] ->
+        option_type(ref_type(Type.ast_type(value)))
+
+      _other ->
+        nil
+    end
+  end
+
   defp slice_get_type(%Type{} = type) do
     cond do
       inner = Type.vec_inner(type) -> option_type(ref_type(inner))
+      inner = borrowed_vec_inner(type) -> option_type(ref_type(inner))
       inner = Type.slice_inner(type) -> option_type(ref_type(inner))
       true -> nil
     end
   end
+
+  defp borrowed_vec_inner(%Type{kind: kind} = type) when kind in [:ref, :mut_ref] do
+    case Type.ref_inner(type) do
+      %Type{} = vec -> Type.vec_inner(vec)
+      nil -> nil
+    end
+  end
+
+  defp borrowed_vec_inner(%Type{}), do: nil
 
   defp ref_type(%Type{} = inner), do: Type.ref(inner)
   defp option_type(%Type{} = inner), do: Type.option(inner)
@@ -501,11 +634,30 @@ defmodule RustQ.Meta.Typing do
   defp value_coercion(actual, expected) do
     cond do
       expected.kind == :option and Type.compatible?(actual, Type.inner(expected)) -> :some
+      copy_deref_compatible?(actual, expected) -> :deref
       ref_inner_compatible?(actual, expected) -> borrow_coercion(expected)
       vec_slice_compatible?(actual, expected) -> :borrow
       slice_vec_compatible?(actual, expected) -> :to_vec
       Type.compatible_with_expected?(actual, expected) -> :none
       true -> nil
+    end
+  end
+
+  # A borrowed number, boolean, or tuple of them is copied out where its value is expected.
+  defp copy_deref_compatible?(%Type{kind: :ref} = actual, %Type{} = expected) do
+    case Type.ref_inner(actual) do
+      %Type{} = inner -> copy?(expected) and Type.compatible?(inner, expected)
+      nil -> false
+    end
+  end
+
+  defp copy_deref_compatible?(_actual, _expected), do: false
+
+  defp copy?(%Type{} = type) do
+    case Type.category(Type.expected_value(type)) do
+      category when category in [:number, :integer, :boolean, :enum] -> type.kind != :rust_enum
+      {:tuple, elements} -> Enum.all?(elements, &copy?/1)
+      _other -> false
     end
   end
 

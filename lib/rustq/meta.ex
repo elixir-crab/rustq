@@ -237,7 +237,6 @@ defmodule RustQ.Meta do
                :rustq_stub_keys
              ) do
         @rustq_stub_keys unquote(escaped_stub_key)
-        @doc false
 
         defp unquote(name)(unquote_splicing(stub_args)),
           do: :erlang.nif_error(:rustq_defrust_stub)
@@ -375,9 +374,25 @@ defmodule RustQ.Meta do
       |> Enum.reverse()
       |> normalize_definitions()
 
+    reject_rust_name_collisions!(defs)
+
     macro_defs = Module.get_attribute(env.module, :rustq_macros) |> List.wrap() |> Enum.reverse()
-    specs = Module.get_attribute(env.module, :spec) |> List.wrap()
-    type_aliases = env.module |> Module.get_attribute(:type) |> Type.type_aliases()
+    imported_by_module = Source.external_type_aliases(env.module)
+    imported_types = imported_by_module |> Map.values() |> Enum.reduce(%{}, &Map.merge(&2, &1))
+
+    specs =
+      Module.get_attribute(env.module, :spec)
+      |> List.wrap()
+      |> localize_imported_types(imported_by_module, env)
+
+    own_type_aliases =
+      (List.wrap(Module.get_attribute(env.module, :type)) ++
+         List.wrap(Module.get_attribute(env.module, :typep)))
+      |> localize_imported_types(imported_by_module, env)
+      |> Type.type_aliases(imported_types)
+
+    type_aliases = Map.merge(imported_types, own_type_aliases)
+
     rust_modules = env.module |> Module.get_attribute(:rustq_mod_aliases) |> rust_module_map()
     local_callables = AST.callables_from_specs(specs, type_aliases)
     external_callables = Source.external_callables(env.module)
@@ -410,9 +425,56 @@ defmodule RustQ.Meta do
       built_macros: RustMacro.items(rust_macros, rust_modules, env, callables, rust_macro_index),
       local_callables: local_callables,
       rust_macros: rust_macros,
-      type_aliases: type_aliases,
+      type_aliases: own_type_aliases,
       rust_modules: rust_modules
     }
+  end
+
+  # A callable module's type, written remotely as `Other.tree()` since Elixir checks local
+  # types, is read as the local `tree()` its declarations make available.
+  defp localize_imported_types(entries, imported_by_module, _env) when imported_by_module == %{},
+    do: entries
+
+  defp localize_imported_types(entries, imported_by_module, env) do
+    Enum.map(entries, fn {kind, ast, location} ->
+      {kind, Macro.prewalk(ast, &localize_imported_type(&1, imported_by_module, env)), location}
+    end)
+  end
+
+  defp localize_imported_type(
+         {{:., _, [{:__aliases__, _, _} = alias_ast, name]}, meta, args} = remote,
+         imported_by_module,
+         env
+       )
+       when is_atom(name) and is_list(args) do
+    types = Map.get(imported_by_module, Macro.expand(alias_ast, env), %{})
+    if Map.has_key?(types, {name, length(args)}), do: {name, meta, args}, else: remote
+  end
+
+  defp localize_imported_type(ast, _imported_by_module, _env), do: ast
+
+  # Rust drops an Elixir predicate's `?`, so `live?` and `live` would both name `live`.
+  defp reject_rust_name_collisions!(definitions) do
+    definitions
+    |> Enum.map(fn {call_ast, _body, _attrs, rust_module, rust_impl} ->
+      {name, _args} = call_name_args!(call_ast)
+      {name, rust_module, rust_impl}
+    end)
+    |> Enum.uniq()
+    |> Enum.group_by(
+      fn {name, rust_module, rust_impl} ->
+        {name |> Atom.to_string() |> String.trim_trailing("?"), rust_module, rust_impl}
+      end,
+      &elem(&1, 0)
+    )
+    |> Enum.each(fn
+      {_rust_name, [_one]} ->
+        :ok
+
+      {{rust_name, _module, _impl}, names} ->
+        raise ArgumentError,
+              "#{Enum.map_join(names, " and ", &inspect/1)} both become the Rust function #{rust_name}"
+    end)
   end
 
   defp normalize_definitions(definitions) do

@@ -8,6 +8,7 @@ mod parse_item;
 mod parse_type;
 mod syn_metadata;
 mod template;
+mod unstable_syntax;
 
 pub(crate) use decode::*;
 pub(crate) use parse::*;
@@ -51,6 +52,11 @@ fn render_ast(ast: Term) -> NifResult<String> {
 #[rustler::nif(schedule = "DirtyCpu")]
 fn syn_inspect<'a>(env: Env<'a>, source: String) -> NifResult<Term<'a>> {
     syn_metadata::inspect_source(env, source)
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
+fn syn_inspect_unstable<'a>(env: Env<'a>, source: String) -> NifResult<Term<'a>> {
+    syn_metadata::inspect_unstable_source(env, source)
 }
 
 #[rustler::nif(schedule = "DirtyCpu")]

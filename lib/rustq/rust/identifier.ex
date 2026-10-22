@@ -27,7 +27,10 @@ defmodule RustQ.Rust.Identifier do
     end
   end
 
-  @doc "Returns whether a string is a plain Rust identifier accepted by `atom!/1`."
+  @doc """
+  Returns whether a string is a Rust identifier accepted by `atom!/1`. An Elixir predicate
+  name such as `live?` is accepted; rendering drops its `?`.
+  """
   @spec valid?(String.t()) :: boolean()
   def valid?(<<first, rest::binary>>) when first in ?A..?Z or first in ?a..?z,
     do: valid_tail?(rest)
@@ -38,6 +41,8 @@ defmodule RustQ.Rust.Identifier do
   defp valid_identifier?(value), do: byte_size(value) <= @max_bytes and valid?(value)
 
   defp valid_tail?(<<>>), do: true
+  # An Elixir predicate's `?`, which Rust names drop.
+  defp valid_tail?("?"), do: true
 
   defp valid_tail?(<<char, rest::binary>>)
        when char in ?A..?Z or char in ?a..?z or char in ?0..?9,

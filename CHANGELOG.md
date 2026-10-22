@@ -1,5 +1,153 @@
 # Changelog
 
+## 1.0.0 - 2026-10-22
+
+### Added
+
+- Lower comprehensions with several generators, filters, and patterns that can
+  fail to match. As a value, a comprehension becomes an iterator pipeline that
+  collects into the expected type, so `into:` works by the target type; run for
+  its effects, it becomes nested `for` loops with `if let` and `if`.
+- Lower `&fun/1` captures in any expression, not only inside `Enum` calls, and
+  `&(&1 + 1)` shorthand to a closure, including as an `Enum` mapper.
+- Lower `container[key]` to Rust indexing, borrowing the key for a map, also
+  through a reference to one.
+- A spec's `%{key => value}` with one key type is a `HashMap`, as
+  `HashMap.t(key, value)` is.
+- Match constants such as `Kind.PLAIN` in patterns, resolved through the
+  module's Rust module aliases, and `true` or `false` in `with` clauses.
+- Add `R.ref/2` and `R.mut_ref/2` for references with a named lifetime, as in
+  `R.ref(Record.t(), R.lifetime(:a))`, which a function returning a reference
+  borrowed from one of several reference arguments needs.
+- Add `R.hashable(type)` for a declared struct or enum that also derives
+  `PartialEq`, `Eq`, and `Hash`, so it can key a map or set.
+- Build and match `R.enum` values with tagged tuples, as in Elixir:
+  `{:float, value}` is `Literal::Float(value)` and `:missing` is
+  `Literal::Missing` wherever the enum is expected or matched, including
+  through a reference and inside a type that refers to itself.
+- Generate Rust-only types from `@typep`: the struct, enum, or alias without
+  the term decoder a `@type` gets, so it may hold values without a term codec.
+- Lower `%{value | field: new}` on a struct to Rust's struct update syntax,
+  `Struct { field: new, ..value }`, including on the items a comprehension or
+  `Enum` function's closure is given; a struct a closure captures is cloned.
+- Closures that a comprehension or `Enum.map`, `flat_map`, `each`, `reduce`,
+  `any?`, or `all?` gives a typed list's items know their type.
+- A later generator over a list from outside the comprehension copies its
+  items, so `for x <- xs, y <- ys` compiles without cloning `ys` by hand.
+- Add `R.slice(type, R.lifetime(:a))` for a slice with a named lifetime.
+- An atom where an atom-union type such as `:small | :large` is expected names
+  the enum variant, as patterns already did, including fields of a
+  `struct_literal` whose struct the module declares.
+- A module may use the types its `callable_modules` declare, written remotely
+  as `Other.tree()` since Elixir checks local types; they keep their single
+  Rust declaration in the module that declares them.
+- `RustQ.Syn` describes traits, as `RustQ.Syn.Trait` with their associated types
+  and methods, and `RustQ.Syn.Index.traits/1` lists them. Impls carry their
+  type parameters' trait bounds and the associated types they define; methods
+  carry their attributes and type parameters' bounds. Impls also carry their
+  trait's structured path as `trait_ast`, and `negative` marks `impl !Trait`. `RustQ.Syn.parse(source, unstable: true)` reads source that
+  uses unstable syntax which does not change an item's signature, as the Rust
+  standard library does.
+
+### Changed
+
+- Which std methods mutate their receiver, return an iterator or an option,
+  belong to `Option` and `Result`, or belong to std collections is derived from
+  the Rust standard library's source rather than listed by hand, so lowering
+  knows every stable method, such as `push_back`, `retain_mut`, or `nth`.
+- A callable's arguments are `RustQ.Binding.Callable.Arg` structs rather than
+  bare maps with the same keys.
+- Piping into a function the module can call passes the value as its first
+  argument, as in Elixir. It used to call a method of that name on the value.
+- An Elixir predicate such as `live?` names the Rust function `live`; a module
+  defining both is rejected.
+
+### Fixed
+
+- Elements of a tuple pattern are full patterns, so `{{:some, Kind.PLAIN}, _}`
+  matches the constant inside the option.
+- A pipe into a name the module does not define lowers as that method call,
+  with the same argument types and borrows; a `let` bound to a `collect()`
+  states what it collects into, a `Vec` unless known.
+- A binding used through option methods such as `is_some` keeps its option
+  type, a vector's items are not taken for its success type, and methods
+  every collection has, such as `is_empty`, no longer type a binding as
+  whichever source type also defines them. `clone` of a borrowed struct and
+  `to_vec` are typed.
+- `ok(value)` lowers the value as the expected success type, so `ok(:ok)` is
+  `Ok(())`; tuple literals are typed when their elements are, so atom and
+  constant patterns match inside them.
+- Mark `mut` a tuple-destructured binding that changes, and an owned argument
+  changed through a field or borrowed with `mut_ref`. A field named like a
+  changing method, such as `layer.swap`, does not mark its struct `mut`.
+- Pushing a call that fails as the function does onto a vector of unknown
+  items propagates it; collecting where a slice is expected collects into a
+  vector and borrows it; an option or result binding nothing downstream
+  unwraps keeps its type.
+- Write the Rust Clippy expects: a comprehension over `values.iter()` does not
+  call `into_iter()` again, one that clones each item is `cloned()`,
+  `into_iter()` on a borrowed collection is `iter()`, and a statement `case`
+  whose other branch does nothing is an `if let`.
+- A closure `Option::map` or `and_then` takes lowers its body as the expected
+  option's value, so tagged tuples and atoms inside it name variants; an option
+  a closure maps, items collected, or an iterator's `next` is not wrapped in a
+  second `Some`. `or`, `or_else`, `as_slice` are typed.
+- Patterns in `with`, inside `{:some, _}`, and on slices take the type of what
+  they match, and a list pattern on a value of unknown type is a slice pattern.
+- Inference reads a struct literal's fields as the types the struct declares,
+  ignores uses after a pattern binds the same name again, and a comprehension
+  ignores item variables its body does not use.
+- A failed native render names atoms matched inside patterns no type resolved.
+- A borrowed number, boolean, or tuple of them passed where the value is
+  expected is copied out with `*`, and arithmetic on borrowed numbers is typed
+  as a number; `ref(value)` is typed as a reference, and `try_fold` in an
+  option-returning position is not wrapped in `Some`.
+- A comprehension whose collection type is known lowers its body as the item
+  type, so tagged tuples and atoms in it name variants, and `extend` on a
+  vector takes items of its type.
+- A `with` run for its effects whose `else` does nothing lowers to nested
+  `if let`s, with `true <- condition` as an `if`; variables a slice pattern
+  binds are typed as references to its elements.
+- Keep the grouping of nested operators: `a and (b or c)` rendered as
+  `a && b || c`, and `not (a or b)` as `!a || b`. Operands are parenthesized
+  by Rust's precedence.
+- A `cond` run for its effects lowers to `if` statements, and a comprehension
+  bound in a statement states what it collects into, a `Vec` unless known.
+- An explicitly borrowed argument is not borrowed again, and a method that
+  changes its receiver marks it `mut` wherever it is called.
+- Render words Rust reserves for future use, such as `override` and `yield`, as
+  raw identifiers, including function and closure arguments and local calls.
+- Compare two options or results without propagating either side, never
+  propagate literals, and type arithmetic on a propagated option as its value,
+  so `some(value + 1)` no longer wraps the sum in a second `?`.
+- Parenthesize a `?` applied to a compound expression; it used to bind only to
+  the last operand.
+- Mark a variable `mut` when a statement-level method chain starting with a
+  method that changes it, such as `map.entry(key).or_default().push(value)`,
+  uses it, and a closure argument its body changes, such as a fold accumulator.
+  An empty map or set bound with a known type states it, as Rust cannot infer
+  its value type through `entry(key).or_default()`.
+- Lower a `with` whose `else` is a lone catch-all to that fallback arm, rather
+  than a single-arm match on the unmatched value, and a borrowed list literal
+  to a borrowed array rather than a vector built for the borrow.
+- Patterns of unknown type drop the old types of the names they rebind, and a
+  `with` clause takes the type of a plain variable it matches, so a rebound
+  value is no longer propagated as the option it came from.
+- A `with` without `else` passes an unmatched `{:error, _}` or `nil` on as
+  the function's own `Err` or `None`, as Elixir returns the unmatched value.
+- Never propagate with `?` in a function or closure returning a plain value
+  such as a vector; the value stays wrapped there.
+- Type `get` on maps and on borrowed vectors, `and_then`, `copied`, `cloned`,
+  and methods reached through a pipe, so an option they return is no longer
+  wrapped in a second `Some`.
+- A function returning nothing runs its last expression as a statement, so a
+  trailing `if` or `for` no longer becomes a value such as a collected vector.
+- `ref([])` where a slice is expected borrows an empty array.
+- A type that refers to itself, such as a tree whose children are trees, names
+  its Rust type in its own fields.
+- Mark an owned argument `mut` for any method that changes it in place, such
+  as `retain` or `sort`, not only `push` and `insert`.
+
 ## 1.0.0-rc.11 - 2026-09-30
 
 ### Added

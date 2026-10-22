@@ -1,13 +1,9 @@
 defmodule RustQ.Meta.LowerCase do
   @moduledoc false
 
+  alias RustQ.Binding.Callable.Arg
   alias RustQ.Meta.Type
   alias RustQ.Rust.AST
-
-  defmodule Arg do
-    @moduledoc false
-    defstruct [:name, :type, :syn]
-  end
 
   def unit_type, do: %Type{kind: :unit, rust: "()", ast: %AST.TypeUnit{}}
 

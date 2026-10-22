@@ -4,14 +4,21 @@ use rustler::{Encoder, Env, NifResult, Term};
 use syn::visit::{self, Visit};
 use syn::{
     Attribute, Expr, ExprCall, ExprLit, ExprMethodCall, ExprPath, Fields, FnArg, GenericArgument,
-    ImplItem, Item, Lit, Macro, PathArguments, ReturnType, Type, TypeParamBound, UseTree,
-    Visibility,
+    ImplItem, Item, Lit, Macro, PathArguments, ReturnType, TraitItem, Type, TypeParamBound,
+    UseTree, Visibility,
 };
 
 use crate::{atoms, template_error};
 
 pub(crate) fn inspect_source<'a>(env: Env<'a>, source: String) -> NifResult<Term<'a>> {
     match syn::parse_file(&source) {
+        Ok(file) => Ok((atoms::ok(), items(env, file.items)).encode(env)),
+        Err(error) => Ok((atoms::error(), vec![template_error(error)]).encode(env)),
+    }
+}
+
+pub(crate) fn inspect_unstable_source<'a>(env: Env<'a>, source: String) -> NifResult<Term<'a>> {
+    match crate::unstable_syntax::parse_file(&source) {
         Ok(file) => Ok((atoms::ok(), items(env, file.items)).encode(env)),
         Err(error) => Ok((atoms::error(), vec![template_error(error)]).encode(env)),
     }
@@ -226,12 +233,51 @@ fn item_terms<'a>(env: Env<'a>, item: Item, module_path: Vec<String>) -> Vec<Ter
             type_string(&item.self_ty),
             type_metadata(env, &item.self_ty),
             item.trait_
+                .as_ref()
                 .map(|(_bang, path, _for)| path.to_token_stream().to_string()),
-            (line(item.impl_token.span), type_parameters(&item.generics)),
+            (
+                line(item.impl_token.span),
+                type_parameters(&item.generics),
+                type_parameter_bounds(&item.generics),
+                item.items
+                    .iter()
+                    .filter_map(|item| match item {
+                        ImplItem::Type(item) => {
+                            Some((item.ident.to_string(), type_metadata(env, &item.ty)))
+                        }
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>(),
+                item.trait_.as_ref().map(|(_bang, path, _for)| {
+                    path_type_metadata(env, path.to_token_stream().to_string(), path)
+                }),
+                matches!(&item.trait_, Some((Some(_bang), _path, _for))),
+            ),
             docs(&item.attrs),
             item.items
                 .into_iter()
                 .filter_map(|method| impl_method_term(env, method, &item.generics))
+                .collect::<Vec<_>>(),
+        )
+            .encode(env)],
+        Item::Trait(item) => vec![(
+            "trait",
+            item.ident.to_string(),
+            visibility(&item.vis),
+            line(item.ident.span()),
+            docs(&item.attrs),
+            item.items
+                .iter()
+                .filter_map(|item| match item {
+                    TraitItem::Type(item) => {
+                        Some((item.ident.to_string(), trait_names(&item.bounds)))
+                    }
+                    _ => None,
+                })
+                .collect::<Vec<_>>(),
+            item.items
+                .into_iter()
+                .filter_map(|method| trait_method_term(env, method, &item.generics))
                 .collect::<Vec<_>>(),
         )
             .encode(env)],
@@ -345,6 +391,57 @@ fn type_parameters(generics: &syn::Generics) -> Vec<String> {
         .collect()
 }
 
+/// The traits bounding each type parameter, inline or in the where clause, by the last
+/// segment of their path, as in `I: Iterator` for `I`.
+fn type_parameter_bounds(generics: &syn::Generics) -> Vec<(String, Vec<String>)> {
+    let where_bounds = generics
+        .where_clause
+        .iter()
+        .flat_map(|clause| clause.predicates.iter())
+        .filter_map(|predicate| match predicate {
+            syn::WherePredicate::Type(predicate) => match &predicate.bounded_ty {
+                Type::Path(path) if path.qself.is_none() => path
+                    .path
+                    .get_ident()
+                    .map(|ident| (ident.to_string(), &predicate.bounds)),
+                _ => None,
+            },
+            _ => None,
+        });
+
+    let inline_bounds = generics
+        .type_params()
+        .map(|param| (param.ident.to_string(), &param.bounds));
+
+    let mut bounds: Vec<(String, Vec<String>)> = generics
+        .type_params()
+        .map(|param| (param.ident.to_string(), Vec::new()))
+        .collect();
+
+    for (name, param_bounds) in inline_bounds.chain(where_bounds) {
+        if let Some((_name, traits)) = bounds.iter_mut().find(|(param, _)| *param == name) {
+            traits.extend(trait_names(param_bounds));
+        }
+    }
+
+    bounds
+}
+
+/// The traits among `bounds`, by the last segment of their path.
+fn trait_names<'b>(bounds: impl IntoIterator<Item = &'b TypeParamBound>) -> Vec<String> {
+    bounds
+        .into_iter()
+        .filter_map(|bound| match bound {
+            TypeParamBound::Trait(bound) => bound
+                .path
+                .segments
+                .last()
+                .map(|segment| segment.ident.to_string()),
+            _ => None,
+        })
+        .collect()
+}
+
 fn impl_method_term<'a>(
     env: Env<'a>,
     item: ImplItem,
@@ -364,6 +461,12 @@ fn impl_method_term<'a>(
                         type_parameters(&item.sig.generics),
                     ]
                     .concat(),
+                    attribute_names(&item.attrs),
+                    [
+                        type_parameter_bounds(generics),
+                        type_parameter_bounds(&item.sig.generics),
+                    ]
+                    .concat(),
                 ),
                 docs(&item.attrs),
                 item.sig
@@ -377,6 +480,56 @@ fn impl_method_term<'a>(
         ),
         _ => None,
     }
+}
+
+/// A trait's method, declared or provided, in the shape of an impl method; it takes the
+/// trait's visibility.
+fn trait_method_term<'a>(
+    env: Env<'a>,
+    item: TraitItem,
+    generics: &syn::Generics,
+) -> Option<Term<'a>> {
+    match item {
+        TraitItem::Fn(item) => Some(
+            (
+                "method",
+                item.sig.ident.to_string(),
+                "public",
+                (
+                    line(item.sig.ident.span()),
+                    item.sig.to_token_stream().to_string(),
+                    [
+                        type_parameters(generics),
+                        type_parameters(&item.sig.generics),
+                    ]
+                    .concat(),
+                    attribute_names(&item.attrs),
+                    [
+                        type_parameter_bounds(generics),
+                        type_parameter_bounds(&item.sig.generics),
+                    ]
+                    .concat(),
+                ),
+                docs(&item.attrs),
+                item.sig
+                    .inputs
+                    .into_iter()
+                    .map(|arg| function_arg(env, arg))
+                    .collect::<Vec<_>>(),
+                return_type(env, item.sig.output),
+            )
+                .encode(env),
+        ),
+        _ => None,
+    }
+}
+
+/// The paths of an item's attributes, as `stable` or `unstable`.
+fn attribute_names(attrs: &[Attribute]) -> Vec<String> {
+    attrs
+        .iter()
+        .map(|attr| attr.path().to_token_stream().to_string())
+        .collect()
 }
 
 fn line(span: proc_macro2::Span) -> usize {

@@ -25,6 +25,26 @@ defmodule RustQ.Binding.Source do
       callable_module_callables(module)
   end
 
+  @doc """
+  The type aliases declared by a module's callable modules, so its specs and types may name
+  them as their own.
+  """
+  @spec external_type_aliases(module()) :: %{module() => map()}
+  def external_type_aliases(module) when is_atom(module) do
+    module
+    |> Module.get_attribute(:rustq_callable_modules)
+    |> List.wrap()
+    |> List.flatten()
+    |> Enum.uniq()
+    |> Map.new(fn callable_module ->
+      callable_module_callables!(callable_module)
+
+      if function_exported?(callable_module, :__rustq_types__, 0),
+        do: {callable_module, callable_module.__rustq_types__()},
+        else: {callable_module, %{}}
+    end)
+  end
+
   @doc "Resolves external static item types configured on a `use RustQ.Meta` module."
   @spec external_static_types(module()) :: %{optional(atom()) => Type.t()}
   def external_static_types(module) when is_atom(module) do

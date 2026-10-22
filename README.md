@@ -56,6 +56,52 @@ fn sum_squares(arg1: Vec<i64>) -> i64 {
 }
 ```
 
+Data stays Elixir-shaped too. Types declare Rust structs and enums, tagged
+tuples build and match enum variants, and struct updates, comprehensions, and
+captures lower to their Rust counterparts:
+
+```elixir
+@typep shape :: R.enum(circle: [float()], square: [float()], empty: [])
+@typep item :: %{required(:shape) => shape(), required(:count) => integer()}
+
+@spec area(R.ref(shape())) :: float()
+defrust area({:circle, r}), do: 3.14159 * r * r
+defrust area({:square, side}), do: side * side
+defrust area(:empty), do: 0.0
+
+@spec restock([item()], integer()) :: [item()]
+defrust restock(items, extra) do
+  for item <- items, item.count > 0, do: %{item | count: item.count + extra}
+end
+```
+
+```rust
+fn area(arg1: &Shape) -> f64 {
+    match arg1 {
+        Shape::Circle(r) => 3.14159 * r * r,
+        Shape::Square(side) => side * side,
+        Shape::Empty => 0.0,
+    }
+}
+
+fn restock(items: Vec<Item>, extra: i64) -> Vec<Item> {
+    items
+        .into_iter()
+        .filter_map(|item| match item {
+            item if item.count > 0 => Some(item),
+            _ => None,
+        })
+        .map(|item| Item {
+            count: item.count + extra,
+            ..item
+        })
+        .collect()
+}
+```
+
+See [Model data as Elixir data](https://rustq.hexdocs.pm/using-rustq-well.html#model-data-as-elixir-data)
+for the rest.
+
 `RustQ.Type` extends normal typespecs with Rust-specific precision such as
 references, fixed-width numbers, lifetimes, slices, options, results, and
 `NifResult`. The same lowerer powers `defnif`, which additionally derives the
@@ -89,7 +135,7 @@ algorithms can stay in Rust while RustQ removes the repetitive boundary glue.
 ```elixir
 def deps do
   [
-    {:rustq, "~> 1.0.0-rc.11", runtime: false}
+    {:rustq, "~> 1.0", runtime: false}
   ]
 end
 ```

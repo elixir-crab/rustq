@@ -375,8 +375,15 @@ defmodule RustQ.Meta.AST do
   def build_type_asts(type_aliases) do
     type_aliases
     |> Map.values()
-    |> Enum.flat_map(&type_items/1)
+    |> Enum.flat_map(fn type -> type |> type_items() |> Enum.map(&with_hashable(&1, type)) end)
   end
+
+  # A type marked `R.hashable` compares and hashes, so it can key a map or set.
+  defp with_hashable(%item{derive: derive} = ast, %Type{meta: %{hashable: true}})
+       when item in [AST.Struct, AST.Enum],
+       do: %{ast | derive: Enum.uniq(derive ++ [:PartialEq, :Eq, :Hash])}
+
+  defp with_hashable(ast, _type), do: ast
 
   @doc false
   def group_items(built_asts, rust_modules \\ %{}) do
@@ -562,16 +569,29 @@ defmodule RustQ.Meta.AST do
 
     mutable =
       Macro.prewalk(body, MapSet.new(), fn
-        {{:., _, [{name, _, context}, method]}, _, method_args} = call, acc
+        {{:., _, [{name, _, context}, method]}, meta, method_args} = call, acc
         when is_atom(name) and (is_atom(context) or is_nil(context)) and is_atom(method) and
                is_list(method_args) ->
           type = Map.get(types, name)
 
-          if mutable_receiver?(type, method, length(method_args), callables) do
+          # A field such as `layer.swap` is not a call of the method of that name.
+          if not Keyword.get(meta, :no_parens, false) and
+               mutable_receiver?(type, method, length(method_args), callables) do
             {call, MapSet.put(acc, name)}
           else
             {call, acc}
           end
+
+        # A field changed in place, as in `record.claims.push(claim)`.
+        {{:., _, [{{:., _, [_, field]}, _, []} = receiver, method]}, _, method_args} = call, acc
+        when is_atom(field) and is_atom(method) and is_list(method_args) ->
+          {call, put_owned_root(acc, receiver, types, Lower.mutating_method?(method))}
+
+        {:mut_ref, _, [target]} = call, acc ->
+          {call, put_owned_root(acc, target, types, true)}
+
+        {:assign!, _, [target, _value]} = call, acc ->
+          {call, put_owned_root(acc, target, types, true)}
 
         ast, acc ->
           {ast, acc}
@@ -580,6 +600,32 @@ defmodule RustQ.Meta.AST do
 
     Enum.map(args, fn arg -> %{arg | mutable: MapSet.member?(mutable, arg.name)} end)
   end
+
+  # The owned argument a field path or variable starts from, when the access changes it.
+  defp put_owned_root(acc, _target, _types, false), do: acc
+
+  defp put_owned_root(acc, target, types, true) do
+    case access_root(target) do
+      nil ->
+        acc
+
+      name ->
+        case Map.get(types, name) do
+          %Type{rust: "&" <> _borrowed} -> acc
+          %Type{} -> MapSet.put(acc, name)
+          nil -> acc
+        end
+    end
+  end
+
+  defp access_root({name, _, context})
+       when is_atom(name) and (is_atom(context) or is_nil(context)),
+       do: name
+
+  defp access_root({{:., _, [receiver, field]}, _, []}) when is_atom(field),
+    do: access_root(receiver)
+
+  defp access_root(_expression), do: nil
 
   defp mutable_receiver?(%Type{} = type, method, arity, callables) do
     target = type.rust
@@ -592,12 +638,10 @@ defmodule RustQ.Meta.AST do
 
   defp mutable_receiver?(_type, _method, _arity, _callables), do: false
 
-  defp mutable_standard_receiver?(%Type{kind: :vec}, :push), do: true
+  # An owned value changed in place, such as `values.retain(...)`; a borrowed one stays as is.
+  defp mutable_standard_receiver?(%Type{rust: "&" <> _borrowed}, _method), do: false
 
-  defp mutable_standard_receiver?(%Type{rust: rust}, :insert),
-    do: String.starts_with?(rust, ["HashSet<", "HashMap<", "BTreeSet<", "BTreeMap<"])
-
-  defp mutable_standard_receiver?(_type, _method), do: false
+  defp mutable_standard_receiver?(%Type{}, method), do: Lower.mutating_method?(method)
 
   defp nif_attrs?(attrs) do
     Enum.any?(attrs, &match?(%AST.Attribute{path: [:rustler, :nif]}, &1))
@@ -739,20 +783,16 @@ defmodule RustQ.Meta.AST do
     ]
   end
 
+  defp type_items(%Type{kind: kind, rust: rust_name, meta: %{private: true, variants: variants}})
+       when kind in [:enum, :tuple_enum],
+       do: [private_enum_item(kind, rust_name, variants)]
+
   defp type_items(%Type{
          kind: :enum,
          rust: rust_name,
          meta: %{variants: variants, elixir_name: elixir_name}
        }) do
-    enum = %AST.Enum{
-      name: Identifier.atom!(rust_name),
-      vis: :pub,
-      derive: [:Clone, :Copy, :Debug, :Eq, :PartialEq],
-      variants:
-        variants
-        |> Enum.map(&Decoder.rust_variant/1)
-        |> Enum.map(&%AST.EnumVariant{name: Identifier.atom!(&1)})
-    }
+    enum = atom_enum_item(rust_name, variants)
 
     decoder = %AST.Function{
       name: Identifier.atom!("decode_#{elixir_name}_atom"),
@@ -804,8 +844,9 @@ defmodule RustQ.Meta.AST do
     [%AST.TypeAlias{name: Identifier.atom!(rust_name), type: target.ast, vis: :pub}]
   end
 
-  defp type_items(%Type{kind: :struct, meta: %{rust_name: rust_name, fields: fields}}) do
+  defp type_items(%Type{kind: :struct, meta: %{rust_name: rust_name, fields: fields} = meta}) do
     {lifetime?, decodable?} = struct_field_traits(fields)
+    decodable? = decodable? and not Map.get(meta, :private, false)
     lifetime = if lifetime?, do: :a
 
     struct = %AST.Struct{
@@ -842,6 +883,21 @@ defmodule RustQ.Meta.AST do
   end
 
   defp type_items(_type), do: []
+
+  defp private_enum_item(:tuple_enum, rust_name, variants), do: enum_item(rust_name, variants)
+  defp private_enum_item(:enum, rust_name, variants), do: atom_enum_item(rust_name, variants)
+
+  defp atom_enum_item(rust_name, variants) do
+    %AST.Enum{
+      name: Identifier.atom!(rust_name),
+      vis: :pub,
+      derive: [:Clone, :Copy, :Debug, :Eq, :PartialEq],
+      variants:
+        variants
+        |> Enum.map(&Decoder.rust_variant/1)
+        |> Enum.map(&%AST.EnumVariant{name: Identifier.atom!(&1)})
+    }
+  end
 
   defp enum_item(rust_name, variants) do
     %AST.Enum{

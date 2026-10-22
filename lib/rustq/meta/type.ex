@@ -610,21 +610,36 @@ defmodule RustQ.Meta.Type do
 
   @doc false
   @spec parse(Macro.t(), map()) :: t()
-  def type_aliases(types) do
+  def type_aliases(types, imported \\ %{}) do
+    types = types |> List.wrap() |> Enum.reverse()
+
     raw =
-      types
-      |> List.wrap()
-      |> Enum.reverse()
-      |> Map.new(fn {:type, {:"::", _, [{name, _, args}, ast]}, _location} ->
+      Map.new(types, fn {_kind, {:"::", _, [{name, _, args}, ast]}, _location} ->
         arity = type_alias_arity(args)
         rust_name = name |> Atom.to_string() |> Macro.camelize()
         {{name, arity}, {name, ast, rust_name}}
       end)
 
-    raw
-    |> Map.keys()
-    |> Enum.reduce(%{}, fn key, aliases -> elem(resolve_alias(key, raw, aliases), 1) end)
+    # A private type (`@typep`) is Rust-only: it gets no term codec.
+    private =
+      for {:typep, {:"::", _, [{name, _, args}, _ast]}, _location} <- types,
+          into: MapSet.new(),
+          do: {name, type_alias_arity(args)}
+
+    keys = Map.keys(raw)
+
+    keys
+    |> Enum.reduce(imported, fn key, aliases -> elem(resolve_alias(key, raw, aliases), 1) end)
+    |> Map.take(keys)
+    |> Map.new(fn {key, type} ->
+      if MapSet.member?(private, key), do: {key, private_type(type)}, else: {key, type}
+    end)
   end
+
+  defp private_type(%__MODULE__{meta: meta} = type),
+    do: %{type | meta: Map.put(meta, :private, true)}
+
+  defp private_type(type), do: type
 
   defp type_alias_arity(args) when is_list(args), do: length(args)
   defp type_alias_arity(_context), do: 0
@@ -652,9 +667,32 @@ defmodule RustQ.Meta.Type do
             elem(resolve_alias(dependency, raw, aliases, path), 1)
           end)
 
-        type = parse_type_alias(name, ast, rust_name, raw, aliases)
+        type = parse_type_alias(name, ast, rust_name, raw, recursive_stubs(path, raw, aliases))
         {type, Map.put(aliases, key, type)}
     end
+  end
+
+  # Aliases still being resolved stand for themselves by name, so a recursive reference, such
+  # as a tree's children, names the Rust type.
+  defp recursive_stubs(path, raw, aliases) do
+    Enum.reduce(path, aliases, fn key, aliases ->
+      {name, ast, rust_name} = Map.fetch!(raw, key)
+      Map.put_new(aliases, key, recursive_stub(name, ast, rust_name))
+    end)
+  end
+
+  # Lowering looks a stub up again by `recursive` once the declaration is resolved.
+  defp recursive_stub(name, ast, rust_name) do
+    if map_type?(ast),
+      do:
+        type(:struct, path(rust_name), %{
+          elixir_name: name,
+          rust_name: rust_name,
+          representation: :map,
+          fields: [],
+          recursive: name
+        }),
+      else: type(:type, path(rust_name), %{elixir_name: name, recursive: name})
   end
 
   defp referenced_aliases(ast, raw) do
@@ -670,6 +708,21 @@ defmodule RustQ.Meta.Type do
     |> elem(1)
     |> Enum.reverse()
     |> Enum.uniq()
+  end
+
+  defp parse_type_alias(
+         name,
+         {{:., _, [module, :hashable]}, _, [inner]} = ast,
+         rust_name,
+         raw,
+         aliases
+       ) do
+    if type_module?(module) do
+      type = parse_type_alias(name, inner, rust_name, raw, aliases)
+      %{type | meta: Map.put(type.meta, :hashable, true)}
+    else
+      parse_standard_type_alias(name, ast, rust_name, raw, aliases)
+    end
   end
 
   defp parse_type_alias(name, ast, rust_name, raw, aliases) do
@@ -836,6 +889,11 @@ defmodule RustQ.Meta.Type do
     end
   end
 
+  # `%{key => value}` with one key type is a map keyed by that type, as `HashMap.t(key, value)`.
+  def parse({:%{}, meta, [{key, value}]}, aliases)
+      when not is_tuple(key) or elem(key, 0) not in [:required, :optional],
+      do: parse({{:., meta, [{:__aliases__, meta, [:HashMap]}, :t]}, meta, [key, value]}, aliases)
+
   def parse({name, _, args}, aliases) when is_atom(name) and is_list(args) do
     case Map.get(aliases, {name, length(args)}) do
       nil -> parse_local_type(name, args, aliases)
@@ -958,6 +1016,11 @@ defmodule RustQ.Meta.Type do
     type(:slice, %AST.TypeRef{inner: %AST.TypeSlice{inner: inner.ast}}, %{inner: inner})
   end
 
+  defp parse_rust_type(:slice, [inner, lifetime], aliases) do
+    %__MODULE__{ast: ast} = type = parse_rust_type(:slice, [inner], aliases)
+    %{type | ast: %{ast | lifetime: reference_lifetime!(lifetime)}}
+  end
+
   defp parse_rust_type(:raw, [type], _aliases), do: type(:type, raw_type!(type))
 
   defp parse_rust_type(:enum, [variants], aliases) when is_list(variants) do
@@ -977,6 +1040,11 @@ defmodule RustQ.Meta.Type do
   defp parse_rust_type(:mut_ref, [inner], aliases) do
     inner = parse(inner, aliases)
     type(:mut_ref, %AST.TypeRef{inner: inner.ast, mutable: true}, %{inner: inner})
+  end
+
+  defp parse_rust_type(kind, [inner, lifetime], aliases) when kind in [:ref, :mut_ref] do
+    %__MODULE__{ast: ast} = type = parse_rust_type(kind, [inner], aliases)
+    %{type | ast: %{ast | lifetime: reference_lifetime!(lifetime)}}
   end
 
   defp parse_rust_type(:option, [inner], aliases) do
@@ -1012,6 +1080,14 @@ defmodule RustQ.Meta.Type do
       parts: [function],
       generics: Enum.map(args, &parse(&1, aliases).ast)
     })
+  end
+
+  defp reference_lifetime!({{:., _, [_type_module, :lifetime]}, _, [name]}),
+    do: spec_path_part!(name)
+
+  defp reference_lifetime!(other) do
+    raise ArgumentError,
+          "expected a reference lifetime such as R.lifetime(:a), got: #{Macro.to_string(other)}"
   end
 
   defp validate_impl_options!(opts) do

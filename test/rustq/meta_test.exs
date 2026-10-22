@@ -410,10 +410,12 @@ defmodule RustQ.Meta.GeneratedRustTest do
       else: module.__rustq_source__()
   end
 
-  # Checks each source in a module of one crate, and returns rustc's errors by module.
+  # Checks each source as a module of one crate, in a file of its own, and returns rustc's
+  # errors as `{module, code, message}`, read from Cargo's JSON diagnostics.
   defp cargo_check!(crate, sources) do
-    {lib, owners} = crate_source(sources)
-    File.mkdir_p!(Path.join(crate, "src"))
+    src = Path.join(crate, "src")
+    File.rm_rf!(src)
+    File.mkdir_p!(src)
 
     File.write!(Path.join(crate, "Cargo.toml"), """
     [package]
@@ -425,56 +427,45 @@ defmodule RustQ.Meta.GeneratedRustTest do
     rustler = "0.37"
     """)
 
-    File.write!(Path.join(crate, "src/lib.rs"), lib)
+    files =
+      sources
+      |> Enum.sort()
+      |> Enum.with_index()
+      |> Map.new(fn {{module, source}, index} ->
+        File.write!(Path.join(src, "m#{index}.rs"), module_source(source))
+        {"src/m#{index}.rs", module}
+      end)
+
+    File.write!(Path.join(src, "lib.rs"), [
+      "#![allow(warnings)]\n",
+      "use rustler::{Atom, Binary, Encoder, Env, NifResult, ResourceArc, Term};\n",
+      "use std::collections::HashMap;\n",
+      Enum.map(files, fn {"src/" <> file, _module} -> "mod #{Path.rootname(file)};\n" end)
+    ])
 
     {output, _status} =
-      System.cmd("cargo", ["check", "--message-format", "short"],
+      System.cmd("cargo", ["check", "--message-format", "json"],
         cd: crate,
         env: [{"CARGO_TARGET_DIR", Path.join(crate, "target")}],
-        stderr_to_stdout: true
+        stderr_to_stdout: false
       )
 
-    for line <- String.split(output, "\n"),
-        [_line, number, code, message] <-
-          [Regex.run(~r/^src\/lib\.rs:(\d+):\d+: error(?:\[(E\d+)\])?: (.*)/, line)],
-        do: {Map.get(owners, String.to_integer(number)), code, message}
+    for line <- String.split(output, "\n", trim: true),
+        %{"reason" => "compiler-message", "message" => message} <- [JSON.decode!(line)],
+        message["level"] == "error",
+        span = Enum.find(message["spans"], & &1["is_primary"]),
+        do: {Map.get(files, span["file_name"]), message["code"]["code"], message["message"]}
   end
 
-  defp crate_source(sources) do
-    prelude =
-      "#![allow(warnings)]\nuse rustler::{Atom, Binary, Encoder, Env, NifResult, ResourceArc, Term};\n" <>
-        "use std::collections::HashMap;\n"
+  # A source with the parent's imports and the atoms it names, declared as rustler would.
+  defp module_source(source) do
+    atoms =
+      case RustQ.Syn.atom_references(source) do
+        {:ok, []} -> ""
+        {:ok, names} -> names |> RustQ.Rustler.Atom.declaration() |> RustQ.Rust.render()
+        {:error, _errors} -> ""
+      end
 
-    sources
-    |> Enum.sort()
-    |> Enum.with_index()
-    |> Enum.reduce({prelude, %{}}, fn {{module, source}, index}, {lib, owners} ->
-      text = "mod m#{index} {\nuse super::*;\n#{atoms_module(source)}#{source}\n}\n"
-      first = lib |> String.split("\n") |> length()
-      last = first + (text |> String.split("\n") |> length())
-      {lib <> text, Enum.reduce(first..last, owners, &Map.put(&2, &1, module))}
-    end)
-  end
-
-  # The atoms a source names, declared as rustler would for its module.
-  defp atoms_module(source) do
-    case Regex.scan(~r/atoms::((?:r#)?[A-Za-z_][A-Za-z0-9_]*)\s*\(/, source,
-           capture: :all_but_first
-         ) do
-      [] ->
-        ""
-
-      names ->
-        declarations =
-          names
-          |> List.flatten()
-          |> Enum.uniq()
-          |> Enum.map_join(", ", fn
-            "r#" <> name = raw -> ~s(#{raw} = "#{name}")
-            name -> name
-          end)
-
-        "mod atoms { rustler::atoms! { #{declarations} } }\n"
-    end
+    ["use super::*;\n", atoms, "\n", source]
   end
 end

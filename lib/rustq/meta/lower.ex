@@ -931,8 +931,11 @@ defmodule RustQ.Meta.Lower do
        when is_list(fields),
        do: lower_struct_update(base, fields, context)
 
-  defp lower_expr_context({:__rustq_typed__, _, [expression, %Type{} = type]}, %Context{} = context),
-    do: lower_expr(expression, type, context)
+  defp lower_expr_context(
+         {:__rustq_typed__, _, [expression, %Type{} = type]},
+         %Context{} = context
+       ),
+       do: lower_expr(expression, type, context)
 
   defp lower_expr_context({:struct_literal, _, [path, fields]} = literal, %Context{} = context) do
     case declared_struct_type(path, context) do
@@ -1726,7 +1729,9 @@ defmodule RustQ.Meta.Lower do
       )
     end
 
-    body = typed_body(Keyword.fetch!(opts, :do), expected_type && collection_item_type(expected_type))
+    body =
+      typed_body(Keyword.fetch!(opts, :do), expected_type && collection_item_type(expected_type))
+
     pipeline = quote(do: unquote(comprehension_pipeline(qualifiers, body)) |> collect())
 
     case expected_type do

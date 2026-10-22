@@ -12,10 +12,13 @@
 ### Changed
 
 - A typespec RustQ has no Rust type for, such as `pid()`, `keyword()`,
-  `map()`, `non_neg_integer()`, a bare `nil`, or a literal `1` or `1..10`, is an
-  `:unsupported_type` diagnostic suggesting a `RustQ.Type` spelling. It used to
-  become a Rust type named after it, which never compiled. `any()` is `Term`,
-  as `term()` is.
+  `map()`, a bare `nil`, or a literal `1` or `1..10`, is an `:unsupported_type`
+  diagnostic suggesting a `RustQ.Type` spelling. It used to become a Rust type
+  named after it, which never compiled. `any()` is `Term`, as `term()` is.
+- `byte()` is `u8`, `non_neg_integer()` and `pos_integer()` are `u64`, and
+  `char()` is `u32`, since it includes surrogate code points Rust's `char`
+  cannot hold. `pos_integer()` admits zero, and rustler's `u8` decoder truncates
+  out-of-range integers rather than rejecting them.
 - Which words are Rust keywords, written as raw identifiers, comes from syn
   rather than a list kept in RustQ, in the native and the text renderer alike.
 

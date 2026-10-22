@@ -979,6 +979,15 @@ defmodule RustQ.Meta.Type do
   defp parse_local_type(:atom, [], _aliases), do: type(:atom, path(:Atom))
   defp parse_local_type(:boolean, [], _aliases), do: type(:bool, path(:bool))
   defp parse_local_type(:integer, [], _aliases), do: type(:i64, path(:i64))
+
+  # Elixir's integer subtypes take the closest Rust type rustler can pass through: `byte()` is
+  # exactly `u8`; `non_neg_integer()` and `pos_integer()` are `u64`, bounded as `integer()` is
+  # by `i64`, and `pos_integer()` admits zero; `char()` is a code point, surrogates included,
+  # so `u32` rather than Rust's `char`.
+  defp parse_local_type(:byte, [], _aliases), do: type(:u8, path(:u8))
+  defp parse_local_type(:non_neg_integer, [], _aliases), do: type(:u64, path(:u64))
+  defp parse_local_type(:pos_integer, [], _aliases), do: type(:u64, path(:u64))
+  defp parse_local_type(:char, [], _aliases), do: type(:u32, path(:u32))
   defp parse_local_type(:float, [], _aliases), do: type(:f64, path(:f64))
   defp parse_local_type(:number, [], _aliases), do: type(:f64, path(:f64))
 

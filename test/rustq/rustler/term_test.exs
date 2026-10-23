@@ -54,30 +54,17 @@ defmodule RustQ.Rustler.TermTest do
               include: [
                 :cached_struct_keys,
                 :default_struct_values,
-                :make_struct_from_nif_term_arrays
+                :make_struct_from_arrays
               ]
             )
         ]
       )
 
     assert code =~ "fn cached_struct_keys"
-    assert code =~ "OnceLock<Vec<rustler::wrapper::NIF_TERM>>"
+    assert code =~ "OnceLock<Vec<Atom>>"
     assert code =~ "fn default_struct_values"
-    assert code =~ ~s|Atom::from_str(env, "nil").unwrap().as_c_arg()|
-    assert code =~ "fn make_struct_from_nif_term_arrays<'a>"
-    assert code =~ "rustler::wrapper::map::make_map_from_arrays"
-  end
-
-  test "builds raw NIF_TERM builder helpers" do
-    code =
-      "__rq_items!();"
-      |> RustQ.render!("nif_term_builders.rs",
-        splice: [items: Nif.raw_term_builders()]
-      )
-
-    assert code =~ "fn make_map_from_nif_terms<'a>"
-    assert code =~ "fn make_struct_from_nif_terms<'a>"
-    assert code =~ "rustler::wrapper::map::map_put"
+    assert code =~ "fn make_struct_from_arrays<'a>"
+    assert code =~ "Term::map_from_term_arrays"
   end
 
   test "builds NifStruct declarations" do

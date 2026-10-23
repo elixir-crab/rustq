@@ -14,6 +14,22 @@
   `=>` and `:`, and fall back to spaces otherwise, which `expr` captures cannot
   be followed by.
 
+- `RustQ.Rustler.Term`'s struct helpers no longer name rustler's raw term
+  type, which rustler 0.39 changed from `rustler::wrapper::NIF_TERM` to
+  `rustler::sys::ErlNifTerm`. `cached_struct_keys` caches `Atom`s,
+  `default_struct_values` returns `Vec<Term>`, and
+  `make_struct_from_nif_term_arrays` is `make_struct_from_arrays`, taking atom
+  keys and term values. The same Rust builds on rustler 0.37 to 0.39.
+- `RustQ.Native` crates depend on rustler 0.39 by default, and
+  `mix rustq.templates.check` and the suite's generated-Rust check build
+  against it.
+
+### Removed
+
+- `RustQ.Rustler.Nif.raw_term_builders/1`. Its helpers called
+  `rustler::wrapper`, which rustler 0.39 removed;
+  `RustQ.Rustler.Term.builders/1` builds the same maps and structs from terms.
+
 ### Fixed
 
 - A `defrust` inside an item `defrustmacro` keeps its plain arguments plain.

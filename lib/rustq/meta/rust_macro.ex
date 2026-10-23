@@ -137,15 +137,15 @@ defmodule RustQ.Meta.RustMacro do
       Atom.to_string(name),
       " [\n",
       rows
-      |> Enum.map(&["        ", item_call_repeat_row(name, captures, Map.new(&1))])
+      |> Enum.map(&["        ", item_call_repeat_row(captures, Map.new(&1))])
       |> Enum.intersperse("\n"),
       "\n    ]"
     ]
   end
 
-  defp item_call_repeat_row(name, captures, row) do
-    name
-    |> repeat_row_layout(captures)
+  defp item_call_repeat_row(captures, row) do
+    captures
+    |> repeat_row_layout()
     |> Enum.map(fn
       {:capture, capture} -> capture_value(row, capture)
       token -> token
@@ -167,6 +167,9 @@ defmodule RustQ.Meta.RustMacro do
   defp call_value!(values, name, fragment),
     do: render_call_value(Map.fetch!(values, name), fragment)
 
+  # Expression and type captures may be given as RustQ AST rather than source.
+  defp render_call_value(%_{} = node, :ty), do: Rust.render_type(node)
+  defp render_call_value(%_{} = node, :expr), do: Rust.render(node)
   defp render_call_value(value, :literal) when is_binary(value), do: inspect(value)
   defp render_call_value(value, :literal), do: to_string(value)
   defp render_call_value(value, :ident) when is_list(value), do: IO.iodata_to_binary(value)
@@ -442,8 +445,8 @@ defmodule RustQ.Meta.RustMacro do
 
   defp item_pattern_arg({:repeat, name, args}) do
     pattern =
-      name
-      |> repeat_row_layout(args)
+      args
+      |> repeat_row_layout()
       |> Enum.map_join(fn
         {:capture, capture} -> capture_pattern(capture)
         token -> token
@@ -452,91 +455,10 @@ defmodule RustQ.Meta.RustMacro do
     "#{name} [$(#{pattern})*]"
   end
 
-  defp repeat_row_layout(:skip_fields, [field_id, repeated, bytes, skip]) do
-    [capture(field_id), " => ", capture(repeated), " ", capture(bytes), " ", capture(skip), ";"]
+  # Captures are separated by commas, which may follow any fragment, including `expr`.
+  defp repeat_row_layout(captures) do
+    captures |> Enum.map(&capture/1) |> Enum.intersperse(", ") |> Kernel.++([";"])
   end
-
-  defp repeat_row_layout(:fields, captures) do
-    case captures do
-      [field_expr] ->
-        [capture(field_expr), ";"]
-
-      [field_mode, field_skip] ->
-        [capture(field_mode), " ", capture(field_skip), ";"]
-
-      [{:field_id, :literal} = field_id, field_mode, field_skip] ->
-        [capture(field_id), " => ", capture(field_mode), " ", capture(field_skip), ";"]
-
-      [
-        {:field_id, :literal} = field_id,
-        {:field_index, :literal} = field_index,
-        field_repeated,
-        field_decode
-      ] ->
-        [
-          capture(field_id),
-          " => ",
-          capture(field_index),
-          ": ",
-          capture(field_repeated),
-          " ",
-          capture(field_decode),
-          ";"
-        ]
-
-      [field_name, field_mode, field_decode] ->
-        [capture(field_name), " ", capture(field_mode), " ", capture(field_decode), ";"]
-
-      [field_id, field_name, field_mode, field_decode] ->
-        [
-          capture(field_id),
-          " => ",
-          capture(field_name),
-          ": ",
-          capture(field_mode),
-          " ",
-          capture(field_decode),
-          ";"
-        ]
-
-      [field_id, field_name, field_mode, field_decode, skip_mode, field_skip] ->
-        [
-          capture(field_id),
-          " => ",
-          capture(field_name),
-          ": ",
-          capture(field_mode),
-          " ",
-          capture(field_decode),
-          "; ",
-          capture(skip_mode),
-          " ",
-          capture(field_skip),
-          ";"
-        ]
-
-      [field_id, field_name, field_mode, field_decode, skip_repeated, skip_bytes, field_skip] ->
-        [
-          capture(field_id),
-          " => ",
-          capture(field_name),
-          ": ",
-          capture(field_mode),
-          " ",
-          capture(field_decode),
-          "; ",
-          capture(skip_repeated),
-          " ",
-          capture(skip_bytes),
-          " ",
-          capture(field_skip),
-          ";"
-        ]
-    end
-  end
-
-  defp repeat_row_layout(_name, captures),
-    do: captures |> Enum.map(&capture/1) |> Enum.intersperse(" ") |> Kernel.++([";"])
 
   defp capture(capture), do: {:capture, capture}
 
@@ -547,7 +469,9 @@ defmodule RustQ.Meta.RustMacro do
 
     args =
       Enum.zip(arg_names, arg_types)
-      |> Enum.map_join(", ", fn {arg_name, type} -> "$#{arg_name}: #{render_type(type)}" end)
+      |> Enum.map_join(", ", fn {arg_name, type} ->
+        "#{macro_capture_source(arg_name, macro_vars)}: #{render_type(type)}"
+      end)
 
     rendered_body = Enum.map_join(body, "\n", &render_macro_item_stmt/1)
 

@@ -9,7 +9,6 @@ defmodule RustQ.Rustler.Nif do
 
   use RustQ.Sigil
 
-  alias RustQ.Rust
   alias RustQ.Rust.AST
   alias RustQ.Rust.AST.Builder, as: A
   alias RustQ.Rust.AST.ItemBuilder, as: I
@@ -22,46 +21,6 @@ defmodule RustQ.Rustler.Nif do
   require I
 
   @type spec :: {atom() | String.t(), keyword()}
-
-  @nif_term_builder_names [:map_from_nif_terms, :struct_from_nif_terms]
-
-  @nif_term_builder_templates %{
-    map_from_nif_terms: ~R"""
-    fn make_map_from_nif_terms<'a>(
-        env: Env<'a>,
-        pairs: &[(rustler::wrapper::NIF_TERM, rustler::wrapper::NIF_TERM)],
-    ) -> NifResult<Term<'a>> {
-        let mut map = unsafe { rustler::wrapper::map::map_new(env.as_c_arg()) };
-
-        for (key, value) in pairs {
-            map = unsafe { rustler::wrapper::map::map_put(env.as_c_arg(), map, *key, *value) }
-                .ok_or(rustler::Error::BadArg)?;
-        }
-
-        Ok(unsafe { Term::new(env, map) })
-    }
-    """,
-    struct_from_nif_terms: ~R"""
-    fn make_struct_from_nif_terms<'a>(
-        env: Env<'a>,
-        keys: &[rustler::wrapper::NIF_TERM],
-        values: &[rustler::wrapper::NIF_TERM],
-    ) -> NifResult<Term<'a>> {
-        if keys.len() != values.len() {
-            return Err(rustler::Error::BadArg);
-        }
-
-        let mut map = unsafe { rustler::wrapper::map::map_new(env.as_c_arg()) };
-
-        for (key, value) in keys.iter().zip(values.iter()) {
-            map = unsafe { rustler::wrapper::map::map_put(env.as_c_arg(), map, *key, *value) }
-                .ok_or(rustler::Error::BadArg)?;
-        }
-
-        Ok(unsafe { Term::new(env, map) })
-    }
-    """
-  }
 
   @doc "Builds the `rustler::init!` declaration for an Elixir module."
   @spec init(module() | String.t()) :: AST.MacroItemCall.t()
@@ -190,20 +149,6 @@ defmodule RustQ.Rustler.Nif do
     end
   end
 
-  @doc "Builds unsafe raw `NIF_TERM` map and struct helpers."
-  @spec raw_term_builders(keyword()) :: [Rust.Fragment.t()]
-  def raw_term_builders(opts \\ []) do
-    opts
-    |> Keyword.get(:include, @nif_term_builder_names)
-    |> include_names()
-    |> Enum.map(
-      &Rust.fragment(
-        :item,
-        RustQ.render!(nif_term_builder_template!(&1), "rustler_nif_term_builder.rs")
-      )
-    )
-  end
-
   defp struct_fields(fields, default_vis) do
     Enum.map(fields, fn
       %AST.StructField{} = rust_field ->
@@ -313,11 +258,6 @@ defmodule RustQ.Rustler.Nif do
       value when is_binary(value) -> A.nif_attr(schedule: value)
     end
   end
-
-  defp include_names(:all), do: @nif_term_builder_names
-  defp include_names(names), do: List.wrap(names)
-
-  defp nif_term_builder_template!(name), do: Map.fetch!(@nif_term_builder_templates, name)
 
   defp module_name(module) when is_atom(module), do: Atom.to_string(module)
   defp module_name(module) when is_binary(module), do: module

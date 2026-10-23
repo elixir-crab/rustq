@@ -424,7 +424,7 @@ defmodule RustQ.Meta.GeneratedRustTest do
     edition = "2021"
 
     [dependencies]
-    rustler = "0.37"
+    rustler = "0.39"
     """)
 
     files =

@@ -7,4 +7,4 @@ edition = "2021"
 crate-type = ["rlib"]
 
 [dependencies]
-rustler = "0.37"
+rustler = "0.39"

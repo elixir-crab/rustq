@@ -1,5 +1,54 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `RustQ.Meta.AST.macro_call!/3` takes RustQ AST for `:expr` and `:ty`
+  captures and renders it, so a generator need not write Rust source strings
+  for them.
+
+### Changed
+
+- `use RustQ.Meta, rust_sources: ...` evaluates its paths when the module
+  compiles, so they can come from a module attribute or a function, such as one
+  returning the path of a Rust source a library ships. Relative paths are still
+  relative to the working directory, which a library loaded from another
+  project cannot rely on.
+- `defrustmacro` repetition rows separate their captures with commas, in the
+  pattern and in the calls `RustQ.Meta.AST.macro_call!/3` builds, for every
+  row. RustQ used to lay out a few row shapes, written for kiwi_codec, with
+  `=>` and `:`, and fall back to spaces otherwise, which `expr` captures cannot
+  be followed by.
+
+- `RustQ.Rustler.Term`'s struct helpers no longer name rustler's raw term
+  type, which rustler 0.39 changed from `rustler::wrapper::NIF_TERM` to
+  `rustler::sys::ErlNifTerm`. `cached_struct_keys` caches `Atom`s,
+  `default_struct_values` returns `Vec<Term>`, and
+  `make_struct_from_nif_term_arrays` is `make_struct_from_arrays`, taking atom
+  keys and term values. The same Rust builds on rustler 0.37 to 0.39.
+- `RustQ.Native` crates depend on rustler 0.39 by default, and
+  `mix rustq.templates.check` and the suite's generated-Rust check build
+  against it.
+
+### Removed
+
+- `RustQ.Rustler.Nif.raw_term_builders/1`. Its helpers called
+  `rustler::wrapper`, which rustler 0.39 removed;
+  `RustQ.Rustler.Term.builders/1` builds the same maps and structs from terms.
+
+### Fixed
+
+- `assign!(index(values, i), call())` propagates a fallible call with `?` when
+  the element type is known, as a `let` with a known type does, and makes an
+  owned `values` argument `mut`. The Rust assigned the `Result` and changed an
+  immutable argument.
+- A `defrust` inside an item `defrustmacro` keeps its plain arguments plain.
+  Every argument used to be written as a macro variable, `$offset`, which the
+  body then referred to as `offset`.
+- Calling a function a `defrustmacro` names with an `:ident` capture calls
+  `$inner(...)` rather than a function literally named `inner`.
+
 ## 1.0.0-rc.13 - 2026-10-23
 
 ### Added

@@ -11,7 +11,7 @@ defmodule RustQ.Native.Manifest do
   @spec encode!(String.t(), [{String.t() | atom(), String.t() | keyword()}]) :: String.t()
   def encode!(crate, crates) do
     dependencies =
-      Enum.reduce(crates, %{"rustler" => "0.37"}, fn {package, spec}, dependencies ->
+      Enum.reduce(crates, %{"rustler" => "0.39"}, fn {package, spec}, dependencies ->
         package = to_string(package)
 
         unless Regex.match?(~r/^[A-Za-z0-9_-]+$/, package) do

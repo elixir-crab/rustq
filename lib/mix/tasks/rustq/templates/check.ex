@@ -85,8 +85,7 @@ defmodule Mix.Tasks.Rustq.Templates.Check do
         ]
       ),
       Atom.cached([:ok, {:node_changes, "nodeChanges"}]),
-      Term.builders(),
-      Nif.raw_term_builders()
+      Term.builders()
     ])
   end
 

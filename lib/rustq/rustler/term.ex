@@ -43,7 +43,7 @@ defmodule RustQ.Rustler.Term do
     :default_struct_values,
     :get,
     :is_nil,
-    :make_struct_from_nif_term_arrays,
+    :make_struct_from_arrays,
     :opt,
     :str_val,
     :bool_val,
@@ -63,31 +63,42 @@ defmodule RustQ.Rustler.Term do
 
   @rusty_helper_names @helper_names
 
+  # Atoms outlive every env, so a struct's keys can be cached once for all calls.
   @spec cached_struct_keys(
           R.raw(:"Env<'_>"),
-          R.raw(:"&'static OnceLock<Vec<rustler::wrapper::NIF_TERM>>"),
+          R.raw(:"&'static OnceLock<Vec<Atom>>"),
           R.raw(:"&[&str]")
-        ) :: R.raw(:"&'static [rustler::wrapper::NIF_TERM]")
+        ) :: R.raw(:"&'static [Atom]")
   defrust cached_struct_keys(env, cache, fields) do
     cache.get_or_init(fn ->
       keys = Vec.with_capacity(fields.len() + 1)
-      keys.push(Atom.from_str(env, "__struct__").unwrap().as_c_arg())
+      keys.push(Atom.from_str(env, "__struct__").unwrap())
 
       for field <- fields do
-        keys.push(Atom.from_str(env, field).unwrap().as_c_arg())
+        keys.push(Atom.from_str(env, field).unwrap())
       end
 
       keys
     end)
   end
 
-  @spec default_struct_values(R.path(:Env, R.lifetime(:_)), R.path(:Atom), R.usize()) ::
-          R.vec(R.path({:rustler, :wrapper, :NIF_TERM}))
+  @spec default_struct_values(R.path(:Env, R.lifetime(:a)), R.path(:Atom), R.usize()) ::
+          R.vec(term())
   defrust default_struct_values(env, module, len) do
     values = Vec.with_capacity(len + 1)
-    values.resize(len + 1, Atom.from_str(env, "nil").unwrap().as_c_arg())
-    assign!(index(values, 0), module.as_c_arg())
+    values.resize(len + 1, Atom.from_str(env, "nil").unwrap().to_term(env))
+    assign!(index(values, 0), module.to_term(env))
     values
+  end
+
+  @spec make_struct_from_arrays(
+          R.path(:Env, R.lifetime(:a)),
+          R.slice(R.path(:Atom)),
+          R.slice(term())
+        ) :: R.nif_result(term())
+  defrust make_struct_from_arrays(env, keys, values) do
+    key_terms = for key <- keys, do: key.to_term(env)
+    Term.map_from_term_arrays(env, ref(key_terms), values)
   end
 
   @spec make_map_from_terms(R.path(:Env, R.lifetime(:a)), R.slice({term(), term()})) ::
@@ -569,37 +580,8 @@ defmodule RustQ.Rustler.Term do
     MetaAST.function!(__MODULE__, function_name)
   end
 
-  defp helper_item(:make_struct_from_nif_term_arrays), do: make_struct_from_nif_term_arrays_item()
-
   defp helper_item(name) when name in @rusty_helper_names,
     do: MetaAST.function!(__MODULE__, name)
-
-  defp make_struct_from_nif_term_arrays_item do
-    make_map =
-      [:rustler, :wrapper, :map, :make_map_from_arrays]
-      |> A.path_call([A.method(:env, :as_c_arg), :keys, :values])
-      |> A.method(:map, [A.closure([:term], A.path_call([:Term, :new], [:env, :term]))])
-      |> A.method(:ok_or, [A.badarg()])
-
-    result =
-      A.if_expr(
-        A.eq(A.method(:keys, :len), A.method(:values, :len)),
-        [A.return_stmt(A.unsafe_block([A.return_stmt(make_map)]))],
-        [A.return_stmt(A.err(A.badarg()))]
-      )
-
-    %AST.Function{
-      name: :make_struct_from_nif_term_arrays,
-      lifetimes: [:a],
-      args: [
-        A.arg(:env, "Env<'a>"),
-        A.arg(:keys, "&[rustler::wrapper::NIF_TERM]"),
-        A.arg(:values, "&[rustler::wrapper::NIF_TERM]")
-      ],
-      returns: T.raw("NifResult<Term<'a>>"),
-      body: [A.return_stmt(result)]
-    }
-  end
 
   defp struct_ast(name, fields, lifetime) do
     I.struct ident_atom(name), lifetimes: List.wrap(lifetime) do

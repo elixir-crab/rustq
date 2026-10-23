@@ -8,7 +8,7 @@ defmodule RustQ.Meta.Options do
   alias RustQ.Diagnostic
 
   @type t :: %{
-          rust_sources: [Path.t()],
+          rust_sources: [Path.t()] | {:quoted, Macro.t()},
           rust_packages: [Source.rust_package()],
           callable_modules: [module()],
           static_types: keyword(Macro.t())
@@ -43,9 +43,35 @@ defmodule RustQ.Meta.Options do
 
   def validate_rust_sources(nil), do: {:ok, []}
 
+  # A path that is not a literal, such as a module attribute or a function call, is resolved
+  # where `use RustQ.Meta` places it in the module body; see `rust_source_paths!/1`.
   def validate_rust_sources(value) do
-    with {:ok, paths} <- list_of(value, &is_binary/1, "string path") do
-      {:ok, Source.rust_source_paths(paths)}
+    if Macro.quoted_literal?(value) do
+      with {:ok, paths} <- list_of(value, &is_binary/1, "string path") do
+        {:ok, Source.rust_source_paths(paths)}
+      end
+    else
+      {:ok, {:quoted, value}}
+    end
+  end
+
+  @doc """
+  Returns `rust_sources` given as an expression, such as `[@source]`, once the module body
+  has evaluated it. Relative paths are relative to the working directory.
+  """
+  @spec rust_source_paths!(term()) :: [Path.t()]
+  def rust_source_paths!(value) do
+    case list_of(value, &is_binary/1, "string path") do
+      {:ok, paths} ->
+        Source.rust_source_paths(paths)
+
+      {:error, message} ->
+        Diagnostic.defrust(
+          :invalid_meta_option,
+          value,
+          "invalid value for :rust_sources option: #{message}",
+          details: %{key: :rust_sources, value: value}
+        )
     end
   end
 
@@ -94,7 +120,10 @@ defmodule RustQ.Meta.Options do
       rust_sources: [
         type: {:custom, __MODULE__, :validate_rust_sources, []},
         default: [],
-        doc: "Rust source path or paths to inspect for external callable metadata"
+        doc:
+          "Rust source path or paths to inspect for external callable metadata, as literals " <>
+            "or an expression such as a module attribute; relative paths are relative to the " <>
+            "working directory"
       ],
       rust_packages: [
         type: {:custom, __MODULE__, :validate_rust_packages, []},

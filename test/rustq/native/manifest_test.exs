@@ -15,7 +15,7 @@ defmodule RustQ.Native.ManifestTest do
            }
 
     assert manifest["lib"] == %{"name" => "example", "crate-type" => ["cdylib"]}
-    assert manifest["dependencies"] == %{"rustler" => "0.37", "crc32fast" => "1"}
+    assert manifest["dependencies"] == %{"rustler" => "0.39", "crc32fast" => "1"}
     assert Manifest.encode!("example", [{"crc32fast", "1"}]) == source
   end
 

@@ -41,11 +41,22 @@ defmodule RustQ.Meta.Options do
     )
   end
 
-  def validate_rust_sources(nil), do: {:ok, []}
+  def validate_rust_sources(nil, _caller), do: {:ok, []}
 
-  def validate_rust_sources(value) do
-    with {:ok, paths} <- list_of(value, &is_binary/1, "string path") do
+  def validate_rust_sources(value, caller) do
+    with {:ok, paths} <- list_of(compile_time_value(value, caller), &is_binary/1, "string path") do
       {:ok, Source.rust_source_paths(paths)}
+    end
+  end
+
+  # Paths may be computed when the module compiles, such as `Path.expand("decoder.rs", __DIR__)`
+  # for a source shipped beside it, which a path relative to the working directory cannot name.
+  defp compile_time_value(value, caller) do
+    if Macro.quoted_literal?(value) do
+      value
+    else
+      {evaluated, _binding} = Code.eval_quoted(value, [], caller)
+      evaluated
     end
   end
 
@@ -92,9 +103,11 @@ defmodule RustQ.Meta.Options do
   defp schema(caller) do
     [
       rust_sources: [
-        type: {:custom, __MODULE__, :validate_rust_sources, []},
+        type: {:custom, __MODULE__, :validate_rust_sources, [caller]},
         default: [],
-        doc: "Rust source path or paths to inspect for external callable metadata"
+        doc:
+          "Rust source path or paths to inspect for external callable metadata, evaluated " <>
+            "when the module compiles; relative paths are relative to the working directory"
       ],
       rust_packages: [
         type: {:custom, __MODULE__, :validate_rust_packages, []},

@@ -1,5 +1,27 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- `use RustQ.Meta, rust_sources: ...` evaluates its paths when the module
+  compiles, so a library can name a Rust source shipped beside the module with
+  `Path.expand("decoder.rs", __DIR__)`. Literal paths are still relative to the
+  working directory, which a library loaded from another project cannot rely on.
+- `defrustmacro` repetition rows separate their captures with commas, in the
+  pattern and in the calls `RustQ.Meta.AST.macro_call!/3` builds, for every
+  row. RustQ used to lay out a few row shapes, written for kiwi_codec, with
+  `=>` and `:`, and fall back to spaces otherwise, which `expr` captures cannot
+  be followed by.
+
+### Fixed
+
+- A `defrust` inside an item `defrustmacro` keeps its plain arguments plain.
+  Every argument used to be written as a macro variable, `$offset`, which the
+  body then referred to as `offset`.
+- Calling a function a `defrustmacro` names with an `:ident` capture calls
+  `$inner(...)` rather than a function literally named `inner`.
+
 ## 1.0.0-rc.13 - 2026-10-23
 
 ### Added

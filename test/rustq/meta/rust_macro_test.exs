@@ -135,7 +135,7 @@ defmodule RustQ.Meta.RustMacroTest do
       assert source =~ "macro_rules! descriptor"
       assert source =~ "fn $name:ident;"
       assert source =~ "fields [$("
-      assert source =~ "$field_id:literal => $field_name:literal:"
+      assert source =~ "$field_id:literal, $field_name:literal,"
       assert source =~ "fn $name() -> NifResult<()>"
 
       assert source =~
@@ -204,8 +204,8 @@ defmodule RustQ.Meta.RustMacroTest do
 
       assert source =~
                "fields [$(" <>
-                 "$field_id:literal => $field_name:literal: $field_mode:ident $field_decode:ident; " <>
-                 "$skip_repeated:literal $skip_bytes:literal $field_skip:ident;)*]"
+                 "$field_id:literal, $field_name:literal, $field_mode:ident, $field_decode:ident, " <>
+                 "$skip_repeated:literal, $skip_bytes:literal, $field_skip:ident;)*]"
 
       assert RustQ.valid?(source, "defrustmacro_shared_skip_field.rs")
     end
@@ -261,7 +261,7 @@ defmodule RustQ.Meta.RustMacroTest do
 
       assert source =~
                "skip_fields [$(" <>
-                 "$field_id:literal => $field_repeated:literal $field_bytes:literal $field_skip:ident;)*]"
+                 "$field_id:literal, $field_repeated:literal, $field_bytes:literal, $field_skip:ident;)*]"
 
       assert RustQ.valid?(source, "defrustmacro_skip_field.rs")
     end
@@ -330,8 +330,8 @@ defmodule RustQ.Meta.RustMacroTest do
       assert source =~ "descriptor!"
       assert source =~ "fn decode_user;"
       assert source =~ "env env;"
-      assert source =~ "1 => false decode_name;"
-      assert source =~ "2 => true decode_tags;"
+      assert source =~ "1, false, decode_name;"
+      assert source =~ "2, true, decode_tags;"
       assert RustQ.valid?(source, "defrustmacro_item_call.rs")
     end
 
@@ -397,10 +397,10 @@ defmodule RustQ.Meta.RustMacroTest do
         |> Enum.map_join("\n", &RustQ.Rust.to_fragment/1)
 
       assert source =~
-               "$field_id:literal => $field_index:literal: $field_repeated:literal $field_decode:ident;"
+               "$field_id:literal, $field_index:literal, $field_repeated:literal, $field_decode:ident;"
 
-      assert source =~ "1 => 1: false decode_id;"
-      assert source =~ "2 => 2: true decode_children;"
+      assert source =~ "1, 1, false, decode_id;"
+      assert source =~ "2, 2, true, decode_children;"
       assert RustQ.valid?(source, "defrustmacro_full_message_item_call.rs")
     end
 

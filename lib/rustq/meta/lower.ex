@@ -2932,10 +2932,15 @@ defmodule RustQ.Meta.Lower do
     do: lower_expr(receiver, context)
 
   defp lower_local_or_macro_call(name, args, %Context{} = context) do
-    if macro_call_name?(name) do
-      lower_macro_call(name, args, context.rust_macros, context)
-    else
-      %AST.LocalCall{name: name, args: lower_call_args(nil, name, args, context)}
+    cond do
+      macro_call_name?(name) ->
+        lower_macro_call(name, args, context.rust_macros, context)
+
+      macro_var_fragment(name, context.macro_vars) == :ident ->
+        %AST.LocalCall{name: :"$#{name}", args: lower_call_args(nil, name, args, context)}
+
+      true ->
+        %AST.LocalCall{name: name, args: lower_call_args(nil, name, args, context)}
     end
   end
 

@@ -167,6 +167,9 @@ defmodule RustQ.Meta.RustMacro do
   defp call_value!(values, name, fragment),
     do: render_call_value(Map.fetch!(values, name), fragment)
 
+  # Expression and type captures may be given as RustQ AST rather than source.
+  defp render_call_value(%_{} = node, :ty), do: Rust.render_type(node)
+  defp render_call_value(%_{} = node, :expr), do: Rust.render(node)
   defp render_call_value(value, :literal) when is_binary(value), do: inspect(value)
   defp render_call_value(value, :literal), do: to_string(value)
   defp render_call_value(value, :ident) when is_list(value), do: IO.iodata_to_binary(value)

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Added
+
+- `RustQ.Meta.AST.macro_call!/3` takes RustQ AST for `:expr` and `:ty`
+  captures and renders it, so a generator need not write Rust source strings
+  for them.
+
 ### Changed
 
 - `use RustQ.Meta, rust_sources: ...` evaluates its paths when the module

@@ -204,7 +204,12 @@ defmodule RustQ.Meta.AST do
   def macro_items!(module, names) when is_atom(module) and is_list(names),
     do: Enum.map(names, &macro_item!(module, &1))
 
-  @doc "Builds a structural invocation of a generated Rust item macro."
+  @doc """
+  Builds a structural invocation of a generated Rust item macro.
+
+  `args` gives each capture its value: an atom or string for an `:ident`, a value for a
+  `:literal`, and RustQ AST or source for an `:expr` or `:ty`.
+  """
   @spec macro_call!(module(), atom() | String.t(), keyword()) :: AST.MacroItemCall.t()
   def macro_call!(module, name, args) when is_atom(module) and is_list(args) do
     module

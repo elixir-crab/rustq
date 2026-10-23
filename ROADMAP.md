@@ -1,6 +1,6 @@
 # RustQ roadmap
 
-Last reviewed 2026-10-23, at 1.0.0-rc.13. The [changelog](CHANGELOG.md) records
+Last reviewed 2026-10-23, at 1.0.0-rc.14. The [changelog](CHANGELOG.md) records
 what shipped; this file covers where RustQ stands and what comes next.
 
 ## Where things stand
@@ -39,11 +39,12 @@ The core pieces are in place:
 | vize_ex | rc.3, moving to rc.11 | NIF wrappers and stubs, `@type` result codecs, encoders generated from `vize_atelier_vapor`'s source |
 | skia_ex | rc.3 | `defrust` drawing commands with generated targets |
 | folio | rc.6 | Rustler generation |
-| figler | rc.3, moving to rc.12 | `defrust` helpers over scene storage, an effective graph interpreted natively |
-| kiwi_codec | rc.3, moving to rc.12 | `defrust` helpers, Rustler term helpers, and native Kiwi records |
+| figler | rc.3, moving to rc.14 | `defrust` helpers over scene storage, an effective graph interpreted natively |
+| kiwi_codec | rc.13, moving to rc.14 | `defrust` helpers, Rustler term helpers, and native Kiwi records |
 
-oxc_ex is within two releases of the current RC; kiwi_codec and figler are
-moving to it.
+kiwi_codec 0.4.0 runs rc.13. Building its generated Rust in its tests found
+the bugs rc.14 fixes, and the rustler 0.39 incompatibility in RustQ's own
+helpers. figler is moving to rc.14 with it; oxc_ex is within three releases.
 
 ## Road to 1.0.0
 

@@ -11,9 +11,10 @@
 ### Changed
 
 - `use RustQ.Meta, rust_sources: ...` evaluates its paths when the module
-  compiles, so a library can name a Rust source shipped beside the module with
-  `Path.expand("decoder.rs", __DIR__)`. Literal paths are still relative to the
-  working directory, which a library loaded from another project cannot rely on.
+  compiles, so they can come from a module attribute or a function, such as one
+  returning the path of a Rust source a library ships. Relative paths are still
+  relative to the working directory, which a library loaded from another
+  project cannot rely on.
 - `defrustmacro` repetition rows separate their captures with commas, in the
   pattern and in the calls `RustQ.Meta.AST.macro_call!/3` builds, for every
   row. RustQ used to lay out a few row shapes, written for kiwi_codec, with

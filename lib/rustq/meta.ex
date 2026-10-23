@@ -103,7 +103,7 @@ defmodule RustQ.Meta do
       Module.register_attribute(__MODULE__, :rustq_static_types, accumulate: true)
       Module.register_attribute(__MODULE__, :rustq_current_rust_mod, accumulate: false)
       Module.register_attribute(__MODULE__, :rustq_current_rust_impl, accumulate: false)
-      @rustq_rust_sources unquote(Macro.escape(List.wrap(rust_sources)))
+      @rustq_rust_sources unquote(rust_sources_ast(rust_sources))
       @rustq_rust_packages unquote(Macro.escape(List.wrap(rust_packages)))
       @rustq_callable_modules unquote(Macro.escape(List.wrap(callable_modules)))
       @rustq_static_types unquote(Macro.escape(List.wrap(static_types)))
@@ -282,6 +282,11 @@ defmodule RustQ.Meta do
   end
 
   defmacro __before_compile__(env), do: build_before_compile(env)
+
+  defp rust_sources_ast({:quoted, value}),
+    do: quote(do: Options.rust_source_paths!(unquote(value)))
+
+  defp rust_sources_ast(paths), do: Macro.escape(List.wrap(paths))
 
   defp build_before_compile(env) do
     if Module.get_attribute(env.module, :cfg) not in [nil, []],

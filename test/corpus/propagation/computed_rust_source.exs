@@ -1,7 +1,9 @@
 defmodule RustQ.Corpus.Propagation.ComputedRustSource do
-  @moduledoc "Propagation from callable metadata in a Rust source whose path is computed."
+  @moduledoc "Propagation from callable metadata in a Rust source named by a module attribute."
 
-  use RustQ.Meta, rust_sources: [Path.expand("../../fixtures/external_callables.rs", __DIR__)]
+  @source "test/fixtures/external_callables.rs"
+
+  use RustQ.Meta, rust_sources: [@source]
 
   alias RustQ.Type, as: R
 

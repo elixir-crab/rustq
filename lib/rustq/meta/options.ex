@@ -8,7 +8,7 @@ defmodule RustQ.Meta.Options do
   alias RustQ.Diagnostic
 
   @type t :: %{
-          rust_sources: [Path.t()],
+          rust_sources: [Path.t()] | {:quoted, Macro.t()},
           rust_packages: [Source.rust_package()],
           callable_modules: [module()],
           static_types: keyword(Macro.t())
@@ -41,22 +41,37 @@ defmodule RustQ.Meta.Options do
     )
   end
 
-  def validate_rust_sources(nil, _caller), do: {:ok, []}
+  def validate_rust_sources(nil), do: {:ok, []}
 
-  def validate_rust_sources(value, caller) do
-    with {:ok, paths} <- list_of(compile_time_value(value, caller), &is_binary/1, "string path") do
-      {:ok, Source.rust_source_paths(paths)}
+  # A path that is not a literal, such as a module attribute or a function call, is resolved
+  # where `use RustQ.Meta` places it in the module body; see `rust_source_paths!/1`.
+  def validate_rust_sources(value) do
+    if Macro.quoted_literal?(value) do
+      with {:ok, paths} <- list_of(value, &is_binary/1, "string path") do
+        {:ok, Source.rust_source_paths(paths)}
+      end
+    else
+      {:ok, {:quoted, value}}
     end
   end
 
-  # Paths may be computed when the module compiles, such as `Path.expand("decoder.rs", __DIR__)`
-  # for a source shipped beside it, which a path relative to the working directory cannot name.
-  defp compile_time_value(value, caller) do
-    if Macro.quoted_literal?(value) do
-      value
-    else
-      {evaluated, _binding} = Code.eval_quoted(value, [], caller)
-      evaluated
+  @doc """
+  Returns `rust_sources` given as an expression, such as `[@source]`, once the module body
+  has evaluated it. Relative paths are relative to the working directory.
+  """
+  @spec rust_source_paths!(term()) :: [Path.t()]
+  def rust_source_paths!(value) do
+    case list_of(value, &is_binary/1, "string path") do
+      {:ok, paths} ->
+        Source.rust_source_paths(paths)
+
+      {:error, message} ->
+        Diagnostic.defrust(
+          :invalid_meta_option,
+          value,
+          "invalid value for :rust_sources option: #{message}",
+          details: %{key: :rust_sources, value: value}
+        )
     end
   end
 
@@ -103,11 +118,12 @@ defmodule RustQ.Meta.Options do
   defp schema(caller) do
     [
       rust_sources: [
-        type: {:custom, __MODULE__, :validate_rust_sources, [caller]},
+        type: {:custom, __MODULE__, :validate_rust_sources, []},
         default: [],
         doc:
-          "Rust source path or paths to inspect for external callable metadata, evaluated " <>
-            "when the module compiles; relative paths are relative to the working directory"
+          "Rust source path or paths to inspect for external callable metadata, as literals " <>
+            "or an expression such as a module attribute; relative paths are relative to the " <>
+            "working directory"
       ],
       rust_packages: [
         type: {:custom, __MODULE__, :validate_rust_packages, []},

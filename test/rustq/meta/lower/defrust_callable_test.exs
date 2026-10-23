@@ -335,6 +335,19 @@ defmodule RustQ.Meta.Lower.DefrustCallableTest do
     assert error.diagnostic.details.key == :rust_packages
   end
 
+  test "rust_sources given as an expression must evaluate to paths" do
+    error =
+      assert_raise Diagnostic.Error, fn ->
+        defmodule ComputedMetaOptionCase do
+          @sources [:not_a_path]
+          use RustQ.Meta, rust_sources: @sources
+        end
+      end
+
+    assert %Diagnostic{phase: :defrust, kind: :invalid_meta_option} = error.diagnostic
+    assert error.diagnostic.details.key == :rust_sources
+  end
+
   test "Rust source callable metadata preserves cross-file public aliases" do
     unique = System.unique_integer([:positive])
     dir = Path.join(System.tmp_dir!(), "rustq_source_aliases_#{unique}")

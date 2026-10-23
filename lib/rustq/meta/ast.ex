@@ -633,6 +633,8 @@ defmodule RustQ.Meta.AST do
   defp access_root({{:., _, [receiver, field]}, _, []}) when is_atom(field),
     do: access_root(receiver)
 
+  defp access_root({:index, _, [receiver, _index]}), do: access_root(receiver)
+
   defp access_root(_expression), do: nil
 
   defp mutable_receiver?(%Type{} = type, method, arity, callables) do

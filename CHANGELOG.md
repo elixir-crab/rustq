@@ -32,6 +32,10 @@
 
 ### Fixed
 
+- `assign!(index(values, i), call())` propagates a fallible call with `?` when
+  the element type is known, as a `let` with a known type does, and makes an
+  owned `values` argument `mut`. The Rust assigned the `Result` and changed an
+  immutable argument.
 - A `defrust` inside an item `defrustmacro` keeps its plain arguments plain.
   Every argument used to be written as a macro variable, `$offset`, which the
   body then referred to as `offset`.

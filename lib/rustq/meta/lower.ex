@@ -146,7 +146,7 @@ defmodule RustQ.Meta.Lower do
   defp block_expressions(expression), do: [expression]
 
   defp lower_statement({:assign!, _, [target, expression]}, %Context{} = context) do
-    expected_type = infer_expr_type(target, context.vars)
+    expected_type = Typing.synth(target, typing_env(context))
     lower_assignment(target, expression, expected_type, context)
   end
 

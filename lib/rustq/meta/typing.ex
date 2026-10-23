@@ -129,6 +129,13 @@ defmodule RustQ.Meta.Typing do
     end
   end
 
+  def synth({:index, _meta, [collection, _index]}, %Env{} = env) do
+    case synth(collection, env) do
+      %Type{} = type -> indexed_type(Type.ref_inner(type) || type)
+      nil -> nil
+    end
+  end
+
   def synth({:unwrap!, _meta, [expression]}, %Env{} = env) do
     case synth(expression, env) do
       %Type{} = type -> Type.inner(type)
@@ -166,6 +173,8 @@ defmodule RustQ.Meta.Typing do
   end
 
   def synth(ast, opts) when is_list(opts), do: synth(ast, env(opts))
+
+  defp indexed_type(%Type{} = type), do: Type.vec_inner(type) || Type.slice_inner(type)
 
   defp synth_stdlib({name, _meta, args} = call_ast, %Env{} = env)
        when is_atom(name) and is_list(args) do

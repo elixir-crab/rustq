@@ -3,14 +3,14 @@ defmodule RustQ.CorpusTest do
 
   test "reports the intentional corpus inventory" do
     assert RustQ.Corpus.coverage() == %{
-             case_count: 48,
+             case_count: 49,
              categories: %{
                "collections" => 1,
                "control" => 3,
                "expr" => 2,
                "macros" => 5,
                "mutation" => 3,
-               "patterns" => 1,
+               "patterns" => 2,
                "propagation" => 32,
                "types" => 1
              },

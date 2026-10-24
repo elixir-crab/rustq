@@ -76,6 +76,9 @@ defmodule RustQ.Meta.Typing do
     |> then(&Map.get(vars, &1))
   end
 
+  def synth({:match?, _meta, [_pattern, _expression]}, %Env{}),
+    do: Type.parse(quote(do: boolean()), %{})
+
   def synth({:nif_env, _meta, []}, %Env{}) do
     %Type{
       kind: :path,

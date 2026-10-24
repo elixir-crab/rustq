@@ -978,6 +978,12 @@ defmodule RustQ.Meta.Lower do
     }
   end
 
+  # `match?(pattern, value)` is the `case` that answers whether the value matches.
+  defp lower_expr_context({:match?, meta, [pattern, expression]}, %Context{} = context) do
+    clauses = [{:->, meta, [[pattern], true]}, {:->, meta, [[{:_, meta, nil}], false]}]
+    lower_expr_context({:case, meta, [expression, [do: clauses]]}, context)
+  end
+
   defp lower_expr_context({:unwrap!, _, [expression]}, %Context{} = context),
     do: %AST.Try{expr: lower_expr(expression, context)}
 

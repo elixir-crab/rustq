@@ -1,7 +1,7 @@
 defmodule RustQ.Meta.Lower.Stdlib do
   @moduledoc """
-  Lowers calls to Elixir's standard library (`Kernel`, `Enum`, `List`, `Map`, `String`,
-  `Tuple`, and `Range`) to Rust that keeps their semantics, dispatching to one lowering module
+  Lowers calls to Elixir's standard library (`Kernel`, `Enum`, `List`, `Map`, `MapSet`,
+  `String`, `Tuple`, and `Range`) to Rust that keeps their semantics, dispatching to one lowering module
   per Elixir module. Calls whose semantics Rust cannot preserve are rejected.
   """
 
@@ -90,7 +90,7 @@ defmodule RustQ.Meta.Lower.Stdlib do
           ast,
           "unsupported Elixir standard-library call in defrust",
           suggestion:
-            "Use a documented Kernel/Enum/List/Map/String/Tuple/Range form or add an explicit Rust adapter."
+            "Use a documented Kernel/Enum/List/Map/MapSet/String/Tuple/Range form or add an explicit Rust adapter."
         )
     end
   end
@@ -143,6 +143,9 @@ defmodule RustQ.Meta.Lower.Stdlib do
   defp lower_call(%Call{module: Map} = call, context),
     do: RustQ.Meta.Lower.Map.lower(call, context)
 
+  defp lower_call(%Call{module: MapSet} = call, context),
+    do: RustQ.Meta.Lower.MapSet.lower(call, context)
+
   defp lower_call(%Call{module: String} = call, context),
     do: RustQ.Meta.Lower.String.lower(call, context)
 
@@ -169,6 +172,9 @@ defmodule RustQ.Meta.Lower.Stdlib do
 
   defp synth_call(%Call{module: Map} = call, context),
     do: RustQ.Meta.Lower.Map.synth(call, context)
+
+  defp synth_call(%Call{module: MapSet} = call, context),
+    do: RustQ.Meta.Lower.MapSet.synth(call, context)
 
   defp synth_call(%Call{module: String} = call, context),
     do: RustQ.Meta.Lower.String.synth(call, context)

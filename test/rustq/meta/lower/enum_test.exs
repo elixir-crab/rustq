@@ -57,6 +57,76 @@ defmodule RustQ.Meta.Lower.EnumTest do
     defrust(nonzero(name), do: if(name.is_empty(), do: nil, else: some(name.len())))
   end
 
+  defmodule Queries do
+    @moduledoc "`Enum` functions beyond mapping and filtering."
+
+    use RustQ.Meta
+
+    alias RustQ.Type, as: R
+
+    @spec by_length([String.t()]) :: %{R.usize() => [String.t()]}
+    defrust(by_length(names), do: Enum.group_by(names, fn name -> name.len() end))
+
+    @spec indexed([String.t()]) :: [{String.t(), R.usize()}]
+    defrust(indexed(names), do: Enum.with_index(names))
+
+    @spec positions(R.slice(String.t())) :: %{String.t() => R.usize()}
+    defrust positions(names) do
+      for {name, index} <- Enum.with_index(names), into: HashMap.new(), do: {name.clone(), index}
+    end
+
+    @spec first_long(R.slice(String.t())) :: R.option(R.usize())
+    defrust(first_long(names), do: Enum.find_index(names, fn name -> name.len() > 3 end))
+
+    @spec first_length(R.slice(String.t())) :: R.option(R.usize())
+    defrust first_length(names) do
+      Enum.find_value(names, fn name -> if(name.is_empty(), do: nil, else: some(name.len())) end)
+    end
+
+    @spec capped([integer()]) :: integer()
+    defrust capped(values) do
+      Enum.reduce_while(values, 0, fn value, sum ->
+        if sum + value > 10, do: {:halt, sum}, else: {:cont, sum + value}
+      end)
+    end
+
+    @spec sorted([String.t()]) :: [String.t()]
+    defrust(sorted(names), do: Enum.sort_by(names, fn name -> name.len() end, :desc))
+
+    @spec longest([String.t()]) :: R.option(String.t())
+    defrust(longest(names), do: Enum.max_by(names, fn name -> name.len() end, fn -> nil end))
+
+    @spec smallest([integer()]) :: integer()
+    defrust(smallest(values), do: Enum.min(values, fn -> 0 end))
+
+    @spec distinct([String.t()]) :: [String.t()]
+    defrust(distinct(names), do: Enum.uniq(names))
+
+    @spec split([integer()]) :: {[integer()], [integer()]}
+    defrust(split(values), do: Enum.split_with(values, fn value -> value > 0 end))
+
+    @spec second([String.t()]) :: R.option(String.t())
+    defrust(second(names), do: Enum.at(names, 1))
+
+    @spec leading([integer()]) :: [integer()]
+    defrust(leading(values), do: Enum.take_while(values, fn value -> value > 0 end))
+
+    @spec sums([integer()], [integer()]) :: [integer()]
+    defrust(sums(left, right), do: Enum.zip_with(left, right, fn x, y -> x + y end))
+
+    @spec pairs([integer()]) :: [[integer()]]
+    defrust(pairs(values), do: Enum.chunk_every(values, 2))
+
+    @spec joined([String.t()]) :: String.t()
+    defrust(joined(names), do: Enum.join(names, ", "))
+
+    @spec described([integer()]) :: String.t()
+    defrust(described(values), do: Enum.map_join(values, "-", fn value -> value.to_string() end))
+
+    @spec named([String.t()]) :: MapSet.t(String.t())
+    defrust(named(names), do: Enum.into(names, MapSet.new()))
+  end
+
   test "a question borrows the list it asks about" do
     assert rust_source!(Lists, :any_long) =~ "names.iter().any(|name| name.len() > 3)"
   end
@@ -71,7 +141,7 @@ defmodule RustQ.Meta.Lower.EnumTest do
 
   test "items kept from a list still in use are copies" do
     assert rust_source!(Lists, :kept) =~
-             ~r/names\s*\.iter\(\)\s*\.cloned\(\)\s*\.filter\(\|name\| name\.len\(\) > 3\)/
+             ~r/names\s*\.iter\(\)\s*\.filter\(\|name\| name\.len\(\) > 3\)\s*\.cloned\(\)/
   end
 
   test "a list reached through a reference is borrowed" do
@@ -88,5 +158,44 @@ defmodule RustQ.Meta.Lower.EnumTest do
 
     assert source =~ ".map(|name| (name, nonzero(name)))"
     refute source =~ "vec!["
+  end
+
+  test "group_by keeps each group's items in order" do
+    assert rust_source!(Queries, :by_length) =~
+             "rustq_groups.entry(rustq_item.len()).or_default().push(rustq_item);"
+  end
+
+  test "with_index pairs items with usize indexes, and a generator enumerates without collecting" do
+    assert rust_source!(Queries, :indexed) =~ ".enumerate()"
+    assert rust_source!(Queries, :positions) =~ "names.iter().enumerate().map(|(index, name)|"
+  end
+
+  test "find_index, find_value, and reduce_while stop at the first answer" do
+    assert rust_source!(Queries, :first_long) =~ "names.iter().position(|name| name.len() > 3)"
+    assert rust_source!(Queries, :first_length) =~ "names.iter().find_map("
+    assert rust_source!(Queries, :capped) =~ ".try_fold("
+    assert rust_source!(Queries, :capped) =~ ".unwrap_or_else(|rustq_halted| rustq_halted)"
+  end
+
+  test "sort_by and max_by sort by key, first greatest first, and min is min" do
+    assert rust_source!(Queries, :sorted) =~
+             "sort_by_key(|rustq_item| std::cmp::Reverse(rustq_item.len()))"
+
+    assert rust_source!(Queries, :longest) =~
+             ".min_by_key(|rustq_item| std::cmp::Reverse(rustq_item.len()))"
+
+    assert rust_source!(Queries, :smallest) =~ "values.into_iter().min().unwrap_or(0)"
+  end
+
+  test "uniq, split_with, at, take_while, zip_with, chunk_every, join, and into" do
+    assert rust_source!(Queries, :distinct) =~ "rustq_seen.insert(rustq_item.clone())"
+    assert rust_source!(Queries, :split) =~ ".partition::<Vec<i64>, _>(|&value| value > 0)"
+    assert rust_source!(Queries, :second) =~ "names.get(1).cloned()"
+    assert rust_source!(Queries, :leading) =~ ".take_while(|&value| value > 0)"
+    assert rust_source!(Queries, :sums) =~ "left.into_iter().zip(right)"
+    assert rust_source!(Queries, :pairs) =~ "values.chunks(2).map(|chunk| chunk.to_vec())"
+    assert rust_source!(Queries, :joined) =~ ~s|names.join(", ")|
+    assert rust_source!(Queries, :described) =~ ~s|.collect::<Vec<String>>().join("-")|
+    assert rust_source!(Queries, :named) =~ "names.into_iter().collect()"
   end
 end

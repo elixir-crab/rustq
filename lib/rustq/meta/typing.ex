@@ -649,11 +649,18 @@ defmodule RustQ.Meta.Typing do
   defp direct_coercion(actual, expected) do
     cond do
       Type.compatible?(actual, expected) -> :none
+      inferred_option?(actual) and expected.kind == :option -> :none
       option_ref_adapter_compatible?(actual, expected) -> :as_ref
       option_adapter_compatible?(actual, expected) -> :none
       true -> nil
     end
   end
+
+  # An `Option` whose item Rust infers, as `Enum.find_value/2` gives without a typed item.
+  defp inferred_option?(%Type{kind: :option} = type),
+    do: match?(%Type{ast: %AST.TypeRaw{source: "_"}}, Type.inner(type))
+
+  defp inferred_option?(_type), do: false
 
   defp propagation_coercion(actual, expected) do
     if Type.propagates?(actual) do

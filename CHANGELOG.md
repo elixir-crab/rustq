@@ -7,6 +7,19 @@
 - A module's `defrustmod` mappings come with it under the alias naming it, and
   `defrustmod __MODULE__, as: [...]` maps the module itself, so a library maps
   the Rust modules its generated code defines once for every module using it.
+- `MapSet` lowers on `HashSet`s, `MapSet.t(item)` is a `HashSet`, and `Map`
+  lowers on `HashMap`s as well as structs: `get`, `fetch!`, `has_key?`, `put`,
+  `delete`, `merge`, `update/4`, `keys`, `values`, `to_list`, and `new`, and
+  `MapSet.new`, `put`, `delete`, `member?`, `union`, `difference`,
+  `intersection`, `subset?`, `disjoint?`, `size`, and `to_list`. Updates take
+  the collection only at its last use.
+- `Enum.into`, `group_by`, `with_index`, `find_index`, `find_value`,
+  `reduce_while`, `sort_by`, `max_by`, `min_by`, `max`, `min` (with an empty
+  fallback), `uniq`, `uniq_by`, `dedup`, `split_with`, `at`, `slice`,
+  `take_while`, `drop_while`, `zip_with`, `chunk_every`, `join`, and
+  `map_join`. A comprehension over `Enum.with_index(list)` enumerates the list
+  in place, and `into: HashMap.new()` or `MapSet.new()` collects into that
+  collection where no type is expected.
 - A comprehension generator over one value, as
   `{:some, id} <- [record_id(record)]`, matches the value beside the item
   instead of iterating a list made for it.

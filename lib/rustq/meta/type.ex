@@ -900,6 +900,17 @@ defmodule RustQ.Meta.Type do
   defp parse_alias_type(ast, _raw, aliases), do: {parse(ast, aliases), aliases}
 
   @spec parse(Macro.t(), map()) :: t()
+  # `MapSet.t(item)` is a set of that item, as `HashSet.t(item)`.
+  def parse(
+        {{:., meta, [{:__aliases__, alias_meta, [:MapSet]}, :t]}, call_meta, [item]},
+        aliases
+      ),
+      do:
+        parse(
+          {{:., meta, [{:__aliases__, alias_meta, [:HashSet]}, :t]}, call_meta, [item]},
+          aliases
+        )
+
   def parse({{:., _, [module, function]}, _, args}, aliases),
     do: parse_remote(module, function, args, aliases)
 

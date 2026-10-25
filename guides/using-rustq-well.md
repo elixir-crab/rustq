@@ -329,6 +329,31 @@ comprehension over it, or over an owned list still in use, copies its items. A
 new value passed where a reference is expected, as `HashSet.new()`, is
 borrowed.
 
+Keyed collections follow the same rules. On a `HashMap` (`%{key => value}` in
+a spec) or `HashSet` (`MapSet.t(item)`), `Map.get`, `fetch!`, `has_key?`,
+`put`, `delete`, `merge`, `update/4`, `keys`, `values`, `to_list`, and `new`,
+and `MapSet.new`, `put`, `delete`, `member?`, `union`, `difference`,
+`intersection`, `subset?`, `disjoint?`, `size`, and `to_list` keep Elixir's
+meaning: values read out are copies, and an update takes the collection only at
+its last use, updating a copy otherwise.
+
+`Enum` also lowers `into`, `group_by`, `with_index`, `find_index`,
+`find_value`, `reduce_while`, `sort_by`, `max_by`, `min_by`, `max`, `min`,
+`uniq`, `uniq_by`, `dedup`, `split_with`, `at`, `slice`, `take_while`,
+`drop_while`, `zip_with`, `chunk_every`, `join`, and `map_join`. A few follow
+Rust where Elixir cannot be kept exactly:
+
+- `with_index` indexes in `usize`, and a generator over it enumerates in place:
+  `for {child, index} <- Enum.with_index(children)` is
+  `for (index, child) in children.iter().enumerate()`.
+- `find_value` takes a function returning `some(value)` or `nil`.
+- `reduce_while` reads `{:cont, acc}` and `{:halt, acc}` as `try_fold` does.
+- `max_by`, `min_by`, `max`, and `min` need an empty fallback, `fn -> nil end`
+  for an `Option`, since Elixir raises on an empty list.
+- Sort and extremum keys are values, as in Elixir: a key read out of an item is
+  cloned, not borrowed.
+- `at`, `slice`, and `chunk_every` take non-negative indexes and counts.
+
 A generator over one value matches it beside the item, so
 `for record <- records, {:some, id} <- [record_id(record)], do: {id, record}`
 skips records without an id, the way `filter_map` does, without making a list

@@ -1,5 +1,31 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- A pipeline of `Enum` stages runs as one Rust iterator chain:
+  `list |> Enum.map(f) |> Enum.find(p)` is `.map(f).find(p)`, with no list
+  collected between them, and `Enum.count/1` on a stage counts as it goes.
+- `mix rustq.std` also derives what std's methods on strings, characters,
+  lists, maps, sets, and options return where the receiver's type parameters
+  do not matter, so `name.len()` is a `usize` and `name.trim()` a `&str`.
+- A comprehension's type is the list, map, or set it collects its body's
+  values into, and a block of expressions lowers wherever an expression does.
+
+### Changed
+
+- Whether a value may be taken is decided for each use of it: a pass over the
+  body records what is still in use after every variable occurrence, as
+  Elixir scopes it, so a list used again later in the same expression, as
+  `{Map.put(scores, name, 1), scores}`, is copied. A parameter is `mut` where
+  the lowered Rust changes it in place.
+- `Map.new`, `MapSet.new`, `Enum.into` into an empty collection, `group_by`,
+  `uniq`, and generators over `Enum.with_index` are rewritten into other
+  Rusty-Elixir before lowering, by `RustQ.Meta.Desugar`.
+- Pattern, comprehension, path, and mutability lowering are their own modules
+  beside `RustQ.Meta.Lower`.
+
 ## 1.0.0-rc.17 - 2026-10-25
 
 ### Added

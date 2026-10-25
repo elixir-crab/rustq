@@ -3,11 +3,12 @@ defmodule RustQ.Meta.ProvidesTest do
 
   import ExUnit.CaptureIO
 
+  alias RustQ.Meta.NamedProviderCase
   alias RustQ.Meta.ProvidedCase
 
-  test "the Rust file beside a module is provided" do
+  test "the module's Rust file in templates/ is provided" do
     assert ProvidedCase.__rustq_source__() ==
-             "test/support/provided_case.rs" |> File.read!() |> String.trim_trailing()
+             "test/support/templates/provided_case.rs" |> File.read!() |> String.trim_trailing()
   end
 
   test "provided functions and methods are exported" do
@@ -23,10 +24,6 @@ defmodule RustQ.Meta.ProvidesTest do
   end
 
   test "provides names other files" do
-    defmodule NamedProviderCase do
-      use RustQ.Meta, provides: ["../../support/provided_case.rs"]
-    end
-
     assert NamedProviderCase.__rustq_source__() == ProvidedCase.__rustq_source__()
   end
 
@@ -38,7 +35,7 @@ defmodule RustQ.Meta.ProvidesTest do
     assert UnnamedProviderCase.__rustq_source__() == ""
   end
 
-  test "recompiles when the Rust file beside it appears or goes" do
+  test "recompiles when its Rust file appears or goes" do
     refute ProvidedCase.__mix_recompile__?()
   end
 

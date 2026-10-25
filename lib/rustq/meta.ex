@@ -42,8 +42,8 @@ defmodule RustQ.Meta do
       calls such as `atoms::fill()`
     * a RustQ module named through `alias` is imported: its functions, methods,
       and types are known, and `Runtime.decode(bytes)` calls its Rust `decode`.
-      A module shares Rust it emits as it is by placing it beside itself, as
-      `runtime.rs` beside `runtime.ex`, or naming it with `provides:`
+      A module shares Rust it emits as it is from `templates/` beside it, as
+      `templates/runtime.rs` for `runtime.ex`, or names it with `provides:`
     * ordinary Elixir macros are expanded before lowering, so reusable body
       fragments can use `defmacro`, `quote`, and `unquote`
     * fallible calls in argument, return, case-scrutinee, `some(...)`,
@@ -123,20 +123,21 @@ defmodule RustQ.Meta do
     end
   end
 
-  # A module provides the Rust file beside it named as its own file is, the way a LiveView
-  # renders the template beside it. `:provides` names other files, or none.
+  # A module provides the Rust file named as its own file is in `templates/` beside it, so Rust
+  # stays out of Elixir source directories without a path to write. `:provides` names other
+  # files, or none.
   defp provides(%{provides: provides}, _caller), do: {provides, nil}
 
   defp provides(_options, %Macro.Env{module: module, file: file}) when is_atom(module) do
     name = module |> Module.split() |> List.last() |> Macro.underscore()
 
     if Path.basename(file, ".ex") == name do
-      path = Path.rootname(file) <> ".rs"
+      path = Path.join([Path.dirname(file), "templates", name <> ".rs"])
       provides = if File.regular?(path), do: [path], else: []
 
       recompile =
         quote do
-          @doc "Whether the Rust file beside the module appeared or went since it compiled."
+          @doc "Whether the module's Rust file appeared or went since the module compiled."
           def __mix_recompile__?, do: File.regular?(unquote(path)) != unquote(provides != [])
         end
 

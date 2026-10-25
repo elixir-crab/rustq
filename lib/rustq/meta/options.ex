@@ -1,6 +1,6 @@
 defmodule RustQ.Meta.Options do
   @moduledoc """
-  The options `use RustQ.Meta` accepts: `:rust_sources`, `:rust_packages`,
+  The options `use RustQ.Meta` accepts: `:rust_sources`, `:provides`, `:rust_packages`,
   `:callable_modules`, and `:static_types`.
   """
 
@@ -8,6 +8,7 @@ defmodule RustQ.Meta.Options do
   alias RustQ.Diagnostic
 
   @type t :: %{
+          optional(:provides) => [Path.t()],
           rust_sources: [Path.t()] | {:quoted, Macro.t()},
           rust_packages: [Source.rust_package()],
           callable_modules: [module()],
@@ -16,7 +17,8 @@ defmodule RustQ.Meta.Options do
 
   @doc "The names of the options `use RustQ.Meta` accepts."
   @spec option_names() :: [atom()]
-  def option_names, do: [:rust_sources, :rust_packages, :callable_modules, :static_types]
+  def option_names,
+    do: [:rust_sources, :provides, :rust_packages, :callable_modules, :static_types]
 
   @doc "Validates and normalizes options passed to `use RustQ.Meta`."
   @spec validate!(keyword(), Macro.Env.t()) :: t()
@@ -75,6 +77,15 @@ defmodule RustQ.Meta.Options do
     end
   end
 
+  def validate_provides(nil, _caller), do: {:ok, []}
+
+  # Rust a module provides ships beside it, so its paths are relative to the module's file.
+  def validate_provides(value, caller) do
+    with {:ok, paths} <- list_of(value, &is_binary/1, "string path") do
+      {:ok, Enum.map(paths, &Path.expand(&1, Path.dirname(caller.file)))}
+    end
+  end
+
   def validate_rust_packages(nil), do: {:ok, []}
 
   def validate_rust_packages(value) do
@@ -125,6 +136,13 @@ defmodule RustQ.Meta.Options do
             "or an expression such as a module attribute; relative paths are relative to the " <>
             "working directory"
       ],
+      provides: [
+        type: {:custom, __MODULE__, :validate_provides, [caller]},
+        doc:
+          "Rust source path or paths the module emits as they are, relative to the module's " <>
+            "file; their functions, methods, and types join the module's exports. Without " <>
+            "it, a module provides the `.rs` file beside it named as its own file is"
+      ],
       rust_packages: [
         type: {:custom, __MODULE__, :validate_rust_packages, []},
         default: [],
@@ -133,7 +151,9 @@ defmodule RustQ.Meta.Options do
       callable_modules: [
         type: {:custom, __MODULE__, :validate_callable_modules, [caller]},
         default: [],
-        doc: "RustQ modules whose __rustq_callables__/0 metadata should be imported"
+        doc:
+          "RustQ modules whose __rustq_callables__/0 metadata should be imported; modules " <>
+            "named through `alias` in specs and `defrust` bodies are imported without it"
       ],
       static_types: [
         type: {:custom, __MODULE__, :validate_static_types, []},

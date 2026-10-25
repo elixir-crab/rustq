@@ -127,6 +127,29 @@ defmodule RustQ.Meta.Lower.EnumTest do
     defrust(named(names), do: Enum.into(names, MapSet.new()))
   end
 
+  defmodule Pipelines do
+    @moduledoc "`Enum` pipelines, which run as one Rust iterator chain."
+
+    use RustQ.Meta
+
+    alias RustQ.Type, as: R
+
+    @spec first_long([String.t()]) :: R.option(R.usize())
+    defrust first_long(names) do
+      names |> Enum.map(fn name -> name.len() end) |> Enum.find(fn length -> length > 3 end)
+    end
+
+    @spec positive_product([integer()]) :: integer()
+    defrust positive_product(values) do
+      values
+      |> Enum.filter(fn value -> value > 0 end)
+      |> Enum.reduce(1, fn value, product -> value * product end)
+    end
+
+    @spec doubled_sum([integer()]) :: integer()
+    defrust(doubled_sum(values), do: Enum.sum(Enum.map(values, fn value -> value * 2 end)))
+  end
+
   test "a question borrows the list it asks about" do
     assert rust_source!(Lists, :any_long) =~ "names.iter().any(|name| name.len() > 3)"
   end
@@ -197,5 +220,16 @@ defmodule RustQ.Meta.Lower.EnumTest do
     assert rust_source!(Queries, :joined) =~ ~s|names.join(", ")|
     assert rust_source!(Queries, :described) =~ ~s|.collect::<Vec<String>>().join("-")|
     assert rust_source!(Queries, :named) =~ "names.into_iter().collect()"
+  end
+
+  test "a pipeline of Enum stages collects no list between them" do
+    assert rust_source!(Pipelines, :first_long) =~
+             "names.into_iter().map(|name| name.len()).find(|&length| length > 3)"
+
+    assert rust_source!(Pipelines, :positive_product) =~
+             ~r/values\s*\.into_iter\(\)\s*\.filter\(\|&value\| value > 0\)\s*\.fold\(/
+
+    assert rust_source!(Pipelines, :doubled_sum) =~
+             "values.into_iter().map(|value| value * 2).sum()"
   end
 end

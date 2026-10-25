@@ -13,8 +13,10 @@ defmodule RustQ.Meta.Typing do
   alias RustQ.Meta.Lower.Stdlib.TypeContext, as: StdlibTypeContext
   alias RustQ.Meta.Pattern
   alias RustQ.Meta.StandardPointer
+  alias RustQ.Meta.StdMethods
   alias RustQ.Meta.Type
   alias RustQ.Rust.AST
+  alias RustQ.Spec
 
   defmodule Env do
     @moduledoc """
@@ -482,11 +484,49 @@ defmodule RustQ.Meta.Typing do
 
   defp synth_method_return({{:., _, [receiver, function]}, _meta, args}, %Env{} = env)
        when is_atom(function) and is_list(args) do
-    receiver
-    |> synth(env)
+    receiver_type = synth(receiver, env)
+
+    receiver_type
     |> callable_target_from_type()
-    |> then(&BindingIndex.return_type(env.callables, &1, function, length(args)))
+    |> then(&BindingIndex.return_type(env.callables, &1, function, length(args))) ||
+      std_return(receiver_type, function)
   end
+
+  # What a std method returns on a string, character, list, map, set, or option, as std's
+  # source says; see `RustQ.Meta.StdMethods.returns/0`.
+  defp std_return(%Type{} = receiver, function) do
+    name = Atom.to_string(function)
+    returns = StdMethods.returns()
+
+    receiver
+    |> std_receivers()
+    |> Enum.find_value(&Map.get(returns, {&1, name}))
+    |> then(&(&1 && Spec.from_syn(&1)))
+  end
+
+  defp std_return(_receiver, _function), do: nil
+
+  defp std_receivers(%Type{kind: kind} = type) when kind in [:ref, :mut_ref],
+    do: std_receivers(Type.ref_inner(type))
+
+  defp std_receivers(%Type{kind: :vec}), do: ["Vec", "[T]"]
+  defp std_receivers(%Type{kind: :slice}), do: ["[T]"]
+  defp std_receivers(%Type{kind: :option}), do: ["Option"]
+
+  defp std_receivers(%Type{ast: %AST.TypePath{parts: [:String], generics: []}}),
+    do: ["String", "str"]
+
+  defp std_receivers(%Type{rust: rust}) when rust in ["str", "&str"], do: ["str"]
+  defp std_receivers(%Type{rust: "char"}), do: ["char"]
+
+  defp std_receivers(%Type{ast: %AST.TypePath{parts: parts}}) do
+    case List.last(parts) do
+      collection when collection in [:HashMap, :HashSet] -> [Atom.to_string(collection)]
+      _other -> []
+    end
+  end
+
+  defp std_receivers(_type), do: []
 
   defp field_type(%Type{} = type, field) when is_atom(field) do
     type

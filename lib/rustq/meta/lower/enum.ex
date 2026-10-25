@@ -38,8 +38,13 @@ defmodule RustQ.Meta.Lower.Enum do
        when operation in [:filter, :reject, :flat_map, :each, :any?, :all?],
        do: {:ok, lower_operation(operation, collection, mapper, context)}
 
-  defp lower_call(%Call{function: :count, args: [collection]}, %Context{} = context),
-    do: {:ok, collection |> lower_collection(context) |> method_chain(:len) |> cast_i64()}
+  # A stage's items are counted as they come; a list knows its length.
+  defp lower_call(%Call{function: :count, args: [collection]}, %Context{} = context) do
+    case stage(collection) do
+      {:ok, stage} -> {:ok, stage |> continued(context) |> method_chain(:count) |> cast_i64()}
+      :error -> {:ok, collection |> lower_collection(context) |> method_chain(:len) |> cast_i64()}
+    end
+  end
 
   defp lower_call(%Call{function: :count, args: [collection, predicate]}, %Context{} = context) do
     iterator = iterate(collection, :question, context)
@@ -863,6 +868,53 @@ defmodule RustQ.Meta.Lower.Enum do
     do: iterate_as(collection, iteration(collection, use, context), context)
 
   defp iterate_as(collection, iteration, context) do
+    case stage(collection) do
+      {:ok, stage} -> continued(stage, context)
+      :error -> iterate_receiver(collection, iteration, context)
+    end
+  end
+
+  # A stage's iterator, without the list it would collect: `list |> Enum.map(f) |> Enum.find(p)`
+  # is one Rust chain, `.map(f).find(p)`, since no list between them is ever seen.
+  defp continued(stage, context) do
+    case context.lower.(stage) do
+      %AST.MethodCall{method: :collect, receiver: iterator} -> iterator
+      collected -> method_chain(collected, :into_iter)
+    end
+  end
+
+  @stages [
+    :map,
+    :filter,
+    :reject,
+    :flat_map,
+    :with_index,
+    :take_while,
+    :drop_while,
+    :zip_with,
+    :slice,
+    :take,
+    :drop,
+    :reverse,
+    :chunk_every
+  ]
+
+  defp stage({:|>, _meta, [left, right]} = pipe) do
+    case Call.pipe_remote(left, right) do
+      {:ok, call} -> stage(call)
+      :unsupported -> stage_call(pipe)
+    end
+  end
+
+  defp stage(collection), do: stage_call(collection)
+
+  defp stage_call({{:., _, [{:__aliases__, _, [:Enum]}, function]}, _, _args} = call)
+       when function in @stages,
+       do: {:ok, call}
+
+  defp stage_call(_collection), do: :error
+
+  defp iterate_receiver(collection, iteration, context) do
     receiver = lower_collection(collection, context)
 
     case iteration do
@@ -885,8 +937,13 @@ defmodule RustQ.Meta.Lower.Enum do
   # A question needs no item it could take, so it borrows other items even from a list nothing
   # uses afterwards. Copying out a number or atom costs what borrowing it does, and keeps the
   # item's own type.
-  defp iteration(collection, use, context),
-    do: iteration(context.type_of.(collection), collection, use, context)
+  # A stage's items are its own, so a call continuing it takes them.
+  defp iteration(collection, use, context) do
+    case stage(collection) do
+      {:ok, _stage} -> :owned
+      :error -> iteration(context.type_of.(collection), collection, use, context)
+    end
+  end
 
   defp iteration(%Type{kind: :vec} = type, collection, use, context),
     do: list_iteration(collection, type, use, context)

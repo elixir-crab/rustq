@@ -733,11 +733,14 @@ defmodule RustQ.Meta.Lower.DefrustTest do
     count_positive = rust_source!(RemotePipelineCase, :count_positive)
     has_square = rust_source!(RemotePipelineCase, :has_square)
 
-    assert positive_square_sum =~
-             ~r/filter\(.*collect::<Vec<i64>>.*\.map.*collect::<Vec<i64>>.*\.fold/s
+    assert positive_square_sum =~ ~r/\.filter\(\|&value\| value > 0\)\s*\.map\(.*\)\s*\.fold\(/s
+    refute positive_square_sum =~ "collect"
 
-    assert count_positive =~ ~r/filter\(.*collect::<Vec<i64>>.*\.len\(\) as i64/s
-    assert has_square =~ ~r/\.map.*collect::<Vec<i64>>.*\.any/s
+    assert count_positive =~ ~r/\.filter\(\|&value\| value > 0\)\s*\.count\(\) as i64/s
+
+    assert has_square =~
+             "values.into_iter().map(|value| value * value).any(|value| value == expected)"
+
     assert rust_source!(RemotePipelineCase, :first_or) =~ ".into_iter().next().unwrap_or(default)"
     assert rust_source!(RemotePipelineCase, :trimmed) =~ ".trim().to_string()"
     assert RustQ.valid?(rust_source!(RemotePipelineCase), "remote_pipeline_case.rs")

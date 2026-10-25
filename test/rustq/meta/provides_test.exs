@@ -62,6 +62,26 @@ defmodule RustQ.Meta.ProvidesTest do
     assert source =~ "fn second(entry: &Entry) -> Option<u32>"
   end
 
+  test "a module's Rust modules are reached through its alias" do
+    defmodule RustModuleConsumerCase do
+      use RustQ.Meta
+
+      alias RustQ.Meta.ProvidedCase, as: Runtime
+      alias RustQ.Type, as: R
+
+      @spec field() :: R.u32()
+      defrust(field(), do: Runtime.Entry.FIRST)
+
+      @spec limit() :: R.u32()
+      defrust(limit(), do: Runtime.Limits.MAX)
+    end
+
+    source = RustModuleConsumerCase.__rustq_source__()
+
+    assert source =~ "provided::Entry::FIRST"
+    assert source =~ "provided_limits::MAX"
+  end
+
   test "an alias used only in a body is used" do
     warnings =
       capture_io(:stderr, fn ->

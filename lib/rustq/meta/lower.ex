@@ -44,7 +44,9 @@ defmodule RustQ.Meta.Lower do
       rust_modules: %{},
       callables: %BindingIndex{},
       macro_vars: %{},
-      rust_macros: %{}
+      rust_macros: %{},
+      in_use: MapSet.new(),
+      built_from: %{}
     ]
   end
 
@@ -95,13 +97,85 @@ defmodule RustQ.Meta.Lower do
 
   defp lower_block(expressions, %Context{} = context) do
     context = context_with_downstream_let_types(expressions, context)
-
     {statements, final} = split_final(expressions)
-    statement_context = %{context | position: :statement}
-    return_context = %{context | position: :return}
+    {statement_contexts, final_context} = expression_contexts(statements ++ [final], context)
 
-    Enum.map(statements, &lower_statement(&1, statement_context)) ++
-      [lower_final(final, statement_context, return_context)]
+    Enum.zip_with(
+      statements,
+      statement_contexts,
+      &lower_statement(&1, %{&2 | position: :statement})
+    ) ++
+      [
+        lower_final(
+          final,
+          %{final_context | position: :statement},
+          %{final_context | position: :return}
+        )
+      ]
+  end
+
+  # Each expression of a block lowers knowing the variables still in use after it, with the
+  # variables they were built from, which they may borrow from: Elixir never changes a value,
+  # so lowering takes one only where nothing uses it afterwards.
+  defp expression_contexts(expressions, %Context{} = context) do
+    built_from = Enum.reduce(expressions, context.built_from, &record_built_from/2)
+
+    contexts =
+      expressions
+      |> Enum.with_index(1)
+      |> Enum.map(fn {expression, index} ->
+        later =
+          expressions |> Enum.drop(index) |> used_variables() |> MapSet.union(context.in_use)
+
+        current = used_variables([expression])
+        sources = sources(MapSet.union(later, current), built_from)
+
+        %{context | in_use: MapSet.union(later, sources), built_from: built_from}
+      end)
+
+    {statement_contexts, [final_context]} = Enum.split(contexts, -1)
+    {statement_contexts, final_context}
+  end
+
+  defp record_built_from({:=, _, [pattern, expression]}, built_from) do
+    from = used_variables([expression])
+    pattern |> variables_in() |> Enum.reduce(built_from, &Map.put(&2, &1, from))
+  end
+
+  defp record_built_from(_expression, built_from), do: built_from
+
+  # A binding's own name is not in use because its value is being built.
+  defp used_variables(expressions) do
+    Enum.reduce(expressions, MapSet.new(), fn
+      {:=, _, [_pattern, expression]}, used -> MapSet.union(used, used_variables([expression]))
+      expression, used -> MapSet.union(used, variables_in(expression))
+    end)
+  end
+
+  defp variables_in(ast) do
+    ast
+    |> Macro.prewalk(MapSet.new(), fn
+      {name, _meta, context} = node, variables
+      when is_atom(name) and is_atom(context) and name not in [:_, :__MODULE__] ->
+        {node, MapSet.put(variables, name)}
+
+      node, variables ->
+        {node, variables}
+    end)
+    |> elem(1)
+  end
+
+  defp sources(names, built_from) do
+    Enum.reduce(names, MapSet.new(), fn name, found -> add_sources(name, built_from, found) end)
+  end
+
+  defp add_sources(name, built_from, found) do
+    built_from
+    |> Map.get(name, MapSet.new())
+    |> Enum.reject(&MapSet.member?(found, &1))
+    |> Enum.reduce(found, fn source, found ->
+      add_sources(source, built_from, MapSet.put(found, source))
+    end)
   end
 
   # A body returning nothing runs its last expression for its effects, as a statement.
@@ -114,13 +188,19 @@ defmodule RustQ.Meta.Lower do
 
   defp lower_expected_block(expressions, %Context{} = context, %Type{} = expected_type) do
     context = context_with_downstream_let_types(expressions, context)
-
     {statements, final} = split_final(expressions)
-    statement_context = %{context | position: :statement}
-    return_context = %{context | position: :return}
+    {statement_contexts, final_context} = expression_contexts(statements ++ [final], context)
 
-    Enum.map(statements, &lower_statement(&1, statement_context)) ++
-      [%AST.Return{expr: lower_expr(final, expected_type, return_context)}]
+    Enum.zip_with(
+      statements,
+      statement_contexts,
+      &lower_statement(&1, %{&2 | position: :statement})
+    ) ++
+      [
+        %AST.Return{
+          expr: lower_expr(final, expected_type, %{final_context | position: :return})
+        }
+      ]
   end
 
   @keyed_collections [:HashMap, :HashSet, :BTreeMap, :BTreeSet]
@@ -1953,6 +2033,25 @@ defmodule RustQ.Meta.Lower do
       [] ->
         comprehension_map(stage, binder, binder_type, body)
 
+      # A generator over one value, as `{:some, id} <- [record_id(record)]`, matches that value
+      # beside the item instead of iterating a list made for it.
+      [{:<-, meta, [value_pattern, [value]]} | later] ->
+        paired =
+          quote(
+            do:
+              unquote(stage)
+              |> map(fn unquote(typed_arg(binder, binder_type)) ->
+                {unquote(binder), unquote(value)}
+              end)
+          )
+
+        comprehension_pipeline(
+          [{:<-, meta, [{binder, value_pattern}, paired]} | later],
+          body,
+          bound,
+          {nested?, generated}
+        )
+
       _ ->
         quote(
           do:
@@ -3327,8 +3426,23 @@ defmodule RustQ.Meta.Lower do
       lower_capture: &lower_function_capture(&1, context),
       closure_arg: &closure_arg!/1,
       type_of: &Typing.synth(&1, typing_env(context)),
+      in_use?: &in_use?(&1, &2, context),
       expected: expected
     }
+  end
+
+  # A collection is in use when the expressions after this one use it, a value they use was
+  # built from it, or the call's other arguments use it.
+  defp in_use?(collection, other_args, %Context{} = context) do
+    case root_variable(collection) do
+      nil ->
+        false
+
+      name ->
+        MapSet.member?(context.in_use, name) or
+          MapSet.member?(sources(used_variables(other_args), context.built_from), name) or
+          MapSet.member?(used_variables(other_args), name)
+    end
   end
 
   defp lower_binary_operand(expression, %Context{} = context) do

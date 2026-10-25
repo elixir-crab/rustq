@@ -195,10 +195,28 @@ defmodule RustQ.Meta.Typing do
   def check(ast, %Type{} = expected, opts) when is_list(opts), do: check(ast, expected, env(opts))
 
   def check(ast, %Type{} = expected, %Env{} = env) do
-    actual = synth(ast, env)
+    actual = synth(ast, env) || constructed_type(ast, expected)
 
     %Check{type: actual, coercion: coercion(actual, expected)}
   end
+
+  # `HashSet.new()` makes a new value of the type its call names, which a reference to that
+  # type borrows, though its type parameters come from where it goes.
+  defp constructed_type(
+         {{:., _, [{:__aliases__, _, [_ | _] = parts}, constructor]}, _, args},
+         %Type{kind: :ref} = expected
+       )
+       when constructor in [:new, :with_capacity, :default] and is_list(args) do
+    with %Type{ast: %AST.TypePath{parts: [_ | _] = type_parts}} = inner <-
+           Type.ref_inner(expected),
+         true <- List.last(type_parts) == List.last(parts) do
+      inner
+    else
+      _other -> nil
+    end
+  end
+
+  defp constructed_type(_ast, _expected), do: nil
 
   @spec expected_for_let(Macro.t(), Macro.t(), env_source()) :: Type.t() | nil
   def expected_for_let(pattern, expression, opts) when is_list(opts) do

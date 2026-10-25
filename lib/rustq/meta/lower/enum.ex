@@ -21,7 +21,7 @@ defmodule RustQ.Meta.Lower.Enum do
     do: {:ok, lower_map(collection, mapper, context)}
 
   defp lower_call(%Call{function: :sum, args: [collection]}, %Context{} = context),
-    do: {:ok, terminal(collection, :sum, context)}
+    do: {:ok, collection |> iterate(:question, [], context) |> method_chain(:sum)}
 
   defp lower_call(
          %Call{function: :reduce, args: [collection, initial, reducer]},
@@ -40,7 +40,7 @@ defmodule RustQ.Meta.Lower.Enum do
     do: {:ok, collection |> lower_collection(context) |> method_chain(:len) |> cast_i64()}
 
   defp lower_call(%Call{function: :count, args: [collection, predicate]}, %Context{} = context) do
-    iterator = collection |> lower_collection(context) |> method_chain(:into_iter)
+    iterator = iterate(collection, :question, [predicate], context)
     {:ok, iterator |> lower_filter_map(predicate, false, context, :count) |> cast_i64()}
   end
 
@@ -48,8 +48,7 @@ defmodule RustQ.Meta.Lower.Enum do
     do:
       {:ok,
        collection
-       |> lower_collection(context)
-       |> method_chain(:into_iter)
+       |> iterate(:question, [], context)
        |> method_chain(:next)
        |> method_chain(:is_none)}
 
@@ -63,7 +62,7 @@ defmodule RustQ.Meta.Lower.Enum do
        }}
 
   defp lower_call(%Call{function: :find, args: [collection, predicate]}, %Context{} = context) do
-    iterator = collection |> lower_collection(context) |> method_chain(:into_iter)
+    iterator = iterate(collection, :keeps_items, [predicate], context)
     {:ok, lower_filter_map(iterator, predicate, false, context, :find_map)}
   end
 
@@ -71,7 +70,7 @@ defmodule RustQ.Meta.Lower.Enum do
          %Call{function: :find, args: [collection, default, predicate]},
          %Context{} = context
        ) do
-    iterator = collection |> lower_collection(context) |> method_chain(:into_iter)
+    iterator = iterate(collection, :keeps_items, [default, predicate], context)
 
     {:ok,
      iterator
@@ -118,8 +117,7 @@ defmodule RustQ.Meta.Lower.Enum do
     do:
       {:ok,
        collection
-       |> context.lower.()
-       |> method_chain(:into_iter)
+       |> iterate(:keeps_items, [], context)
        |> method_chain(:rev)
        |> method_chain(:collect)}
 
@@ -160,8 +158,7 @@ defmodule RustQ.Meta.Lower.Enum do
 
         {:ok,
          collection
-         |> context.lower.()
-         |> method_chain(:into_iter)
+         |> iterate(:keeps_items, [count], context)
          |> method_chain(method, [lowered_count])
          |> method_chain(:collect)}
 
@@ -287,25 +284,26 @@ defmodule RustQ.Meta.Lower.Enum do
 
   defp lower_map(collection, {:fn, _, [{:->, _, [args, body]}]}, context) do
     mapped_type = collection_inner(context.expected)
+    mapper = {:fn, [], [{:->, [], [args, body]}]}
+    iteration = iteration(collection, :maps_items, [mapper], context)
+    args = typed_items(args, collection, iteration, context)
 
     closure =
       if mapped_type do
-        context.lower_typed_closure.(typed_items(args, collection, context), body, mapped_type)
+        context.lower_typed_closure.(args, body, mapped_type)
       else
-        context.lower_closure.(typed_items(args, collection, context), body)
+        context.lower_closure.(args, body)
       end
 
     collection
-    |> lower_collection(context)
-    |> method_chain(:into_iter)
+    |> iterate(iteration, context)
     |> method_chain(:map, [closure])
     |> collect(context)
   end
 
-  defp lower_map(collection, {:&, _, [{:/, _, [capture, 1]}]}, context) do
+  defp lower_map(collection, {:&, _, [{:/, _, [capture, 1]}]} = mapper, context) do
     collection
-    |> lower_collection(context)
-    |> method_chain(:into_iter)
+    |> iterate(:maps_items, [mapper], context)
     |> method_chain(:map, [context.lower_capture.(capture)])
     |> collect(context)
   end
@@ -319,25 +317,19 @@ defmodule RustQ.Meta.Lower.Enum do
     )
   end
 
-  defp terminal(collection, terminal, context) do
-    collection
-    |> lower_collection(context)
-    |> method_chain(:into_iter)
-    |> method_chain(terminal)
-  end
-
   defp lower_reduce(
          collection,
          initial,
          {:fn, _, [{:->, _, [[item, accumulator], body]}]},
          context
        ) do
-    [item] = typed_items([item], collection, context)
+    reducer = {:fn, [], [{:->, [], [[item, accumulator], body]}]}
+    iteration = iteration(collection, :maps_items, [initial, reducer], context)
+    [item] = typed_items([item], collection, iteration, context)
     closure = context.lower_closure.([accumulator, item], body)
 
     collection
-    |> lower_collection(context)
-    |> method_chain(:into_iter)
+    |> iterate(iteration, context)
     |> method_chain(:fold, [context.lower.(initial), closure])
   end
 
@@ -351,12 +343,14 @@ defmodule RustQ.Meta.Lower.Enum do
   end
 
   defp lower_operation(operation, collection, mapper, context) do
+    iteration = iteration(collection, operation_use(operation), [mapper], context)
+
     mapper =
       if operation in [:flat_map, :each, :any?, :all?],
-        do: typed_mapper(mapper, collection, context),
+        do: typed_mapper(mapper, collection, iteration, context),
         else: mapper
 
-    collection = collection |> lower_collection(context) |> method_chain(:into_iter)
+    collection = iterate(collection, iteration, context)
 
     case operation do
       :filter ->
@@ -378,6 +372,10 @@ defmodule RustQ.Meta.Lower.Enum do
         method_chain(collection, :all, [mapper(mapper, context)])
     end
   end
+
+  defp operation_use(operation) when operation in [:any?, :all?], do: :question
+  defp operation_use(operation) when operation in [:filter, :reject], do: :keeps_items
+  defp operation_use(_operation), do: :maps_items
 
   defp lower_filter_map(collection, predicate, negate?, context),
     do: lower_filter_map(collection, predicate, negate?, context, :collect)
@@ -467,22 +465,72 @@ defmodule RustQ.Meta.Lower.Enum do
 
   # A list is iterated by value, so a closure given its items may treat each as the list's
   # element type, as a struct update needs; filters see references and keep untyped arguments.
-  defp typed_items([item | rest], collection, context) do
+  defp typed_items([item | rest], collection, iteration, context) do
     case context.type_of.(collection) do
       %Type{kind: :vec} = type ->
-        [{:__rustq_typed_arg__, [], [item, Type.vec_inner(type)]} | rest]
+        inner = Type.vec_inner(type)
+        inner = if iteration == :borrowed, do: Type.ref(inner), else: inner
+        [{:__rustq_typed_arg__, [], [item, inner]} | rest]
 
       _unknown ->
         [item | rest]
     end
   end
 
-  defp typed_items([], _collection, _context), do: []
+  defp typed_items([], _collection, _iteration, _context), do: []
 
-  defp typed_mapper({:fn, meta, [{:->, arrow_meta, [args, body]}]}, collection, context),
-    do: {:fn, meta, [{:->, arrow_meta, [typed_items(args, collection, context), body]}]}
+  defp typed_mapper(
+         {:fn, meta, [{:->, arrow_meta, [args, body]}]},
+         collection,
+         iteration,
+         context
+       ),
+       do:
+         {:fn, meta,
+          [{:->, arrow_meta, [typed_items(args, collection, iteration, context), body]}]}
 
-  defp typed_mapper(mapper, _collection, _context), do: mapper
+  defp typed_mapper(mapper, _collection, _iteration, _context), do: mapper
+
+  # Elixir never changes a list, so an operation takes an owned list only where nothing uses it
+  # afterwards. A question about a list borrows it; so does any other operation on a list still
+  # in use, copying the items it keeps.
+  defp iterate(collection, use, others, context),
+    do: iterate(collection, iteration(collection, use, others, context), context)
+
+  defp iterate(collection, iteration, context) do
+    receiver = lower_collection(collection, context)
+
+    case iteration do
+      :owned -> method_chain(receiver, :into_iter)
+      :borrowed -> method_chain(receiver, :iter)
+      :copied -> receiver |> method_chain(:iter) |> method_chain(:copied)
+      :cloned -> receiver |> method_chain(:iter) |> method_chain(:cloned)
+    end
+  end
+
+  # A question needs no item it could take, so it borrows other items even from a list nothing
+  # uses afterwards. Copying out a number or atom costs what borrowing it does, and keeps the
+  # item's own type.
+  defp iteration(collection, use, others, context) do
+    case context.type_of.(collection) do
+      %Type{kind: :vec} = type ->
+        copy? = copy?(Type.vec_inner(type))
+        in_use? = (use == :question and not copy?) or context.in_use?.(collection, others)
+
+        cond do
+          not in_use? -> :owned
+          copy? -> :copied
+          use == :keeps_items -> :cloned
+          true -> :borrowed
+        end
+
+      _not_owned ->
+        :owned
+    end
+  end
+
+  defp copy?(%Type{} = type), do: Type.category(type) in [:integer, :number, :boolean, :atom]
+  defp copy?(_type), do: false
 
   defp lower_collection(collection, context) do
     case context.type_of.(collection) do

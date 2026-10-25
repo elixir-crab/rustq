@@ -1,5 +1,26 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- A module's `defrustmod` mappings come with it under the alias naming it, and
+  `defrustmod __MODULE__, as: [...]` maps the module itself, so a library maps
+  the Rust modules its generated code defines once for every module using it.
+- A comprehension generator over one value, as
+  `{:some, id} <- [record_id(record)]`, matches the value beside the item
+  instead of iterating a list made for it.
+
+### Changed
+
+- `Enum` functions take an owned list only at its last use. A list used
+  afterwards, by the call's closure, or by a value built from it is borrowed,
+  so code using the list again compiles. Questions such as `any?` and `all?`
+  always borrow, items kept from a borrowed list are cloned, and numbers and
+  atoms are copied out.
+- A new value such as `HashSet.new()` passed where a reference is expected is
+  borrowed.
+
 ## 1.0.0-rc.16 - 2026-10-25
 
 ### Added

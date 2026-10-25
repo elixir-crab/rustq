@@ -26,6 +26,7 @@ defmodule RustQ.Meta.Lower.Stdlib do
       :lower_capture,
       :closure_arg,
       :type_of,
+      :in_use?,
       :expected
     ]
 
@@ -39,6 +40,7 @@ defmodule RustQ.Meta.Lower.Stdlib do
             lower_capture: (Macro.t() -> term()),
             closure_arg: (Macro.t() -> atom()),
             type_of: (Macro.t() -> term()),
+            in_use?: (Macro.t(), [Macro.t()] -> boolean()),
             expected: Type.t() | nil
           }
   end

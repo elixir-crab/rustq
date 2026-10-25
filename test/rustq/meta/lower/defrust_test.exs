@@ -683,9 +683,7 @@ defmodule RustQ.Meta.Lower.DefrustTest do
     assert rust_source!(EnumPipelineCase, :product) =~
              ".into_iter().fold(1, |product, value| product * value)"
 
-    positives = rust_source!(EnumPipelineCase, :positives)
-    assert positives =~ ".filter_map(|value| if value > 0"
-    assert positives =~ "Some(value)"
+    assert rust_source!(EnumPipelineCase, :positives) =~ ".filter(|&value| value > 0)"
 
     assert rust_source!(EnumPipelineCase, :duplicates) =~
              ".flat_map(|value| vec![value, value]).collect::<Vec<i64>>()"
@@ -736,9 +734,9 @@ defmodule RustQ.Meta.Lower.DefrustTest do
     has_square = rust_source!(RemotePipelineCase, :has_square)
 
     assert positive_square_sum =~
-             ~r/filter_map.*collect::<Vec<i64>>.*\.map.*collect::<Vec<i64>>.*\.fold/s
+             ~r/filter\(.*collect::<Vec<i64>>.*\.map.*collect::<Vec<i64>>.*\.fold/s
 
-    assert count_positive =~ ~r/filter_map.*collect::<Vec<i64>>.*\.len\(\) as i64/s
+    assert count_positive =~ ~r/filter\(.*collect::<Vec<i64>>.*\.len\(\) as i64/s
     assert has_square =~ ~r/\.map.*collect::<Vec<i64>>.*\.any/s
     assert rust_source!(RemotePipelineCase, :first_or) =~ ".into_iter().next().unwrap_or(default)"
     assert rust_source!(RemotePipelineCase, :trimmed) =~ ".trim().to_string()"

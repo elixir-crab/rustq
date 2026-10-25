@@ -576,6 +576,21 @@ defmodule RustQ.Meta.AST do
     %{ast: ast, rust_module: rust_module, rust_impl: rust_impl}
   end
 
+  # The collection updates that change a collection in place where it is rebound to them.
+  @in_place_updates [
+    {:Map, :put},
+    {:Map, :delete},
+    {:Map, :merge},
+    {:Map, :update},
+    {:MapSet, :put},
+    {:MapSet, :delete},
+    {:MapSet, :union},
+    {:MapSet, :difference},
+    {:MapSet, :intersection},
+    {:Enum, :sort_by},
+    {:Enum, :dedup}
+  ]
+
   defp mark_mutable_owned_args(args, body, arg_names, arg_types, callables) do
     types = Map.new(Enum.zip(arg_names, arg_types))
     callables = Index.new(callables)
@@ -602,6 +617,17 @@ defmodule RustQ.Meta.AST do
 
         {:mut_ref, _, [target]} = call, acc ->
           {call, put_owned_root(acc, target, types, true)}
+
+        # `scores = Map.put(scores, ...)` changes `scores` in place.
+        {:=, _,
+         [
+           {name, _, _} = target,
+           {{:., _, [{:__aliases__, _, [module]}, function]}, _, [{name, _, _} | _]}
+         ]} =
+            rebinding,
+        acc
+        when {module, function} in @in_place_updates ->
+          {rebinding, put_owned_root(acc, target, types, true)}
 
         {:assign!, _, [target, _value]} = call, acc ->
           {call, put_owned_root(acc, target, types, true)}

@@ -331,7 +331,8 @@ defmodule RustQ.Meta do
       local_callables: local_callables,
       rust_macros: rust_macros,
       type_aliases: type_aliases,
-      rust_modules: rust_modules
+      rust_modules: rust_modules,
+      own_rust_modules: own_rust_modules
     } = compile_context(env)
 
     asts = Enum.map(built_asts, & &1.ast)
@@ -361,6 +362,7 @@ defmodule RustQ.Meta do
       type_items: type_items,
       items: items,
       local_callables: local_callables ++ Source.provided_callables(env.module),
+      rust_modules: own_rust_modules,
       source: source,
       nif_stub_keys:
         env.module
@@ -387,6 +389,7 @@ defmodule RustQ.Meta do
       {:__rustq_type_items__, values[:type_items]},
       {:__rustq_items__, values[:items]},
       {:__rustq_callables__, values[:local_callables]},
+      {:__rustq_rust_modules__, values[:rust_modules]},
       {:__rustq_source__, values[:source]}
     ]
 
@@ -446,6 +449,10 @@ defmodule RustQ.Meta do
   defp export_doc(:__rustq_type_items__), do: "The Rust items the module's types generate."
   defp export_doc(:__rustq_items__), do: "The Rust items the module generates, in order."
   defp export_doc(:__rustq_callables__), do: "Callable metadata for the module's definitions."
+
+  defp export_doc(:__rustq_rust_modules__),
+    do: "The Rust modules the module's `defrustmod`s map its aliases, or itself (`[]`), to."
+
   defp export_doc(:__rustq_source__), do: "The Rust source the module generates."
 
   defp compile_context(env) do
@@ -478,7 +485,10 @@ defmodule RustQ.Meta do
 
     type_aliases = Map.merge(imported_types, own_type_aliases)
 
-    rust_modules = env.module |> Module.get_attribute(:rustq_mod_aliases) |> rust_module_map()
+    own_rust_modules =
+      env.module |> Module.get_attribute(:rustq_mod_aliases) |> rust_module_map()
+
+    rust_modules = Map.merge(imported_rust_modules(env), own_rust_modules)
     local_callables = AST.callables_from_specs(specs, type_aliases)
 
     external_callables =
@@ -513,8 +523,30 @@ defmodule RustQ.Meta do
       local_callables: local_callables,
       rust_macros: rust_macros,
       type_aliases: own_type_aliases,
-      rust_modules: rust_modules
+      rust_modules: rust_modules,
+      own_rust_modules: own_rust_modules
     }
+  end
+
+  # A callable module's Rust module mappings are available under each alias naming it, so
+  # `Kiwi.NodeChange` reaches the module `Records` maps `NodeChange`, or itself, to.
+  defp imported_rust_modules(env) do
+    callable_modules =
+      env.module
+      |> Module.get_attribute(:rustq_callable_modules)
+      |> List.flatten()
+      |> MapSet.new()
+
+    for {alias_name, module} <- env.aliases,
+        MapSet.member?(callable_modules, module),
+        function_exported?(module, :__rustq_rust_modules__, 0),
+        {parts, rust_parts} <- module.__rustq_rust_modules__(),
+        into: %{},
+        do:
+          {alias_name
+           |> Module.split()
+           |> Enum.map(&String.to_existing_atom/1)
+           |> Kernel.++(parts), rust_parts}
   end
 
   # A RustQ module named through `alias` in a spec, a type, or a body is imported as a callable
@@ -691,6 +723,8 @@ defmodule RustQ.Meta do
   end
 
   defp alias_parts!({:__aliases__, _, parts}), do: parts
+  # The module itself, so modules naming it through `alias` reach its Rust module.
+  defp alias_parts!({:__MODULE__, _, context}) when is_atom(context), do: []
 
   defp alias_parts!(atom) when is_atom(atom) do
     atom

@@ -118,13 +118,23 @@ defmodule RustQ.Binding.Source do
     |> Enum.filter(&rustq_module?/1)
   end
 
+  # `Runtime.Entry` reaches into `Runtime` when `Runtime` is a RustQ module, as for the Rust
+  # modules it maps, without waiting on a nested module the compiler may never define.
   defp aliased_modules(ast, env) do
     ast
-    |> Macro.prewalk([], fn node, modules ->
-      case aliased_module(node, env) do
-        nil -> {node, modules}
-        module -> {node, [module | modules]}
-      end
+    |> Macro.prewalk([], fn
+      {:__aliases__, meta, [head | _]} = node, modules ->
+        head_module = aliased_module({:__aliases__, meta, [head]}, env)
+
+        module =
+          if head_module && rustq_module?(head_module),
+            do: head_module,
+            else: aliased_module(node, env)
+
+        {node, if(module, do: [module | modules], else: modules)}
+
+      node, modules ->
+        {node, modules}
     end)
     |> elem(1)
   end

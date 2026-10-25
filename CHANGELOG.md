@@ -1,5 +1,49 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- A module's `defrustmod` mappings come with it under the alias naming it, and
+  `defrustmod __MODULE__, as: [...]` maps the module itself, so a library maps
+  the Rust modules its generated code defines once for every module using it.
+- `MapSet` lowers on `HashSet`s, `MapSet.t(item)` is a `HashSet`, and `Map`
+  lowers on `HashMap`s as well as structs: `get`, `fetch!`, `has_key?`, `put`,
+  `delete`, `merge`, `update/4`, `keys`, `values`, `to_list`, and `new`, and
+  `MapSet.new`, `put`, `delete`, `member?`, `union`, `difference`,
+  `intersection`, `subset?`, `disjoint?`, `size`, and `to_list`. Updates take
+  the collection only at its last use.
+- `Enum.into`, `group_by`, `with_index`, `find_index`, `find_value`,
+  `reduce_while`, `sort_by`, `max_by`, `min_by`, `max`, `min` (with an empty
+  fallback), `uniq`, `uniq_by`, `dedup`, `split_with`, `at`, `slice`,
+  `take_while`, `drop_while`, `zip_with`, `chunk_every`, `join`, and
+  `map_join`. A comprehension over `Enum.with_index(list)` enumerates the list
+  in place, and `into: HashMap.new()` or `MapSet.new()` collects into that
+  collection where no type is expected.
+- Rebinding a list, map, or set to its update, as `scores = Map.put(scores,
+  name, 1)` or `layers = Enum.sort_by(layers, ...)`, changes it in place:
+  `scores.insert(name, 1);`.
+- A comprehension generator over one value, as
+  `{:some, id} <- [record_id(record)]`, matches the value beside the item
+  instead of iterating a list made for it.
+
+### Changed
+
+- `Enum` functions take an owned list only at its last use. A list used
+  afterwards, by the call's closure, or by a value built from it is borrowed,
+  so code using the list again compiles. Questions such as `any?` and `all?`
+  always borrow, items kept from a borrowed list are cloned, and numbers and
+  atoms are copied out.
+- A new value such as `HashSet.new()` passed where a reference is expected is
+  borrowed.
+- A list reached through a reference, as `binding.superseded` for a borrowed
+  `binding`, is never taken: `Enum` borrows it and a comprehension copies its
+  items, as a comprehension also does for an owned list still in use.
+- `Enum.filter/2`, `reject/2`, `find`, and `count/2` lower to Rust's `filter`
+  and `find`, as clippy prefers to `filter_map` returning the item; a number or
+  atom item is matched as `|&value|`. `Enum` iterates slices with `iter()`.
+  `RustQ.Rust.AST.PatRef` renders `&pattern`.
+
 ## 1.0.0-rc.16 - 2026-10-25
 
 ### Added

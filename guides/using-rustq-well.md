@@ -179,6 +179,21 @@ is. Other aliases stay Rust paths: `SkiaSafe.Canvas.t()` is still
 `skia_safe::Canvas`. `callable_modules` remains for modules a body calls
 without naming them.
 
+The Rust modules a module's `defrustmod`s map come with it, under the alias
+naming it. A module maps itself with `defrustmod __MODULE__`:
+
+```elixir
+defmodule MyLib.Runtime do
+  use RustQ.Meta
+
+  defrustmod __MODULE__, as: [:my_lib_records]
+  defrustmod Limits, as: [:my_lib_limits]
+end
+```
+
+Then `Runtime.Record.FIRST` is `my_lib_records::Record::FIRST` and
+`Runtime.Limits.MAX` is `my_lib_limits::MAX` in a module that aliases it.
+
 ## Keep Rusty-Elixir functional
 
 Write implementation logic as valid Elixir-shaped control flow:
@@ -302,6 +317,49 @@ function's closure, so `for item <- items, do: %{item | count: 0}` updates each
 closure is cloned rather than moved, and a later generator over a list from
 outside the comprehension copies its items rather than consuming it. Indexing a
 map borrows the key, and `%{key => value}` in a spec is a `HashMap`.
+
+Elixir never changes a list, so an `Enum` function takes an owned list only at
+its last use. A list the function's closure, a later expression, or a value
+still in use was built from is borrowed instead: `Enum.map(records, ...)` after
+`by_id = index(records)` iterates `records.iter()`. Questions such as
+`Enum.any?/2` borrow regardless, items a filter keeps from a borrowed list are
+cloned, and numbers and atoms are copied out. A list reached through a
+reference, as a field of a borrowed struct, is always borrowed, and a
+comprehension over it, or over an owned list still in use, copies its items. A
+new value passed where a reference is expected, as `HashSet.new()`, is
+borrowed.
+
+Keyed collections follow the same rules. On a `HashMap` (`%{key => value}` in
+a spec) or `HashSet` (`MapSet.t(item)`), `Map.get`, `fetch!`, `has_key?`,
+`put`, `delete`, `merge`, `update/4`, `keys`, `values`, `to_list`, and `new`,
+and `MapSet.new`, `put`, `delete`, `member?`, `union`, `difference`,
+`intersection`, `subset?`, `disjoint?`, `size`, and `to_list` keep Elixir's
+meaning: values read out are copies, and an update takes the collection only at
+its last use, updating a copy otherwise. Rebinding a collection to its update,
+as `scores = Map.put(scores, name, 1)`, changes it in place:
+`scores.insert(name, 1);`.
+
+`Enum` also lowers `into`, `group_by`, `with_index`, `find_index`,
+`find_value`, `reduce_while`, `sort_by`, `max_by`, `min_by`, `max`, `min`,
+`uniq`, `uniq_by`, `dedup`, `split_with`, `at`, `slice`, `take_while`,
+`drop_while`, `zip_with`, `chunk_every`, `join`, and `map_join`. A few follow
+Rust where Elixir cannot be kept exactly:
+
+- `with_index` indexes in `usize`, and a generator over it enumerates in place:
+  `for {child, index} <- Enum.with_index(children)` is
+  `for (index, child) in children.iter().enumerate()`.
+- `find_value` takes a function returning `some(value)` or `nil`.
+- `reduce_while` reads `{:cont, acc}` and `{:halt, acc}` as `try_fold` does.
+- `max_by`, `min_by`, `max`, and `min` need an empty fallback, `fn -> nil end`
+  for an `Option`, since Elixir raises on an empty list.
+- Sort and extremum keys are values, as in Elixir: a key read out of an item is
+  cloned, not borrowed.
+- `at`, `slice`, and `chunk_every` take non-negative indexes and counts.
+
+A generator over one value matches it beside the item, so
+`for record <- records, {:some, id} <- [record_id(record)], do: {id, record}`
+skips records without an id, the way `filter_map` does, without making a list
+for each.
 
 Types another module declares or provides are available once the module is
 named through `alias` or listed in `callable_modules`. Write them remotely, as `Shapes.shape()`, since Elixir checks local types; they keep

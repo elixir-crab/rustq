@@ -439,7 +439,7 @@ defmodule RustQ.Meta.GeneratedRustTest do
     File.write!(Path.join(src, "lib.rs"), [
       "#![allow(warnings)]\n",
       "use rustler::{Atom, Binary, Encoder, Env, NifResult, ResourceArc, Term};\n",
-      "use std::collections::HashMap;\n",
+      "use std::collections::{HashMap, HashSet};\n",
       Enum.map(files, fn {"src/" <> file, _module} -> "mod #{Path.rootname(file)};\n" end)
     ])
 

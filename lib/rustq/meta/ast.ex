@@ -7,6 +7,7 @@ defmodule RustQ.Meta.AST do
   alias RustQ.Diagnostic
   alias RustQ.Meta.Decoder
   alias RustQ.Meta.Lower
+  alias RustQ.Meta.Lower.Mutability
   alias RustQ.Meta.RustMacro
   alias RustQ.Meta.Type
   alias RustQ.Rust
@@ -601,7 +602,7 @@ defmodule RustQ.Meta.AST do
         # A field changed in place, as in `record.claims.push(claim)`.
         {{:., _, [{{:., _, [_, field]}, _, []} = receiver, method]}, _, method_args} = call, acc
         when is_atom(field) and is_atom(method) and is_list(method_args) ->
-          {call, put_owned_root(acc, receiver, types, Lower.mutating_method?(method))}
+          {call, put_owned_root(acc, receiver, types, Mutability.mutating_method?(method))}
 
         {:mut_ref, _, [target]} = call, acc ->
           {call, put_owned_root(acc, target, types, true)}
@@ -619,7 +620,7 @@ defmodule RustQ.Meta.AST do
 
   # An owned argument the lowered body changes in place, as rebinding it to its update does.
   defp mark_updated_args(args, body, types) do
-    mutated = Lower.mutated_variables(body)
+    mutated = Mutability.mutated_variables(body)
 
     Enum.map(args, fn %AST.FunctionArg{name: name} = arg ->
       if owned?(Map.get(types, name)) and MapSet.member?(mutated, name),
@@ -674,7 +675,7 @@ defmodule RustQ.Meta.AST do
   # An owned value changed in place, such as `values.retain(...)`; a borrowed one stays as is.
   defp mutable_standard_receiver?(%Type{rust: "&" <> _borrowed}, _method), do: false
 
-  defp mutable_standard_receiver?(%Type{}, method), do: Lower.mutating_method?(method)
+  defp mutable_standard_receiver?(%Type{}, method), do: Mutability.mutating_method?(method)
 
   defp nif_attrs?(attrs) do
     Enum.any?(attrs, &match?(%AST.Attribute{path: [:rustler, :nif]}, &1))

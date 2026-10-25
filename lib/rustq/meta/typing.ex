@@ -8,8 +8,8 @@ defmodule RustQ.Meta.Typing do
   alias RustQ.Binding.Index, as: BindingIndex
   alias RustQ.Meta.Core.Call
   alias RustQ.Meta.Inference
-  alias RustQ.Meta.Lower
   alias RustQ.Meta.Lower.Collection
+  alias RustQ.Meta.Lower.Paths
   alias RustQ.Meta.Lower.Stdlib
   alias RustQ.Meta.Lower.Stdlib.TypeContext, as: StdlibTypeContext
   alias RustQ.Meta.Pattern
@@ -185,7 +185,7 @@ defmodule RustQ.Meta.Typing do
         type
 
       :unsupported ->
-        Lower.callable_return_type(
+        Paths.callable_return_type(
           call_ast,
           callables: env.callables,
           rust_modules: env.rust_modules,
@@ -613,7 +613,7 @@ defmodule RustQ.Meta.Typing do
   # lowering does.
   defp synth_piped_call(left, {name, meta, args}, %Env{} = env)
        when is_atom(name) and is_list(args) do
-    Lower.callable_return_type(
+    Paths.callable_return_type(
       {name, meta, [left | args]},
       callables: env.callables,
       rust_modules: env.rust_modules,

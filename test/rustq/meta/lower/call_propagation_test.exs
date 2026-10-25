@@ -4,6 +4,7 @@ defmodule RustQ.Meta.Lower.CallPropagationTest do
   alias RustQ.Binding.Callable
   alias RustQ.Meta.GeneratedCase, as: Generated
   alias RustQ.Meta.Lower
+  alias RustQ.Meta.Lower.Paths
   alias RustQ.Meta.Type
   alias RustQ.Rust.AST
 
@@ -409,12 +410,17 @@ defmodule RustQ.Meta.Lower.CallPropagationTest do
       }
     ]
 
-    assert Lower.callable_return_type(quote(do: maybe_path()), callables: callables) ==
+    assert Paths.callable_return_type(quote(do: maybe_path()),
+             callables: callables
+           ) ==
              return_type
 
-    assert Lower.callable_return_type(quote(do: Canvas.draw_rect(rect)), callables: callables) ==
+    assert Paths.callable_return_type(quote(do: Canvas.draw_rect(rect)),
+             callables: callables
+           ) ==
              return_type
 
-    assert Lower.callable_return_type(quote(do: missing()), callables: callables) == nil
+    assert Paths.callable_return_type(quote(do: missing()), callables: callables) ==
+             nil
   end
 end

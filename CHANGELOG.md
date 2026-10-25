@@ -4,9 +4,9 @@
 
 ### Added
 
-- A RustQ module provides the `.rs` file beside it named as its own file is,
-  such as `runtime.rs` beside `runtime.ex`: Rust it emits as it is, like a
-  runtime a library ships. Its functions, methods, and types join the module's
+- A RustQ module provides the `.rs` file named as its own file is in
+  `templates/` beside it, such as `templates/runtime.rs` for `runtime.ex`: Rust
+  it emits as it is, like a runtime a library ships. Its functions, methods, and types join the module's
   exports, each type as an Elixir type, and `__rustq_items__/0` and
   `__rustq_source__/0` emit it. `use RustQ.Meta, provides: [...]` names other
   files, relative to the module's file. A library no longer needs to publish

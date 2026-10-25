@@ -79,7 +79,7 @@ defmodule RustQ.Meta.Options do
 
   def validate_provides(nil, _caller), do: {:ok, []}
 
-  # Rust a module provides ships beside it, so its paths are relative to the module's file.
+  # Rust a module provides ships with it, so its paths are relative to the module's file.
   def validate_provides(value, caller) do
     with {:ok, paths} <- list_of(value, &is_binary/1, "string path") do
       {:ok, Enum.map(paths, &Path.expand(&1, Path.dirname(caller.file)))}
@@ -141,7 +141,7 @@ defmodule RustQ.Meta.Options do
         doc:
           "Rust source path or paths the module emits as they are, relative to the module's " <>
             "file; their functions, methods, and types join the module's exports. Without " <>
-            "it, a module provides the `.rs` file beside it named as its own file is"
+            "it, a module provides `templates/<name>.rs` beside its `<name>.ex` file"
       ],
       rust_packages: [
         type: {:custom, __MODULE__, :validate_rust_packages, []},

@@ -9,6 +9,8 @@ defmodule RustQ.Meta.Lower do
   alias RustQ.Diagnostic
   alias RustQ.Meta.Capture
   alias RustQ.Meta.Core.Call
+  alias RustQ.Meta.Desugar
+  alias RustQ.Meta.Lower.Collection
   alias RustQ.Meta.Lower.Stdlib
   alias RustQ.Meta.Lower.Stdlib.Context, as: StdlibContext
   alias RustQ.Meta.Ownership
@@ -54,7 +56,7 @@ defmodule RustQ.Meta.Lower do
 
   @spec quoted_body(Macro.t(), Type.t() | nil, map(), keyword()) :: [struct()]
   def quoted_body(body_ast, return_type, vars \\ %{}, opts \\ []) do
-    {body_ast, built_from} = Ownership.annotate(body_ast)
+    {body_ast, built_from} = body_ast |> Desugar.desugar() |> Ownership.annotate()
 
     context = %Context{
       built_from: built_from,
@@ -208,7 +210,7 @@ defmodule RustQ.Meta.Lower do
   defp lower_statement({:for, _, args} = expression, %Context{} = context) when is_list(args) do
     case comprehension_parts(expression) do
       {qualifiers, [do: body]} ->
-        lower_for_loop(indexed_generators(qualifiers, context), body, context)
+        lower_for_loop(qualifiers, body, context)
 
       _other ->
         %AST.ExprStmt{expr: lower_comprehension(expression, nil, context)}
@@ -568,6 +570,13 @@ defmodule RustQ.Meta.Lower do
          %Context{} = context
        ),
        do: lower_expected_expr_context(expression, expected_type, context)
+
+  defp lower_expected_expr_context(
+         {:__block__, _, [_first, _second | _rest] = expressions},
+         %Type{} = expected_type,
+         %Context{} = context
+       ),
+       do: %AST.BlockExpr{body: lower_expected_block(expressions, context, expected_type)}
 
   defp lower_expected_expr_context(
          {tag, _value} = expression,
@@ -1032,6 +1041,31 @@ defmodule RustQ.Meta.Lower do
   end
 
   # `match?(pattern, value)` is the `case` that answers whether the value matches.
+  # `__rustq_items__(list)`, which `RustQ.Meta.Desugar` leaves, iterates a list by reference
+  # where it is borrowed or still in use, and takes it otherwise.
+  defp lower_expr_context({:__rustq_items__, _, [list]}, %Context{} = context) do
+    method = if borrowed_list?(list, context), do: :iter, else: :into_iter
+    %AST.MethodCall{receiver: lower_expr(list, context), method: method, args: []}
+  end
+
+  # `__rustq_owned__(item, list)` is a copy of an item of `list`, as `.clone()` makes one of an
+  # item that does not copy freely.
+  defp lower_expr_context({:__rustq_owned__, _, [item, list]}, %Context{} = context) do
+    inner =
+      case Typing.synth(list, typing_env(context)) do
+        %Type{} = type -> Type.vec_inner(type) || Type.slice_inner(type)
+        nil -> nil
+      end
+
+    if Collection.copy?(inner),
+      do: lower_expr(item, context),
+      else: %AST.MethodCall{receiver: lower_expr(item, context), method: :clone, args: []}
+  end
+
+  # A block of expressions is a Rust block whose value is its last expression.
+  defp lower_expr_context({:__block__, _, [_first, _second | _rest] = expressions}, context),
+    do: %AST.BlockExpr{body: lower_value_block(expressions, context)}
+
   defp lower_expr_context({:match?, meta, [pattern, expression]}, %Context{} = context) do
     clauses = [{:->, meta, [[pattern], true]}, {:->, meta, [[{:_, meta, nil}], false]}]
     lower_expr_context({:case, meta, [expression, [do: clauses]]}, context)
@@ -1930,7 +1964,6 @@ defmodule RustQ.Meta.Lower do
   # its closures never outlive the outer item they borrow.
   defp lower_comprehension(expression, expected_type, %Context{} = context) do
     {qualifiers, opts} = comprehension_parts(expression)
-    qualifiers = indexed_generators(qualifiers, context)
 
     if Keyword.has_key?(opts, :reduce) do
       Diagnostic.lower(
@@ -2000,30 +2033,7 @@ defmodule RustQ.Meta.Lower do
   defp collect_target(%Type{ast: ast} = type), do: if(slice_type?(type), do: @any_vec, else: ast)
   defp collect_target(nil), do: @any_vec
 
-  # `{item, index} <- Enum.with_index(list)` iterates `list.iter().enumerate()`, binding
-  # `{index, item}`, rather than collecting the pairs first. The list is borrowed unless the
-  # loop is its last use.
-  defp indexed_generators(qualifiers, %Context{} = context) do
-    Enum.map(qualifiers, fn
-      {:<-, meta, [pattern, {{:., _, [{:__aliases__, _, [:Enum]}, :with_index]}, _, [list]}]} ->
-        method =
-          if borrowed_list?(list, context),
-            do: :iter,
-            else: :into_iter
-
-        enumerated = quote(do: unquote(list) |> unquote(method)() |> enumerate())
-        {:<-, meta, indexed_generator(pattern, enumerated)}
-
-      qualifier ->
-        qualifier
-    end)
-  end
-
-  defp indexed_generator({item, index}, enumerated), do: [{index, item}, enumerated]
-
-  defp indexed_generator(pattern, enumerated),
-    do: [pattern, quote(do: unquote(enumerated) |> map(fn {index, item} -> {item, index} end))]
-
+  # A list borrowed, or owned but still in use, is iterated by reference.
   defp borrowed_list?(list, context) do
     case Typing.synth(list, typing_env(context)) do
       %Type{kind: kind} when kind in [:slice, :ref, :mut_ref] -> true

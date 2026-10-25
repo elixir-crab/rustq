@@ -1,14 +1,13 @@
 defmodule RustQ.Meta.Lower.MapSet do
   @moduledoc """
   Lowers `MapSet` functions on a `HashSet` or `BTreeSet` for `RustQ.Meta.Lower.Stdlib`, and
-  types such calls: `new`, `put`, `delete`, `member?`, `union`, `difference`, `intersection`,
+  types such calls: `new/0` (`new/1,2` are comprehensions; see `RustQ.Meta.Desugar`), `put`, `delete`, `member?`, `union`, `difference`, `intersection`,
   `subset?`, `disjoint?`, `size`, and `to_list`. An update takes the set only at its last use;
   see `RustQ.Meta.Lower.Collection`.
   """
 
   alias RustQ.Meta.Core.Call
   alias RustQ.Meta.Lower.Collection
-  alias RustQ.Meta.Lower.Map, as: MapLowering
   alias RustQ.Meta.Lower.Stdlib.{Context, TypeContext}
   alias RustQ.Meta.Type
   alias RustQ.Rust.AST
@@ -16,14 +15,6 @@ defmodule RustQ.Meta.Lower.MapSet do
   @spec lower(Call.t(), Context.t()) :: {:ok, term()} | :unsupported
   def lower(%Call{function: :new, args: []}, %Context{}),
     do: {:ok, %AST.PathCall{path: %AST.Path{parts: [:HashSet, :new]}, args: []}}
-
-  def lower(%Call{function: :new, args: [enumerable | transform]}, %Context{} = context) do
-    {:ok,
-     MapLowering.collect(
-       MapLowering.comprehension(enumerable, transform, quote(do: HashSet.new())),
-       context
-     )}
-  end
 
   def lower(%Call{args: [set | _]} = call, %Context{} = context) do
     case Collection.keyed_of(set, context) do
@@ -120,15 +111,6 @@ defmodule RustQ.Meta.Lower.MapSet do
   defp lower_set(%Call{}, _item, _context), do: :unsupported
 
   @spec synth(Call.t(), TypeContext.t()) :: {:ok, Type.t()} | :unsupported
-  def synth(%Call{function: :new, args: [enumerable]}, %TypeContext{} = context) do
-    with %Type{} = type <- context.type_of.(enumerable),
-         %Type{} = item <- Type.vec_inner(type) || Type.slice_inner(type) do
-      {:ok, Collection.set(item)}
-    else
-      _unknown -> :unsupported
-    end
-  end
-
   def synth(%Call{function: :new}, %TypeContext{}), do: :unsupported
 
   def synth(%Call{function: function, args: [set | _]}, %TypeContext{} = context) do

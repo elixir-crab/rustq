@@ -9,6 +9,7 @@ defmodule RustQ.Meta.Typing do
   alias RustQ.Meta.Core.Call
   alias RustQ.Meta.Inference
   alias RustQ.Meta.Lower
+  alias RustQ.Meta.Lower.Collection
   alias RustQ.Meta.Lower.Stdlib
   alias RustQ.Meta.Lower.Stdlib.TypeContext, as: StdlibTypeContext
   alias RustQ.Meta.Pattern
@@ -162,6 +163,22 @@ defmodule RustQ.Meta.Typing do
   def synth({:{}, _meta, [first | _rest] = elements}, %Env{} = env) when not is_atom(first),
     do: synth_tuple(elements, env)
 
+  # A comprehension collects its body's values into a list, or into the map or set `into:`
+  # names, as `RustQ.Meta.Desugar` writes `Map.new/1,2` and `MapSet.new/1,2`.
+  def synth({:for, _meta, [{:<-, _, [pattern, collection]} | rest]}, %Env{} = env) do
+    {_qualifiers, options} = Enum.split_while(rest, &(not Keyword.keyword?(&1) or &1 == []))
+    options = Enum.concat(options)
+
+    with %Type{} = list <- synth(collection, env),
+         %Type{} = item <- Type.vec_inner(list) || slice_item(list),
+         {:ok, body} <- Keyword.fetch(options, :do),
+         %Type{} = value <- synth(body, bind_pattern(pattern, item, env)) do
+      collected(Keyword.get(options, :into), value)
+    else
+      _unknown -> nil
+    end
+  end
+
   def synth(call_ast, %Env{} = env) do
     case synth_stdlib(call_ast, env) do
       {:ok, %Type{} = type} ->
@@ -178,6 +195,60 @@ defmodule RustQ.Meta.Typing do
   end
 
   def synth(ast, opts) when is_list(opts), do: synth(ast, env(opts))
+
+  defp slice_item(%Type{} = list) do
+    case Type.slice_inner(list) do
+      %Type{} = item -> Type.ref(item)
+      nil -> nil
+    end
+  end
+
+  defp bind_pattern({name, _meta, context}, %Type{} = item, %Env{} = env)
+       when is_atom(name) and is_atom(context),
+       do: %{env | vars: Map.put(env.vars, name, item)}
+
+  defp bind_pattern(
+         {left, right},
+         %Type{kind: :tuple, meta: %{elements: [left_type, right_type]}},
+         %Env{} = env
+       ),
+       do:
+         env
+         |> then(&bind_pattern(left, left_type, &1))
+         |> then(&bind_pattern(right, right_type, &1))
+
+  defp bind_pattern(_pattern, _item, %Env{} = env), do: env
+
+  defp collected(into, %Type{} = value) do
+    case {Collection.keyed(constructed(into)), value} do
+      {{:map, _, _}, %Type{kind: :tuple, meta: %{elements: [key, item]}}} ->
+        Collection.map(key, item)
+
+      {{:set, _}, value} ->
+        Collection.set(value)
+
+      {nil, value} ->
+        Type.vec(value)
+
+      _other ->
+        nil
+    end
+  end
+
+  # The collection type an `into:` constructor names, with types to be filled in.
+  defp constructed({:%{}, _, []}), do: Collection.map(unknown(), unknown())
+
+  defp constructed({{:., _, [{:__aliases__, _, [module]}, :new]}, _, []})
+       when module in [:Map, :HashMap, :BTreeMap],
+       do: Collection.map(unknown(), unknown())
+
+  defp constructed({{:., _, [{:__aliases__, _, [module]}, :new]}, _, []})
+       when module in [:MapSet, :HashSet, :BTreeSet],
+       do: Collection.set(unknown())
+
+  defp constructed(_into), do: nil
+
+  defp unknown, do: %Type{kind: :type, rust: "_", ast: %AST.TypeRaw{source: "_"}, meta: %{}}
 
   defp indexed_type(%Type{} = type), do: Type.vec_inner(type) || Type.slice_inner(type)
 

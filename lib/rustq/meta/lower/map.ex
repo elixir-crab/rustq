@@ -18,8 +18,8 @@ defmodule RustQ.Meta.Lower.Map do
   alias RustQ.Rust.AST
 
   @spec lower(Call.t(), Context.t()) :: {:ok, term()} | :unsupported
-  def lower(%Call{function: :new, args: args}, %Context{} = context),
-    do: lower_new(args, context)
+  def lower(%Call{function: :new, args: []}, %Context{} = context),
+    do: lower_new([], context)
 
   def lower(%Call{args: [map | _]} = call, %Context{} = context) do
     case Collection.keyed_of(map, context) do
@@ -28,39 +28,9 @@ defmodule RustQ.Meta.Lower.Map do
     end
   end
 
-  # `Map.new/0,1,2` builds what the comprehension `for item <- enumerable, into: %{}` would.
+  # `Map.new/1,2` is a comprehension; see `RustQ.Meta.Desugar`.
   defp lower_new([], _context),
     do: {:ok, %AST.PathCall{path: %AST.Path{parts: [:HashMap, :new]}, args: []}}
-
-  defp lower_new([enumerable | transform], context),
-    do: {:ok, collect(comprehension(enumerable, transform, quote(do: HashMap.new())), context)}
-
-  @doc "Lowers a comprehension collecting into the type the call is expected to give, if known."
-  @spec collect(Macro.t(), Context.t()) :: AST.expr()
-  def collect(comprehension, %Context{expected: %Type{} = expected} = context),
-    do: context.lower_expected.(comprehension, expected)
-
-  def collect(comprehension, %Context{} = context), do: context.lower.(comprehension)
-
-  @doc """
-  The comprehension collecting `enumerable` into `into`, through the one-argument function
-  `transform` gives, as `Map.new/1,2`, `MapSet.new/1,2`, and `Enum.into/2` build.
-  """
-  @spec comprehension(Macro.t(), [Macro.t()], Macro.t()) :: Macro.t()
-  def comprehension(enumerable, [], into),
-    do: quote(do: for(item <- unquote(enumerable), into: unquote(into), do: item))
-
-  def comprehension(enumerable, [{:fn, _, [{:->, _, [[pattern], body]}]}], into),
-    do:
-      quote(
-        do: for(unquote(pattern) <- unquote(enumerable), into: unquote(into), do: unquote(body))
-      )
-
-  def comprehension(enumerable, [{:&, _, [{:/, _, [function, 1]}]}], into) do
-    quote do
-      for item <- unquote(enumerable), into: unquote(into), do: unquote(function)(item)
-    end
-  end
 
   defp lower_keyed(%Call{function: :get, args: [map, key]}, key_type, value_type, context) do
     lookup =
@@ -277,16 +247,6 @@ defmodule RustQ.Meta.Lower.Map do
   defp lower_fields(%Call{}, %Context{}), do: :unsupported
 
   @spec synth(Call.t(), TypeContext.t()) :: {:ok, Type.t()} | :unsupported
-  def synth(%Call{function: :new, args: [enumerable]}, %TypeContext{} = context) do
-    with %Type{} = type <- context.type_of.(enumerable),
-         %Type{kind: :tuple, meta: %{elements: [key, value]}} <-
-           Type.vec_inner(type) || Type.slice_inner(type) do
-      {:ok, Collection.map(key, value)}
-    else
-      _unknown -> :unsupported
-    end
-  end
-
   def synth(%Call{function: :new}, %TypeContext{}), do: :unsupported
 
   def synth(%Call{args: [map | _]} = call, %TypeContext{} = context) do

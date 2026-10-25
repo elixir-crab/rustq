@@ -7,8 +7,8 @@ defmodule RustQ.Meta.Lower.Enum do
   alias RustQ.Diagnostic
   alias RustQ.Meta.Capture
   alias RustQ.Meta.Core.Call
+  alias RustQ.Meta.Desugar
   alias RustQ.Meta.Lower.Collection
-  alias RustQ.Meta.Lower.Map, as: MapLowering
   alias RustQ.Meta.Lower.Stdlib
   alias RustQ.Meta.Lower.Stdlib.{Context, TypeContext}
   alias RustQ.Meta.Type
@@ -179,54 +179,19 @@ defmodule RustQ.Meta.Lower.Enum do
     end
   end
 
-  defp lower_call(%Call{function: :into, args: [enumerable, collectable | transform]}, context) do
-    case empty_collectable(collectable) do
-      nil when transform == [] ->
-        {:ok,
-         Collection.updated(
-           collectable,
-           fn collection ->
-             [
-               Collection.statement(collection, :extend, [
-                 Collection.owned(enumerable, context)
-               ])
-             ]
-           end,
-           context
-         )}
-
-      nil ->
-        :unsupported
-
-      into ->
-        {:ok,
-         MapLowering.collect(MapLowering.comprehension(enumerable, transform, into), context)}
-    end
+  # `Enum.into/2` into an empty collection is a comprehension; see `RustQ.Meta.Desugar`. Into one
+  # with items, it extends a copy of it, or it at its last use.
+  defp lower_call(%Call{function: :into, args: [enumerable, collectable]}, context) do
+    {:ok,
+     Collection.updated(
+       collectable,
+       fn collection ->
+         [Collection.statement(collection, :extend, [Collection.owned(enumerable, context)])]
+       end,
+       context
+     )}
   end
 
-  # Groups keep their items in order, as Elixir's do.
-  defp lower_call(%Call{function: :group_by, args: [enumerable, key | value]}, context) do
-    item = Macro.var(:rustq_item, __MODULE__)
-    groups = Macro.var(:rustq_groups, __MODULE__)
-    value = if value == [], do: item, else: apply_function(hd(value), item)
-
-    block =
-      quote do
-        unquote(groups) = HashMap.new()
-
-        for unquote(item) <- unquote(enumerable) do
-          unquote(groups).entry(unquote(apply_function(key, item))).or_default().push(
-            unquote(value)
-          )
-        end
-
-        unquote(groups)
-      end
-
-    {:ok, context.lower_closure_body.(block, context.expected)}
-  end
-
-  # An index counts as Rust indexes do, in `usize`.
   defp lower_call(%Call{function: :with_index, args: [enumerable]}, context) do
     {:ok,
      enumerable
@@ -319,12 +284,6 @@ defmodule RustQ.Meta.Lower.Enum do
       |> then(&{:ok, &1})
     end
   end
-
-  defp lower_call(%Call{function: :uniq, args: [enumerable]}, context),
-    do: lower_uniq(enumerable, [], context)
-
-  defp lower_call(%Call{function: :uniq_by, args: [enumerable, key]}, context),
-    do: lower_uniq(enumerable, [key], context)
 
   defp lower_call(%Call{function: :dedup, args: [enumerable]}, context) do
     {:ok,
@@ -625,17 +584,6 @@ defmodule RustQ.Meta.Lower.Enum do
 
   def synth(%Call{function: function}, %TypeContext{}) when function in [:join, :map_join],
     do: {:ok, string_type()}
-
-  def synth(%Call{function: :group_by, args: [collection, key | value]}, context) do
-    with %Type{} = inner <- collection_inner(context.type_of.(collection)),
-         %Type{} = key <- mapper_type(key, inner, context),
-         %Type{} = value <-
-           if(value == [], do: inner, else: mapper_type(hd(value), inner, context)) do
-      {:ok, Collection.map(key, Type.vec(value))}
-    else
-      _unknown -> :unsupported
-    end
-  end
 
   def synth(%Call{}, %TypeContext{}), do: :unsupported
 
@@ -992,71 +940,6 @@ defmodule RustQ.Meta.Lower.Enum do
   defp cast_i64(expression),
     do: %AST.Cast{expr: expression, type: %AST.TypePath{parts: [:i64]}}
 
-  # Keeps each item whose key is new, in order, as Elixir does.
-  defp lower_uniq(enumerable, key, context) do
-    item = Macro.var(:rustq_item, __MODULE__)
-    seen = Macro.var(:rustq_seen, __MODULE__)
-
-    seen_key =
-      case key do
-        [] ->
-          if Collection.copy?(collection_inner(context.type_of.(enumerable))),
-            do: item,
-            else: quote(do: unquote(item).clone())
-
-        [key] ->
-          apply_function(key, item)
-      end
-
-    block =
-      quote do
-        unquote(seen) = HashSet.new()
-
-        Enum.filter(unquote(enumerable), fn unquote(item) ->
-          unquote(seen).insert(unquote(seen_key))
-        end)
-      end
-
-    {:ok, context.lower_closure_body.(block, context.expected || context.type_of.(enumerable))}
-  end
-
-  # The comprehension target an empty collectable names, or nil for one with items.
-  defp empty_collectable({:%{}, _, []}), do: quote(do: HashMap.new())
-  defp empty_collectable([]), do: quote(do: Vec.new())
-
-  defp empty_collectable({{:., _, [{:__aliases__, _, [module]}, :new]}, _, []} = constructor)
-       when module in [:Map, :MapSet, :HashMap, :HashSet, :BTreeMap, :BTreeSet],
-       do: constructor
-
-  defp empty_collectable(_collectable), do: nil
-
-  # A one-argument function applied to `value`, inlined.
-  defp apply_function({:fn, _, [{:->, _, [[{name, _, ast_context}], body]}]}, value)
-       when is_atom(name) and is_atom(ast_context) do
-    Macro.prewalk(body, fn
-      {^name, _, ^ast_context} -> value
-      node -> node
-    end)
-  end
-
-  defp apply_function({:fn, _, [{:->, _, [[pattern], body]}]}, value),
-    do: quote(do: case(unquote(value), do: (unquote(pattern) -> unquote(body))))
-
-  defp apply_function({:&, _, [{:/, _, [{{:., _, _} = remote, _, _}, 1]}]}, value),
-    do: {remote, [], [value]}
-
-  defp apply_function({:&, _, [{:/, _, [{name, _, _}, 1]}]}, value) when is_atom(name),
-    do: {name, [], [value]}
-
-  defp apply_function(other, _value) do
-    Diagnostic.lower(
-      :unsupported_enum_function,
-      other,
-      "unsupported Enum function argument in defrust",
-      suggestion: "Use a one-argument anonymous function or a named one-argument capture."
-    )
-  end
-
   defp continuation(body) do
     Macro.prewalk(body, fn
       {:cont, value} -> quote(do: ok(unquote(value)))
@@ -1088,7 +971,8 @@ defmodule RustQ.Meta.Lower.Enum do
         nil -> item
       end
 
-    %AST.Closure{body: body} = closure = context.lower_closure.([arg], apply_function(key, item))
+    %AST.Closure{body: body} =
+      closure = context.lower_closure.([arg], Desugar.apply_function(key, item))
 
     if order == :desc,
       do: %{

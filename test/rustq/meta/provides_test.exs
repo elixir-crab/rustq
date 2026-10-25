@@ -5,9 +5,9 @@ defmodule RustQ.Meta.ProvidesTest do
 
   alias RustQ.Meta.ProvidedCase
 
-  test "provided Rust is emitted as it is" do
+  test "the Rust file beside a module is provided" do
     assert ProvidedCase.__rustq_source__() ==
-             "test/support/rustq_meta_provided_case.rs" |> File.read!() |> String.trim_trailing()
+             "test/support/provided_case.rs" |> File.read!() |> String.trim_trailing()
   end
 
   test "provided functions and methods are exported" do
@@ -20,6 +20,26 @@ defmodule RustQ.Meta.ProvidesTest do
   test "provided types are exported as Elixir types" do
     assert %{rust: "Entry"} = ProvidedCase.__rustq_types__()[{:entry, 0}]
     assert {:ok, [{:type, {:entry, _, []}}]} = Code.Typespec.fetch_types(ProvidedCase)
+  end
+
+  test "provides names other files" do
+    defmodule NamedProviderCase do
+      use RustQ.Meta, provides: ["../../support/provided_case.rs"]
+    end
+
+    assert NamedProviderCase.__rustq_source__() == ProvidedCase.__rustq_source__()
+  end
+
+  test "a module whose file has another name provides nothing" do
+    defmodule UnnamedProviderCase do
+      use RustQ.Meta
+    end
+
+    assert UnnamedProviderCase.__rustq_source__() == ""
+  end
+
+  test "recompiles when the Rust file beside it appears or goes" do
+    refute ProvidedCase.__mix_recompile__?()
   end
 
   test "a provider named through alias is imported" do

@@ -42,7 +42,8 @@ defmodule RustQ.Meta do
       calls such as `atoms::fill()`
     * a RustQ module named through `alias` is imported: its functions, methods,
       and types are known, and `Runtime.decode(bytes)` calls its Rust `decode`.
-      A module shares Rust it emits as it is with `provides:`
+      A module shares Rust it emits as it is by placing it beside itself, as
+      `runtime.rs` beside `runtime.ex`, or naming it with `provides:`
     * ordinary Elixir macros are expanded before lowering, so reusable body
       fragments can use `defmacro`, `quote`, and `unquote`
     * fallible calls in argument, return, case-scrutinee, `some(...)`,
@@ -86,12 +87,12 @@ defmodule RustQ.Meta do
   defmacro __using__(opts) do
     %{
       rust_sources: rust_sources,
-      provides: provides,
       rust_packages: rust_packages,
       callable_modules: callable_modules,
       static_types: static_types
-    } =
-      Options.validate!(opts, __CALLER__)
+    } = options = Options.validate!(opts, __CALLER__)
+
+    {provides, recompile} = provides(options, __CALLER__)
 
     quote do
       import RustQ.Meta
@@ -117,7 +118,31 @@ defmodule RustQ.Meta do
       Module.register_attribute(__MODULE__, :cfg, accumulate: true)
       Module.register_attribute(__MODULE__, :nif, accumulate: false)
       Module.register_attribute(__MODULE__, :allow, accumulate: true)
+      unquote(recompile)
       @before_compile RustQ.Meta
+    end
+  end
+
+  # A module provides the Rust file beside it named as its own file is, the way a LiveView
+  # renders the template beside it. `:provides` names other files, or none.
+  defp provides(%{provides: provides}, _caller), do: {provides, nil}
+
+  defp provides(_options, %Macro.Env{module: module, file: file}) when is_atom(module) do
+    name = module |> Module.split() |> List.last() |> Macro.underscore()
+
+    if Path.basename(file, ".ex") == name do
+      path = Path.rootname(file) <> ".rs"
+      provides = if File.regular?(path), do: [path], else: []
+
+      recompile =
+        quote do
+          @doc "Whether the Rust file beside the module appeared or went since it compiled."
+          def __mix_recompile__?, do: File.regular?(unquote(path)) != unquote(provides != [])
+        end
+
+      {provides, recompile}
+    else
+      {[], nil}
     end
   end
 

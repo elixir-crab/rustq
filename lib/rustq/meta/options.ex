@@ -8,8 +8,8 @@ defmodule RustQ.Meta.Options do
   alias RustQ.Diagnostic
 
   @type t :: %{
+          optional(:provides) => [Path.t()],
           rust_sources: [Path.t()] | {:quoted, Macro.t()},
-          provides: [Path.t()],
           rust_packages: [Source.rust_package()],
           callable_modules: [module()],
           static_types: keyword(Macro.t())
@@ -138,10 +138,10 @@ defmodule RustQ.Meta.Options do
       ],
       provides: [
         type: {:custom, __MODULE__, :validate_provides, [caller]},
-        default: [],
         doc:
           "Rust source path or paths the module emits as they are, relative to the module's " <>
-            "file; their functions, methods, and types join the module's exports"
+            "file; their functions, methods, and types join the module's exports. Without " <>
+            "it, a module provides the `.rs` file beside it named as its own file is"
       ],
       rust_packages: [
         type: {:custom, __MODULE__, :validate_rust_packages, []},

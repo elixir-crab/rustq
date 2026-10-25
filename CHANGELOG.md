@@ -4,11 +4,13 @@
 
 ### Added
 
-- `use RustQ.Meta, provides: [...]` declares Rust a module emits as it is, such
-  as a runtime a library ships, with paths relative to the module's file. Its
-  functions, methods, and types join the module's exports, each type as an
-  Elixir type, and `__rustq_items__/0` and `__rustq_source__/0` emit it. A
-  library no longer needs to publish where its Rust files are.
+- A RustQ module provides the `.rs` file beside it named as its own file is,
+  such as `runtime.rs` beside `runtime.ex`: Rust it emits as it is, like a
+  runtime a library ships. Its functions, methods, and types join the module's
+  exports, each type as an Elixir type, and `__rustq_items__/0` and
+  `__rustq_source__/0` emit it. `use RustQ.Meta, provides: [...]` names other
+  files, relative to the module's file. A library no longer needs to publish
+  where its Rust files are.
 - A RustQ module named through `alias` in a spec, a type, or a `defrust` body is
   imported as `callable_modules` imports one, and calling its Rust function as
   `Module.function(...)` lowers to the function's call. Other aliases remain

@@ -144,13 +144,16 @@ Expose the real Rust definition or improve RustQ's inference instead.
 
 `rust_sources` reads Rust a module calls but does not own. Rust a module emits
 as it is, such as a runtime a library's generated code includes, is what the
-module provides. Ship it beside the module and declare it:
+module provides. Ship it beside the module, named as the module's file is:
 
-```elixir
-defmodule MyLib.Runtime do
-  use RustQ.Meta, provides: ["runtime.rs"]
-end
+```text
+lib/my_lib/runtime.ex   # defmodule MyLib.Runtime do use RustQ.Meta end
+lib/my_lib/runtime.rs
 ```
+
+`provides: ["other.rs"]` names other files, relative to the module's file, and
+`provides: []` none. Mix recompiles the module when its Rust file changes,
+appears, or goes.
 
 Its functions and methods join the module's own callables, and each Rust type
 without lifetimes or type parameters becomes an Elixir type: `Record` is

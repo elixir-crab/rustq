@@ -40,6 +40,9 @@ defmodule RustQ.Meta do
       equivalents
     * plural alias calls such as `Atoms.fill()` lower to snake-case Rust module
       calls such as `atoms::fill()`
+    * a RustQ module named through `alias` is imported: its functions, methods,
+      and types are known, and `Runtime.decode(bytes)` calls its Rust `decode`.
+      A module shares Rust it emits as it is with `provides:`
     * ordinary Elixir macros are expanded before lowering, so reusable body
       fragments can use `defmacro`, `quote`, and `unquote`
     * fallible calls in argument, return, case-scrutinee, `some(...)`,
@@ -83,6 +86,7 @@ defmodule RustQ.Meta do
   defmacro __using__(opts) do
     %{
       rust_sources: rust_sources,
+      provides: provides,
       rust_packages: rust_packages,
       callable_modules: callable_modules,
       static_types: static_types
@@ -98,12 +102,15 @@ defmodule RustQ.Meta do
       Module.register_attribute(__MODULE__, :rustq_macros, accumulate: true)
       Module.register_attribute(__MODULE__, :rustq_mod_aliases, accumulate: true)
       Module.register_attribute(__MODULE__, :rustq_rust_sources, accumulate: true)
+      Module.register_attribute(__MODULE__, :rustq_provides, accumulate: true)
       Module.register_attribute(__MODULE__, :rustq_rust_packages, accumulate: true)
       Module.register_attribute(__MODULE__, :rustq_callable_modules, accumulate: true)
       Module.register_attribute(__MODULE__, :rustq_static_types, accumulate: true)
       Module.register_attribute(__MODULE__, :rustq_current_rust_mod, accumulate: false)
       Module.register_attribute(__MODULE__, :rustq_current_rust_impl, accumulate: false)
       @rustq_rust_sources unquote(rust_sources_ast(rust_sources))
+      @rustq_provides unquote(provides)
+      unquote(Enum.map(provides, &quote(do: @external_resource(unquote(&1)))))
       @rustq_rust_packages unquote(Macro.escape(List.wrap(rust_packages)))
       @rustq_callable_modules unquote(Macro.escape(List.wrap(callable_modules)))
       @rustq_static_types unquote(Macro.escape(List.wrap(static_types)))
@@ -308,20 +315,26 @@ defmodule RustQ.Meta do
     rust_items = AST.group_items(built_macros ++ built_asts, rust_modules)
     items = type_items ++ rust_items
 
-    type_source = Rust.render_all(type_items)
-    function_source = Rust.render_all(rust_items)
+    provided_items = provided_items(env.module)
+    items = provided_items ++ items
+    provided_types = Source.provided_types(env.module)
 
-    source = [type_source, function_source] |> Enum.reject(&(&1 == "")) |> Enum.join("\n\n")
+    source =
+      [provided_items, type_items, rust_items]
+      |> Enum.map(&Rust.render_all/1)
+      |> Enum.reject(&(&1 == ""))
+      |> Enum.join("\n\n")
 
     values = [
       asts: asts,
       macro_items: macro_items,
       rust_macros: rust_macros,
       type_aliases: type_aliases,
+      provided_types: provided_types,
       type_asts: type_asts,
       type_items: type_items,
       items: items,
-      local_callables: local_callables,
+      local_callables: local_callables ++ Source.provided_callables(env.module),
       source: source,
       nif_stub_keys:
         env.module
@@ -343,7 +356,7 @@ defmodule RustQ.Meta do
       {:__rustq_asts__, values[:asts]},
       {:__rustq_macro_items__, values[:macro_items]},
       {:__rustq_macro_definitions__, values[:rust_macros]},
-      {:__rustq_types__, values[:type_aliases]},
+      {:__rustq_types__, Map.merge(values[:provided_types], values[:type_aliases])},
       {:__rustq_type_asts__, values[:type_asts]},
       {:__rustq_type_items__, values[:type_items]},
       {:__rustq_items__, values[:items]},
@@ -352,7 +365,29 @@ defmodule RustQ.Meta do
     ]
 
     metadata = Enum.map(definitions, &export_definition/1)
-    {:__block__, [], metadata ++ nif_stub_definitions(values[:nif_stub_keys])}
+
+    {:__block__, [],
+     provided_type_definitions(values[:provided_types]) ++
+       metadata ++ nif_stub_definitions(values[:nif_stub_keys])}
+  end
+
+  defp provided_items(module) do
+    case Source.provided_source(module) do
+      "" -> []
+      source -> [RustQ.parse_fragment!(:item, source)]
+    end
+  end
+
+  # Other modules name a provided Rust type by its Elixir type, so it exists as one.
+  defp provided_type_definitions(types) do
+    types
+    |> Enum.sort()
+    |> Enum.map(fn {{name, 0}, %Type{rust: rust}} ->
+      quote do
+        @typedoc unquote("The Rust type `#{rust}` the module provides.")
+        @type unquote({name, [], []}) :: term()
+      end
+    end)
   end
 
   defp nif_stub_definitions(stub_keys) do
@@ -398,6 +433,9 @@ defmodule RustQ.Meta do
     reject_rust_name_collisions!(defs)
 
     macro_defs = Module.get_attribute(env.module, :rustq_macros) |> List.wrap() |> Enum.reverse()
+    import_aliased_modules(env, defs, macro_defs)
+    functions = callable_module_functions(env.module)
+    defs = Enum.map(defs, &localize_remote_calls(&1, functions, env))
     imported_by_module = Source.external_type_aliases(env.module)
     imported_types = imported_by_module |> Map.values() |> Enum.reduce(%{}, &Map.merge(&2, &1))
 
@@ -416,7 +454,9 @@ defmodule RustQ.Meta do
 
     rust_modules = env.module |> Module.get_attribute(:rustq_mod_aliases) |> rust_module_map()
     local_callables = AST.callables_from_specs(specs, type_aliases)
-    external_callables = Source.external_callables(env.module)
+
+    external_callables =
+      Source.external_callables(env.module) ++ Source.provided_callables(env.module)
 
     external_static_types =
       Map.merge(
@@ -449,6 +489,52 @@ defmodule RustQ.Meta do
       type_aliases: own_type_aliases,
       rust_modules: rust_modules
     }
+  end
+
+  # A RustQ module named through `alias` in a spec, a type, or a body is imported as a callable
+  # module is.
+  defp import_aliased_modules(env, defs, macro_defs) do
+    declarations =
+      [:spec, :type, :typep]
+      |> Enum.flat_map(&List.wrap(Module.get_attribute(env.module, &1)))
+      |> Enum.map(&elem(&1, 1))
+
+    bodies = Enum.map(defs, &elem(&1, 1)) ++ Enum.map(macro_defs, &elem(&1, 1))
+
+    (declarations ++ bodies)
+    |> Source.aliased_callable_modules(env)
+    |> Enum.each(&Module.put_attribute(env.module, :rustq_callable_modules, &1))
+  end
+
+  # `Module.function(...)` on a callable module's Rust function is that function's Rust call.
+  defp localize_remote_calls({call_ast, body, attrs, rust_module, rust_impl}, functions, env) do
+    body =
+      Macro.prewalk(body, fn
+        {{:., _, [{:__aliases__, _, parts} = alias_ast, function]}, meta, args} = call
+        when is_atom(function) and is_list(args) ->
+          module =
+            Source.aliased_module(alias_ast, env) ||
+              (Enum.all?(parts, &is_atom/1) && Module.concat(parts))
+
+          if MapSet.member?(functions, {module, Atom.to_string(function), length(args)}),
+            do: {function, meta, args},
+            else: call
+
+        ast ->
+          ast
+      end)
+
+    {call_ast, body, attrs, rust_module, rust_impl}
+  end
+
+  defp callable_module_functions(module) do
+    for callable_module <-
+          module |> Module.get_attribute(:rustq_callable_modules) |> List.flatten() |> Enum.uniq(),
+        Code.ensure_loaded?(callable_module),
+        function_exported?(callable_module, :__rustq_callables__, 0),
+        %{kind: :function, name: name, args: args} <- callable_module.__rustq_callables__(),
+        into: MapSet.new(),
+        do: {callable_module, name, length(args)}
   end
 
   # A callable module's type, written remotely as `Other.tree()` since Elixir checks local

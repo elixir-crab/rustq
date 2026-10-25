@@ -45,6 +45,95 @@ defmodule RustQ.Binding.Source do
     end)
   end
 
+  @doc """
+  Callables read from a module's `:provides` files, which join its own in
+  `__rustq_callables__/0`.
+  """
+  @spec provided_callables(module()) :: [Callable.t()]
+  def provided_callables(module) when is_atom(module) do
+    module
+    |> provided_paths()
+    |> cached_rust_source_callables()
+  end
+
+  @doc """
+  Rust types declared in a module's `:provides` files, as the Elixir types other modules name
+  them by: `KiwiRecord` is `kiwi_record()`. Types with lifetimes or type parameters are left
+  out.
+  """
+  @spec provided_types(module()) :: %{optional({atom(), 0}) => Type.t()}
+  def provided_types(module) when is_atom(module) do
+    case provided_paths(module) do
+      [] ->
+        %{}
+
+      paths ->
+        index = rust_source_index!(paths)
+
+        (Syn.Index.structs(index) ++ Syn.Index.enums(index))
+        |> Enum.filter(
+          &(&1.visibility == :public and &1.lifetimes == [] and &1.type_parameters == [])
+        )
+        |> Map.new(&{{provided_type_name(&1.name), 0}, provided_type(&1.name)})
+    end
+  end
+
+  @doc "Rust source of a module's `:provides` files, as the module emits it."
+  @spec provided_source(module()) :: String.t()
+  def provided_source(module) when is_atom(module) do
+    module
+    |> provided_paths()
+    |> Enum.map_join("\n\n", &(&1 |> File.read!() |> String.trim_trailing()))
+  end
+
+  @doc """
+  The module an alias in a RustQ module names, when it was written through `alias`: found among
+  `env`'s aliases, or recorded on the alias by `quote` in the macro that wrote it. Other aliases
+  are Rust paths.
+  """
+  @spec aliased_module(Macro.t(), Macro.Env.t()) :: module() | nil
+  def aliased_module({:__aliases__, meta, [head | _]} = alias_ast, env) when is_atom(head) do
+    case Keyword.get(meta, :alias) do
+      module when is_atom(module) and module not in [nil, false] ->
+        module
+
+      _unrecorded ->
+        if List.keymember?(env.aliases, Module.concat([head]), 0),
+          do: Macro.expand(alias_ast, env)
+    end
+  end
+
+  def aliased_module(_ast, _env), do: nil
+
+  @doc """
+  The RustQ modules `asts` name through `alias`, which a module imports as it does its
+  `:callable_modules`, the way Elixir resolves a module by its name.
+  """
+  @spec aliased_callable_modules([Macro.t()], Macro.Env.t()) :: [module()]
+  def aliased_callable_modules(asts, %Macro.Env{} = env) do
+    asts
+    |> Enum.flat_map(&aliased_modules(&1, env))
+    |> Enum.uniq()
+    |> Enum.reject(&(&1 == env.module))
+    |> Enum.filter(&rustq_module?/1)
+  end
+
+  defp aliased_modules(ast, env) do
+    ast
+    |> Macro.prewalk([], fn node, modules ->
+      case aliased_module(node, env) do
+        nil -> {node, modules}
+        module -> {node, [module | modules]}
+      end
+    end)
+    |> elem(1)
+  end
+
+  defp rustq_module?(module) do
+    match?({:module, ^module}, Code.ensure_compiled(module)) and
+      function_exported?(module, :__rustq_callables__, 0)
+  end
+
   @doc "Resolves external static item types configured on a `use RustQ.Meta` module."
   @spec external_static_types(module()) :: %{optional(atom()) => Type.t()}
   def external_static_types(module) when is_atom(module) do
@@ -64,6 +153,19 @@ defmodule RustQ.Binding.Source do
   defp rust_source_path(path) when is_binary(path) do
     if Path.type(path) == :absolute, do: path, else: Path.expand(path, File.cwd!())
   end
+
+  defp provided_paths(module) do
+    module
+    |> Module.get_attribute(:rustq_provides)
+    |> List.wrap()
+    |> List.flatten()
+    |> Enum.uniq()
+  end
+
+  defp provided_type_name(rust_name), do: rust_name |> Macro.underscore() |> Identifier.atom!()
+
+  defp provided_type(rust_name),
+    do: Spec.type({{:., [], [{:__aliases__, [], [Identifier.atom!(rust_name)]}, :t]}, [], []})
 
   defp rust_source_callables_for_module(module) do
     module

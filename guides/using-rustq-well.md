@@ -113,7 +113,7 @@ Before adding `unwrap!`, `ref`, `mut_ref`, or a wrapper function, ask whether
 RustQ can see the called function or method. Callable metadata can come from:
 
 - local `@spec`s
-- `callable_modules`
+- RustQ modules named through `alias`, and `callable_modules`
 - configured `rust_sources`
 - configured `rust_packages`
 - known receiver and expected argument types
@@ -139,6 +139,41 @@ This is especially important for fallible methods and generic adapters such as
 `impl AsRef<T>`, `impl Into<T>`, and `impl IntoIterator<Item = T>`. A trivial
 wrapper created only because callable metadata is missing is technical debt.
 Expose the real Rust definition or improve RustQ's inference instead.
+
+## Share Rust through modules
+
+`rust_sources` reads Rust a module calls but does not own. Rust a module emits
+as it is, such as a runtime a library's generated code includes, is what the
+module provides. Ship it beside the module and declare it:
+
+```elixir
+defmodule MyLib.Runtime do
+  use RustQ.Meta, provides: ["runtime.rs"]
+end
+```
+
+Its functions and methods join the module's own callables, and each Rust type
+without lifetimes or type parameters becomes an Elixir type: `Record` is
+`record()`. `__rustq_items__/0` and `__rustq_source__/0` emit the Rust.
+
+Other modules use it as Elixir modules use each other, by naming it:
+
+```elixir
+alias MyLib.Runtime
+
+@spec first(R.slice(R.u8())) :: R.nif_result(R.option(R.u32()))
+defrust first(bytes) do
+  record = Runtime.decode_record(bytes)
+  {:ok, record.get(0)}
+end
+```
+
+A RustQ module named through `alias` in a spec, a type, or a `defrust` body is
+imported as `callable_modules` would import it, and `Runtime.decode_record(...)`
+is the Rust call `decode_record(...)`. Neither side knows where the Rust file
+is. Other aliases stay Rust paths: `SkiaSafe.Canvas.t()` is still
+`skia_safe::Canvas`. `callable_modules` remains for modules a body calls
+without naming them.
 
 ## Keep Rusty-Elixir functional
 
@@ -264,8 +299,8 @@ closure is cloned rather than moved, and a later generator over a list from
 outside the comprehension copies its items rather than consuming it. Indexing a
 map borrows the key, and `%{key => value}` in a spec is a `HashMap`.
 
-Types another module declares are available through `callable_modules`. Write
-them remotely, as `Shapes.shape()`, since Elixir checks local types; they keep
+Types another module declares or provides are available once the module is
+named through `alias` or listed in `callable_modules`. Write them remotely, as `Shapes.shape()`, since Elixir checks local types; they keep
 their single Rust declaration in the module that declares them.
 
 ## Compose with ordinary Elixir

@@ -135,6 +135,7 @@ defmodule RustQ.ASTSamples do
   defp semantic_fragment(:pat_path_tuple), do: "Event::Click(click) =>"
   defp semantic_fragment(:pat_struct), do: "Click { name } =>"
   defp semantic_fragment(:pat_slice), do: "[head, tail @ ..] =>"
+  defp semantic_fragment(:pat_ref), do: "&value =>"
   defp semantic_fragment(_), do: ""
 
   def sample_for(:use), do: %AST.Use{group: {[:std], [:fmt, :io]}}
@@ -510,6 +511,9 @@ defmodule RustQ.ASTSamples do
 
   def sample_for(:pat_struct),
     do: match_sample(:pat_struct_sample, P.struct([:Click], name: P.var(:name)))
+
+  def sample_for(:pat_ref),
+    do: match_sample(:pat_ref_sample, %AST.PatRef{pattern: A.pat(:value)}, args: [value: "&i64"])
 
   def sample_for(:pat_slice) do
     match_sample(

@@ -68,6 +68,7 @@ defmodule RustQ.Rust.AST do
     PatOk,
     PatPath,
     PatPathTuple,
+    PatRef,
     PatSlice,
     PatSome,
     PatStruct,
@@ -203,6 +204,7 @@ defmodule RustQ.Rust.AST do
           | PatPathTuple.t()
           | PatStruct.t()
           | PatSlice.t()
+          | PatRef.t()
 
   @type vis :: :pub | :crate | nil
 
@@ -738,6 +740,9 @@ defmodule RustQ.Rust.AST do
 
   defnode(PatSome, :pat, [:pattern], type: quote(do: %__MODULE__{pattern: AST.pat()}))
 
+  # `&pattern`, matching what a reference points to, as a closure over `&T` items copies one.
+  defnode(PatRef, :pat, [:pattern], type: quote(do: %__MODULE__{pattern: AST.pat()}))
+
   defnode(PatAtomGuard, :pat, [:name, module: [:atoms]],
     type: quote(do: %__MODULE__{name: atom(), module: [atom() | String.t()]})
   )
@@ -875,7 +880,8 @@ defmodule RustQ.Rust.AST do
       PatErr,
       PatPathTuple,
       PatStruct,
-      PatSlice
+      PatSlice,
+      PatRef
     ]
   end
 end

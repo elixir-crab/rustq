@@ -45,6 +45,14 @@ defmodule RustQ.Meta.Lower.EnumTest do
     @spec unseen(R.ref(String.t()), R.ref(HashSet.t(String.t()))) :: R.bool()
     defrust(unseen(name, seen), do: not seen.contains(name))
 
+    @type roster :: %{required(:names) => R.vec(String.t())}
+
+    @spec has_long(R.ref(roster())) :: R.bool()
+    defrust(has_long(roster), do: Enum.any?(roster.names, fn name -> name.len() > 3 end))
+
+    @spec long_names(R.ref(roster())) :: R.vec(String.t())
+    defrust(long_names(roster), do: for(name <- roster.names, name.len() > 3, do: name))
+
     @spec nonzero(R.ref(String.t())) :: R.option(R.usize())
     defrust(nonzero(name), do: if(name.is_empty(), do: nil, else: some(name.len())))
   end
@@ -62,7 +70,13 @@ defmodule RustQ.Meta.Lower.EnumTest do
   end
 
   test "items kept from a list still in use are copies" do
-    assert rust_source!(Lists, :kept) =~ ~r/names\s*\.iter\(\)\s*\.cloned\(\)\s*\.filter_map\(/
+    assert rust_source!(Lists, :kept) =~
+             ~r/names\s*\.iter\(\)\s*\.cloned\(\)\s*\.filter\(\|name\| name\.len\(\) > 3\)/
+  end
+
+  test "a list reached through a reference is borrowed" do
+    assert rust_source!(Lists, :has_long) =~ ~r/roster\s*\.names\s*\.iter\(\)\s*\.any\(/
+    assert rust_source!(Lists, :long_names) =~ ~r/roster\s*\.names\s*\.iter\(\)\s*\.cloned\(\)/
   end
 
   test "a closure borrows a new value for an argument taken by reference" do

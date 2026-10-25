@@ -41,7 +41,7 @@ defmodule RustQ.Meta.Lower.Enum do
 
   defp lower_call(%Call{function: :count, args: [collection, predicate]}, %Context{} = context) do
     iterator = iterate(collection, :question, [predicate], context)
-    {:ok, iterator |> lower_filter_map(predicate, false, context, :count) |> cast_i64()}
+    {:ok, iterator |> lower_filter(predicate, false, collection, context, :count) |> cast_i64()}
   end
 
   defp lower_call(%Call{function: :empty?, args: [collection]}, %Context{} = context),
@@ -63,7 +63,7 @@ defmodule RustQ.Meta.Lower.Enum do
 
   defp lower_call(%Call{function: :find, args: [collection, predicate]}, %Context{} = context) do
     iterator = iterate(collection, :keeps_items, [predicate], context)
-    {:ok, lower_filter_map(iterator, predicate, false, context, :find_map)}
+    {:ok, lower_filter(iterator, predicate, false, collection, context, :find)}
   end
 
   defp lower_call(
@@ -74,7 +74,7 @@ defmodule RustQ.Meta.Lower.Enum do
 
     {:ok,
      iterator
-     |> lower_filter_map(predicate, false, context, :find_map)
+     |> lower_filter(predicate, false, collection, context, :find)
      |> method_chain(:unwrap_or, [context.lower.(default)])}
   end
 
@@ -350,26 +350,26 @@ defmodule RustQ.Meta.Lower.Enum do
         do: typed_mapper(mapper, collection, iteration, context),
         else: mapper
 
-    collection = iterate(collection, iteration, context)
+    iterator = iterate(collection, iteration, context)
 
     case operation do
       :filter ->
-        lower_filter_map(collection, mapper, false, context)
+        lower_filter(iterator, mapper, false, collection, context, :collect)
 
       :reject ->
-        lower_filter_map(collection, mapper, true, context)
+        lower_filter(iterator, mapper, true, collection, context, :collect)
 
       :flat_map ->
-        collection |> method_chain(:flat_map, [mapper(mapper, context)]) |> collect(context)
+        iterator |> method_chain(:flat_map, [mapper(mapper, context)]) |> collect(context)
 
       :each ->
-        method_chain(collection, :for_each, [mapper(mapper, context)])
+        method_chain(iterator, :for_each, [mapper(mapper, context)])
 
       :any? ->
-        method_chain(collection, :any, [mapper(mapper, context)])
+        method_chain(iterator, :any, [mapper(mapper, context)])
 
       :all? ->
-        method_chain(collection, :all, [mapper(mapper, context)])
+        method_chain(iterator, :all, [mapper(mapper, context)])
     end
   end
 
@@ -377,13 +377,13 @@ defmodule RustQ.Meta.Lower.Enum do
   defp operation_use(operation) when operation in [:filter, :reject], do: :keeps_items
   defp operation_use(_operation), do: :maps_items
 
-  defp lower_filter_map(collection, predicate, negate?, context),
-    do: lower_filter_map(collection, predicate, negate?, context, :collect)
-
-  defp lower_filter_map(
-         collection,
+  # `filter` and `find` hand their predicate a reference to each item; a number or atom is
+  # copied out of it, so the predicate reads the item as its own type.
+  defp lower_filter(
+         iterator,
          {:fn, _, [{:->, _, [[argument], body]}]},
          negate?,
+         collection,
          context,
          terminal
        ) do
@@ -391,27 +391,21 @@ defmodule RustQ.Meta.Lower.Enum do
     condition = context.lower_closure_body.(body, nil)
     condition = if negate?, do: %AST.UnaryOp{op: :not, expr: condition}, else: condition
 
-    closure = %AST.Closure{
-      args: [name],
-      body: %AST.If{
-        condition: condition,
-        then: [%AST.Return{expr: %AST.Some{expr: %AST.Var{name: name}}}],
-        else: [%AST.Return{expr: %AST.None{}}]
-      }
-    }
+    argument =
+      if copy?(collection_inner(context.type_of.(collection))),
+        do: %AST.PatRef{pattern: %AST.PatVar{name: name}},
+        else: name
 
-    if terminal == :find_map do
-      method_chain(collection, :find_map, [closure])
-    else
-      filtered = method_chain(collection, :filter_map, [closure])
+    closure = %AST.Closure{args: [argument], body: condition}
 
-      if terminal == :collect,
-        do: collect(filtered, context),
-        else: method_chain(filtered, terminal)
+    case terminal do
+      :find -> method_chain(iterator, :find, [closure])
+      :count -> iterator |> method_chain(:filter, [closure]) |> method_chain(:count)
+      :collect -> iterator |> method_chain(:filter, [closure]) |> collect(context)
     end
   end
 
-  defp lower_filter_map(_collection, other, _negate?, _context, _terminal) do
+  defp lower_filter(_iterator, other, _negate?, _collection, _context, _terminal) do
     Diagnostic.lower(
       :unsupported_enum_filter_predicate,
       other,
@@ -501,10 +495,19 @@ defmodule RustQ.Meta.Lower.Enum do
     receiver = lower_collection(collection, context)
 
     case iteration do
-      :owned -> method_chain(receiver, :into_iter)
-      :borrowed -> method_chain(receiver, :iter)
-      :copied -> receiver |> method_chain(:iter) |> method_chain(:copied)
-      :cloned -> receiver |> method_chain(:iter) |> method_chain(:cloned)
+      :owned ->
+        if borrowed_collection?(context.type_of.(collection)),
+          do: method_chain(receiver, :iter),
+          else: method_chain(receiver, :into_iter)
+
+      :borrowed ->
+        method_chain(receiver, :iter)
+
+      :copied ->
+        receiver |> method_chain(:iter) |> method_chain(:copied)
+
+      :cloned ->
+        receiver |> method_chain(:iter) |> method_chain(:cloned)
     end
   end
 
@@ -528,6 +531,11 @@ defmodule RustQ.Meta.Lower.Enum do
         :owned
     end
   end
+
+  # A slice or a reference to a collection already lends its items, as `iter()` says.
+  defp borrowed_collection?(%Type{kind: kind}) when kind in [:slice, :ref], do: true
+  defp borrowed_collection?(%Type{ast: %AST.TypeRef{}}), do: true
+  defp borrowed_collection?(_type), do: false
 
   defp copy?(%Type{} = type), do: Type.category(type) in [:integer, :number, :boolean, :atom]
   defp copy?(_type), do: false

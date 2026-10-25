@@ -323,8 +323,11 @@ its last use. A list the function's closure, a later expression, or a value
 still in use was built from is borrowed instead: `Enum.map(records, ...)` after
 `by_id = index(records)` iterates `records.iter()`. Questions such as
 `Enum.any?/2` borrow regardless, items a filter keeps from a borrowed list are
-cloned, and numbers and atoms are copied out. A new value passed where a
-reference is expected, as `HashSet.new()`, is borrowed.
+cloned, and numbers and atoms are copied out. A list reached through a
+reference, as a field of a borrowed struct, is always borrowed, and a
+comprehension over it, or over an owned list still in use, copies its items. A
+new value passed where a reference is expected, as `HashSet.new()`, is
+borrowed.
 
 A generator over one value matches it beside the item, so
 `for record <- records, {:some, id} <- [record_id(record)], do: {id, record}`

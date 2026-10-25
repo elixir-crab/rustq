@@ -69,6 +69,7 @@ defmodule RustQ.Rust.AST.Render do
     PatOk,
     PatPath,
     PatPathTuple,
+    PatRef,
     PatSlice,
     PatSome,
     PatStruct,
@@ -836,6 +837,7 @@ defmodule RustQ.Rust.AST.Render do
   def render_pattern(%PatLiteral{value: value}) when is_atom(value), do: Atom.to_string(value)
   def render_pattern(%PatNone{}), do: "None"
   def render_pattern(%PatSome{pattern: pattern}), do: ["Some(", render_pattern(pattern), ")"]
+  def render_pattern(%PatRef{pattern: pattern}), do: ["&", render_pattern(pattern)]
   def render_pattern(%PatOk{pattern: pattern}), do: ["Ok(", render_pattern(pattern), ")"]
   def render_pattern(%PatErr{pattern: pattern}), do: ["Err(", render_pattern(pattern), ")"]
 

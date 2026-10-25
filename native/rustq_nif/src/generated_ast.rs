@@ -99,6 +99,7 @@ pub(crate) mod ast_modules {
     pub(crate) const PAT_PATH_TUPLE: &str = "Elixir.RustQ.Rust.AST.PatPathTuple";
     pub(crate) const PAT_STRUCT: &str = "Elixir.RustQ.Rust.AST.PatStruct";
     pub(crate) const PAT_SLICE: &str = "Elixir.RustQ.Rust.AST.PatSlice";
+    pub(crate) const PAT_REF: &str = "Elixir.RustQ.Rust.AST.PatRef";
 }
 pub(crate) fn atom(env: Env, name: &str) -> NifResult<Atom> {
     Atom::from_str(env, name)
@@ -289,6 +290,7 @@ pub(crate) fn decode_ast_pat(term: Term) -> NifResult<Pat> {
         ast_modules::PAT_PATH_TUPLE => decode_pat_path_tuple(term),
         ast_modules::PAT_STRUCT => decode_pat_struct(term),
         ast_modules::PAT_SLICE => decode_pat_slice(term),
+        ast_modules::PAT_REF => decode_pat_ref(term),
         _ => Err(rustler::Error::BadArg),
     }
 }
@@ -610,6 +612,9 @@ pub(crate) fn decode_pat_literal<'a>(term: Term<'a>) -> NifResult<Pat> {
 }
 pub(crate) fn decode_pat_some<'a>(term: Term<'a>) -> NifResult<Pat> {
     super::parse_some_pat(required_pat(term, "pattern")?)
+}
+pub(crate) fn decode_pat_ref<'a>(term: Term<'a>) -> NifResult<Pat> {
+    super::parse_ref_pat(required_pat(term, "pattern")?)
 }
 pub(crate) fn decode_pat_ok<'a>(term: Term<'a>) -> NifResult<Pat> {
     super::parse_ok_pat(required_pat(term, "pattern")?)

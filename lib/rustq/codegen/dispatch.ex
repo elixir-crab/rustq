@@ -174,7 +174,8 @@ defmodule RustQ.Codegen.Dispatch do
               :pat_err,
               :pat_path_tuple,
               :pat_struct,
-              :pat_slice
+              :pat_slice,
+              :pat_ref
             ],
        do: [pat_decoder(name)]
 

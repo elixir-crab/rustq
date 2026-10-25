@@ -827,6 +827,10 @@ pub(crate) fn parse_some_pat(pat: Pat) -> NifResult<Pat> {
     parse_syn::<Pat>(quote!(Some(#pat)))
 }
 
+pub(crate) fn parse_ref_pat(pat: Pat) -> NifResult<Pat> {
+    parse_syn::<Pat>(quote!(&#pat))
+}
+
 pub(crate) fn parse_ok_pat(pat: Pat) -> NifResult<Pat> {
     parse_syn::<Pat>(quote!(Ok(#pat)))
 }

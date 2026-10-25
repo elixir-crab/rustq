@@ -2021,7 +2021,13 @@ defmodule RustQ.Meta.Lower do
     {filters, rest} = Enum.split_while(rest, &(not generator?(&1)))
     item_type = comprehension_item_type(collection, context)
     root = root_variable(collection)
-    reused? = nested? and root != nil and root not in generated
+
+    reused? =
+      root != nil and
+        ((nested? and root not in generated) or
+           (item_type != nil and root not in generated and
+              in_use?(collection, rest ++ [body], context)))
+
     {stage, binder} = generator_stage(pattern, collection, filters, item_type, reused?)
     bound = context_with_match_pattern(pattern, item_type, context)
 
@@ -2165,7 +2171,8 @@ defmodule RustQ.Meta.Lower do
   # A generator that cannot fail and has no filters iterates as it is; otherwise its items are
   # matched, filtered, and reduced to the variables the pattern binds.
   # A later generator over a collection from outside the comprehension iterates it once per
-  # item of the earlier ones, so it copies its items rather than consuming it.
+  # item of the earlier ones, so it copies its items rather than consuming it, as does a
+  # generator over a collection still in use or reached through a reference.
   defp generator_stage(pattern, collection, filters, item_type, reused?) do
     items =
       cond do
@@ -2181,6 +2188,12 @@ defmodule RustQ.Meta.Lower do
       {filter_bind(items, guarded_pattern(pattern, filters), binder, item_type), binder}
     end
   end
+
+  defp behind_reference?({name, _, ast_context}, name, _context) when is_atom(ast_context),
+    do: false
+
+  defp behind_reference?(_field, name, %Context{vars: vars}),
+    do: match?(%Type{kind: kind} when kind in [:ref, :mut_ref], Map.get(vars, name))
 
   defp root_variable({name, _, ast_context}) when is_atom(name) and is_atom(ast_context), do: name
   # The variable a collection is, or is a field of; a call or literal makes a fresh one.
@@ -3432,14 +3445,16 @@ defmodule RustQ.Meta.Lower do
   end
 
   # A collection is in use when the expressions after this one use it, a value they use was
-  # built from it, or the call's other arguments use it.
+  # built from it, or the call's other arguments use it. A field reached through a reference
+  # is never taken, since the reference does not own it.
   defp in_use?(collection, other_args, %Context{} = context) do
     case root_variable(collection) do
       nil ->
         false
 
       name ->
-        MapSet.member?(context.in_use, name) or
+        behind_reference?(collection, name, context) or
+          MapSet.member?(context.in_use, name) or
           MapSet.member?(sources(used_variables(other_args), context.built_from), name) or
           MapSet.member?(used_variables(other_args), name)
     end

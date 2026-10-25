@@ -40,6 +40,11 @@ defmodule RustQ.Codegen.Decoders.Pat do
     Super.parse_some_pat(required_pat(term, "pattern"))
   end
 
+  @spec decode_pat_ref(term()) :: R.nif_result(R.path(:Pat))
+  defrust decode_pat_ref(term) do
+    Super.parse_ref_pat(required_pat(term, "pattern"))
+  end
+
   @spec decode_pat_ok(term()) :: R.nif_result(R.path(:Pat))
   defrust decode_pat_ok(term) do
     Super.parse_ok_pat(required_pat(term, "pattern"))

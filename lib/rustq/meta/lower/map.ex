@@ -105,7 +105,6 @@ defmodule RustQ.Meta.Lower.Map do
     {:ok,
      Collection.updated(
        map,
-       [key, value],
        fn map ->
          [
            Collection.statement(map, :insert, [
@@ -122,7 +121,6 @@ defmodule RustQ.Meta.Lower.Map do
     {:ok,
      Collection.updated(
        map,
-       [key],
        fn map ->
          [Collection.statement(map, :remove, [Collection.borrowed(key, key_type, context)])]
        end,
@@ -134,9 +132,8 @@ defmodule RustQ.Meta.Lower.Map do
     {:ok,
      Collection.updated(
        map,
-       [other],
        fn map ->
-         [Collection.statement(map, :extend, [Collection.owned(other, [], context)])]
+         [Collection.statement(map, :extend, [Collection.owned(other, context)])]
        end,
        context
      )}
@@ -155,7 +152,6 @@ defmodule RustQ.Meta.Lower.Map do
     {:ok,
      Collection.updated(
        map,
-       [key, default, fun],
        fn map ->
          updated =
            map
@@ -191,7 +187,7 @@ defmodule RustQ.Meta.Lower.Map do
   defp lower_keyed(%Call{function: :to_list, args: [map]}, key_type, value_type, context) do
     {:ok,
      map
-     |> Collection.owned([], context)
+     |> Collection.owned(context)
      |> Collection.call(:into_iter)
      |> Collection.call(:collect)
      |> collected(Type.vec(Type.tuple([key_type, value_type])))}

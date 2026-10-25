@@ -11,6 +11,7 @@ defmodule RustQ.Meta.Lower do
   alias RustQ.Meta.Core.Call
   alias RustQ.Meta.Lower.Stdlib
   alias RustQ.Meta.Lower.Stdlib.Context, as: StdlibContext
+  alias RustQ.Meta.Ownership
   alias RustQ.Meta.Pattern
   alias RustQ.Meta.RustMacro
   alias RustQ.Meta.Semantics
@@ -45,7 +46,6 @@ defmodule RustQ.Meta.Lower do
       callables: %BindingIndex{},
       macro_vars: %{},
       rust_macros: %{},
-      in_use: MapSet.new(),
       built_from: %{}
     ]
   end
@@ -54,7 +54,10 @@ defmodule RustQ.Meta.Lower do
 
   @spec quoted_body(Macro.t(), Type.t() | nil, map(), keyword()) :: [struct()]
   def quoted_body(body_ast, return_type, vars \\ %{}, opts \\ []) do
+    {body_ast, built_from} = Ownership.annotate(body_ast)
+
     context = %Context{
+      built_from: built_from,
       return_type: return_type,
       scope_return_type: return_type,
       type_aliases: Keyword.get(opts, :type_aliases, %{}),
@@ -97,125 +100,14 @@ defmodule RustQ.Meta.Lower do
 
   defp lower_block(expressions, %Context{} = context) do
     context = context_with_downstream_let_types(expressions, context)
+
     {statements, final} = split_final(expressions)
-    {statement_contexts, final_context} = expression_contexts(statements ++ [final], context)
+    statement_context = %{context | position: :statement}
+    return_context = %{context | position: :return}
 
-    Enum.zip_with(
-      statements,
-      statement_contexts,
-      &lower_statement(&1, %{&2 | position: :statement})
-    ) ++
-      [
-        lower_final(
-          final,
-          %{final_context | position: :statement},
-          %{final_context | position: :return}
-        )
-      ]
+    Enum.map(statements, &lower_statement(&1, statement_context)) ++
+      [lower_final(final, statement_context, return_context)]
   end
-
-  # Each expression of a block lowers knowing the variables still in use after it, with the
-  # variables they were built from, which they may borrow from: Elixir never changes a value,
-  # so lowering takes one only where nothing uses it afterwards.
-  defp expression_contexts(expressions, %Context{} = context) do
-    built_from = Enum.reduce(expressions, context.built_from, &record_built_from/2)
-
-    contexts =
-      expressions
-      |> Enum.with_index(1)
-      |> Enum.map(fn {expression, index} ->
-        later =
-          expressions
-          |> Enum.drop(index)
-          |> used_after(bound_by(expression))
-          |> MapSet.union(context.in_use)
-
-        current = used_variables([expression])
-        sources = sources(MapSet.union(later, current), built_from, context.vars)
-
-        %{context | in_use: MapSet.union(later, sources), built_from: built_from}
-      end)
-
-    {statement_contexts, [final_context]} = Enum.split(contexts, -1)
-    {statement_contexts, final_context}
-  end
-
-  # A name rebound in a block means the new value from there on, as Elixir scopes it, so a use
-  # after the rebinding is not a use of the value before it.
-  defp used_after(expressions, shadowed) do
-    expressions
-    |> Enum.reduce({MapSet.new(), shadowed}, fn expression, {used, shadowed} ->
-      used = MapSet.union(used, MapSet.difference(used_variables([expression]), shadowed))
-      {used, MapSet.union(shadowed, bound_by(expression))}
-    end)
-    |> elem(0)
-  end
-
-  defp bound_by({:=, _, [pattern, _expression]}), do: variables_in(pattern)
-  defp bound_by(_expression), do: MapSet.new()
-
-  defp record_built_from({:=, _, [pattern, expression]}, built_from) do
-    from = used_variables([expression])
-    pattern |> variables_in() |> Enum.reduce(built_from, &Map.put(&2, &1, from))
-  end
-
-  defp record_built_from(_expression, built_from), do: built_from
-
-  # A binding's own name is not in use because its value is being built.
-  defp used_variables(expressions) do
-    Enum.reduce(expressions, MapSet.new(), fn
-      {:=, _, [_pattern, expression]}, used -> MapSet.union(used, used_variables([expression]))
-      expression, used -> MapSet.union(used, variables_in(expression))
-    end)
-  end
-
-  defp variables_in(ast) do
-    ast
-    |> Macro.prewalk(MapSet.new(), fn
-      {name, _meta, context} = node, variables
-      when is_atom(name) and is_atom(context) and name not in [:_, :__MODULE__] ->
-        {node, MapSet.put(variables, name)}
-
-      node, variables ->
-        {node, variables}
-    end)
-    |> elem(1)
-  end
-
-  # Only a value that may hold a reference can borrow from what it was built from; one whose
-  # type is unknown may.
-  defp sources(names, built_from, vars) do
-    Enum.reduce(names, MapSet.new(), fn name, found ->
-      add_sources(name, built_from, vars, found)
-    end)
-  end
-
-  defp add_sources(name, built_from, vars, found) do
-    if may_borrow?(Map.get(vars, name)) do
-      built_from
-      |> Map.get(name, MapSet.new())
-      |> Enum.reject(&MapSet.member?(found, &1))
-      |> Enum.reduce(found, fn source, found ->
-        add_sources(source, built_from, vars, MapSet.put(found, source))
-      end)
-    else
-      found
-    end
-  end
-
-  defp may_borrow?(%Type{kind: kind}) when kind in [:ref, :mut_ref, :slice], do: true
-  defp may_borrow?(%Type{ast: ast}), do: borrowing_type?(ast)
-  defp may_borrow?(_unknown), do: true
-
-  defp borrowing_type?(%AST.TypeRef{}), do: true
-  defp borrowing_type?(%AST.TypePath{lifetimes: [_ | _]}), do: true
-  defp borrowing_type?(%AST.TypeRaw{}), do: true
-
-  defp borrowing_type?(%_{} = type),
-    do: type |> Map.from_struct() |> Enum.any?(fn {_field, value} -> borrowing_type?(value) end)
-
-  defp borrowing_type?(types) when is_list(types), do: Enum.any?(types, &borrowing_type?/1)
-  defp borrowing_type?(_other), do: false
 
   # A body returning nothing runs its last expression for its effects, as a statement.
   defp lower_final(final, statement_context, %Context{return_type: %Type{kind: :unit}})
@@ -227,19 +119,13 @@ defmodule RustQ.Meta.Lower do
 
   defp lower_expected_block(expressions, %Context{} = context, %Type{} = expected_type) do
     context = context_with_downstream_let_types(expressions, context)
-    {statements, final} = split_final(expressions)
-    {statement_contexts, final_context} = expression_contexts(statements ++ [final], context)
 
-    Enum.zip_with(
-      statements,
-      statement_contexts,
-      &lower_statement(&1, %{&2 | position: :statement})
-    ) ++
-      [
-        %AST.Return{
-          expr: lower_expr(final, expected_type, %{final_context | position: :return})
-        }
-      ]
+    {statements, final} = split_final(expressions)
+    statement_context = %{context | position: :statement}
+    return_context = %{context | position: :return}
+
+    Enum.map(statements, &lower_statement(&1, statement_context)) ++
+      [%AST.Return{expr: lower_expr(final, expected_type, return_context)}]
   end
 
   @keyed_collections [:HashMap, :HashSet, :BTreeMap, :BTreeSet]
@@ -2119,10 +2005,9 @@ defmodule RustQ.Meta.Lower do
   # loop is its last use.
   defp indexed_generators(qualifiers, %Context{} = context) do
     Enum.map(qualifiers, fn
-      {:<-, meta, [pattern, {{:., _, [{:__aliases__, _, [:Enum]}, :with_index]}, _, [list]}]} =
-          generator ->
+      {:<-, meta, [pattern, {{:., _, [{:__aliases__, _, [:Enum]}, :with_index]}, _, [list]}]} ->
         method =
-          if borrowed_list?(list, List.delete(qualifiers, generator), context),
+          if borrowed_list?(list, context),
             do: :iter,
             else: :into_iter
 
@@ -2139,10 +2024,10 @@ defmodule RustQ.Meta.Lower do
   defp indexed_generator(pattern, enumerated),
     do: [pattern, quote(do: unquote(enumerated) |> map(fn {index, item} -> {item, index} end))]
 
-  defp borrowed_list?(list, other_qualifiers, context) do
+  defp borrowed_list?(list, context) do
     case Typing.synth(list, typing_env(context)) do
       %Type{kind: kind} when kind in [:slice, :ref, :mut_ref] -> true
-      _owned -> in_use?(list, other_qualifiers, context)
+      _owned -> in_use?(list, context)
     end
   end
 
@@ -2167,7 +2052,7 @@ defmodule RustQ.Meta.Lower do
       root != nil and
         ((nested? and root not in generated) or
            (item_type != nil and root not in generated and
-              in_use?(collection, rest ++ [body], context)))
+              in_use?(collection, context)))
 
     {stage, binder} = generator_stage(pattern, collection, filters, item_type, reused?)
     bound = context_with_match_pattern(pattern, item_type, context)
@@ -2342,6 +2227,15 @@ defmodule RustQ.Meta.Lower do
     do: if(meta[:no_parens], do: root_variable(receiver))
 
   defp root_variable(_collection), do: nil
+
+  defp root_variable_node({name, _, ast_context} = variable)
+       when is_atom(name) and is_atom(ast_context),
+       do: variable
+
+  defp root_variable_node({{:., _, [receiver, _field]}, meta, []}),
+    do: if(meta[:no_parens], do: root_variable_node(receiver))
+
+  defp root_variable_node(_collection), do: nil
 
   # A collection already given as an iterator, as in `values.iter()`, is iterated as it is.
   defp iterator_call?({{:., _, [_receiver, method]}, _, args}) when is_list(args),
@@ -3580,27 +3474,21 @@ defmodule RustQ.Meta.Lower do
       lower_capture: &lower_function_capture(&1, context),
       closure_arg: &closure_arg!/1,
       type_of: &Typing.synth(&1, typing_env(context)),
-      in_use?: &in_use?(&1, &2, context),
+      in_use?: &in_use?(&1, context),
       expected: expected
     }
   end
 
-  # A collection is in use when the expressions after this one use it, a value they use was
-  # built from it, or the call's other arguments use it. A field reached through a reference
-  # is never taken, since the reference does not own it.
-  defp in_use?(collection, other_args, %Context{} = context) do
-    case root_variable(collection) do
+  # A collection is in use unless this is its value's last use; see `RustQ.Meta.Ownership`. A
+  # field reached through a reference is never taken, since the reference does not own it.
+  defp in_use?(collection, %Context{} = context) do
+    case root_variable_node(collection) do
+      {name, _meta, _context} = variable ->
+        behind_reference?(collection, name, context) or
+          Ownership.in_use?(variable, context.built_from, context.vars)
+
       nil ->
         false
-
-      name ->
-        behind_reference?(collection, name, context) or
-          MapSet.member?(context.in_use, name) or
-          MapSet.member?(
-            sources(used_variables(other_args), context.built_from, context.vars),
-            name
-          ) or
-          MapSet.member?(used_variables(other_args), name)
     end
   end
 
@@ -4233,6 +4121,23 @@ defmodule RustQ.Meta.Lower do
 
   defp mutated_chain_root(%AST.MethodCall{receiver: receiver}), do: mutated_chain_root(receiver)
   defp mutated_chain_root(_expression), do: nil
+
+  @doc """
+  The variables a lowered body changes in place through a statement calling a mutating
+  method on them, as `scores.insert(name, 1);` does where `scores` was rebound to its update.
+  """
+  @spec mutated_variables([struct()]) :: MapSet.t(atom())
+  def mutated_variables(body) do
+    body
+    |> Walk.reduce([], fn
+      %AST.ExprStmt{expr: %AST.MethodCall{receiver: %AST.Var{name: name}, method: method}}, acc ->
+        if mutating_method?(method), do: [name | acc], else: acc
+
+      _node, acc ->
+        acc
+    end)
+    |> MapSet.new()
+  end
 
   @doc "Whether a method changes its receiver, as std collections' `&mut self` methods do."
   @spec mutating_method?(atom()) :: boolean()

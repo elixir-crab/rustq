@@ -38,7 +38,6 @@ defmodule RustQ.Meta.Lower.MapSet do
     {:ok,
      Collection.updated(
        set,
-       [value],
        fn set ->
          [Collection.statement(set, :insert, [context.lower_expected.(value, item)])]
        end,
@@ -50,7 +49,6 @@ defmodule RustQ.Meta.Lower.MapSet do
     {:ok,
      Collection.updated(
        set,
-       [value],
        fn set ->
          [Collection.statement(set, :remove, [Collection.borrowed(value, item, context)])]
        end,
@@ -67,9 +65,8 @@ defmodule RustQ.Meta.Lower.MapSet do
     {:ok,
      Collection.updated(
        set,
-       [other],
        fn set ->
-         [Collection.statement(set, :extend, [Collection.owned(other, [], context)])]
+         [Collection.statement(set, :extend, [Collection.owned(other, context)])]
        end,
        context
      )}
@@ -88,7 +85,6 @@ defmodule RustQ.Meta.Lower.MapSet do
     {:ok,
      Collection.updated(
        set,
-       [other],
        fn set ->
          [Collection.statement(set, :retain, [%AST.Closure{args: [:rustq_item], body: kept}])]
        end,
@@ -114,7 +110,7 @@ defmodule RustQ.Meta.Lower.MapSet do
   defp lower_set(%Call{function: :to_list, args: [set]}, item, context) do
     collected =
       set
-      |> Collection.owned([], context)
+      |> Collection.owned(context)
       |> Collection.call(:into_iter)
       |> Collection.call(:collect)
 

@@ -56,8 +56,8 @@ defmodule RustQ.Meta.Lower.Collection do
   An update of `collection`: `statements` receives the variable holding the collection, or a
   copy of it when `collection` is still in use, and the block returns that variable.
   """
-  @spec updated(Macro.t(), [Macro.t()], (AST.expr() -> [AST.stmt()]), Context.t()) :: AST.expr()
-  def updated(collection, others, statements, %Context{} = context) do
+  @spec updated(Macro.t(), (AST.expr() -> [AST.stmt()]), Context.t()) :: AST.expr()
+  def updated(collection, statements, %Context{} = context) do
     name = :rustq_updated
     variable = %AST.Var{name: name}
 
@@ -66,7 +66,7 @@ defmodule RustQ.Meta.Lower.Collection do
         [
           %AST.Let{
             pattern: %AST.PatVar{name: name},
-            expr: owned(collection, others, context),
+            expr: owned(collection, context),
             mutable: true
           }
         ] ++
@@ -75,11 +75,11 @@ defmodule RustQ.Meta.Lower.Collection do
   end
 
   @doc "`collection` to take: itself at its last use, otherwise a copy."
-  @spec owned(Macro.t(), [Macro.t()], Context.t()) :: AST.expr()
-  def owned(collection, others, %Context{} = context) do
+  @spec owned(Macro.t(), Context.t()) :: AST.expr()
+  def owned(collection, %Context{} = context) do
     lowered = context.lower.(collection)
 
-    if context.in_use?.(collection, others),
+    if context.in_use?.(collection),
       do: %AST.MethodCall{receiver: lowered, method: :clone, args: []},
       else: lowered
   end

@@ -3,6 +3,7 @@ defmodule RustQ.Meta.ProvidesTest do
 
   import ExUnit.CaptureIO
 
+  alias RustQ.Meta.NamedProviderCase
   alias RustQ.Meta.ProvidedCase
 
   test "the module's Rust file in templates/ is provided" do
@@ -23,10 +24,6 @@ defmodule RustQ.Meta.ProvidesTest do
   end
 
   test "provides names other files" do
-    defmodule NamedProviderCase do
-      use RustQ.Meta, provides: ["../../support/templates/provided_case.rs"]
-    end
-
     assert NamedProviderCase.__rustq_source__() == ProvidedCase.__rustq_source__()
   end
 

@@ -87,14 +87,15 @@ defmodule RustQ.Meta.OwnershipTest do
   test "annotating keeps the shape lowering reads, as a with's do before its else" do
     body =
       quote do
-        with {:some, value} <- lookup(key) do
-          use(value)
+        with {:some, value} <- lookup(key),
+             {:some, other} <- lookup(value) do
+          use(other)
         else
           _ -> :ok
         end
       end
 
-    {{:with, _meta, [_clause, options]}, _built_from} = Ownership.annotate(body)
+    {{:with, _meta, [_first, _second, options]}, _built_from} = Ownership.annotate(body)
     assert Keyword.keys(options) == [:do, :else]
   end
 end

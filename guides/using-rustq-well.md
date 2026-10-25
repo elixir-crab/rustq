@@ -335,7 +335,9 @@ a spec) or `HashSet` (`MapSet.t(item)`), `Map.get`, `fetch!`, `has_key?`,
 and `MapSet.new`, `put`, `delete`, `member?`, `union`, `difference`,
 `intersection`, `subset?`, `disjoint?`, `size`, and `to_list` keep Elixir's
 meaning: values read out are copies, and an update takes the collection only at
-its last use, updating a copy otherwise.
+its last use, updating a copy otherwise. Rebinding a collection to its update,
+as `scores = Map.put(scores, name, 1)`, changes it in place:
+`scores.insert(name, 1);`.
 
 `Enum` also lowers `into`, `group_by`, `with_index`, `find_index`,
 `find_value`, `reduce_while`, `sort_by`, `max_by`, `min_by`, `max`, `min`,

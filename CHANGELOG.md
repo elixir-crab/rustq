@@ -20,6 +20,9 @@
   `map_join`. A comprehension over `Enum.with_index(list)` enumerates the list
   in place, and `into: HashMap.new()` or `MapSet.new()` collects into that
   collection where no type is expected.
+- Rebinding a list, map, or set to its update, as `scores = Map.put(scores,
+  name, 1)` or `layers = Enum.sort_by(layers, ...)`, changes it in place:
+  `scores.insert(name, 1);`.
 - A comprehension generator over one value, as
   `{:some, id} <- [record_id(record)]`, matches the value beside the item
   instead of iterating a list made for it.

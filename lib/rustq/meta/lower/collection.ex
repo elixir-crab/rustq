@@ -96,10 +96,21 @@ defmodule RustQ.Meta.Lower.Collection do
     %AST.MethodCall{receiver: option, method: method, args: []}
   end
 
-  @doc "Whether a value is copied as cheaply as it is borrowed: a number, atom, or reference."
+  @doc """
+  Whether a value is copied as cheaply as it is borrowed: a number, atom, reference, or tuple
+  of them.
+  """
   @spec copy?(Type.t() | nil) :: boolean()
   def copy?(%Type{kind: kind}) when kind in [:ref], do: true
-  def copy?(%Type{} = type), do: Type.category(type) in [:integer, :number, :boolean, :atom]
+
+  def copy?(%Type{} = type) do
+    case Type.category(type) do
+      category when category in [:integer, :number, :boolean, :atom] -> true
+      {:tuple, elements} -> Enum.all?(elements, &copy?/1)
+      _other -> false
+    end
+  end
+
   def copy?(_type), do: false
 
   @doc "A call on `receiver`."

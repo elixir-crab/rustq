@@ -37,6 +37,12 @@ defmodule RustQ.Meta.Lower.MapTest do
     @spec names(R.ref(%{String.t() => integer()})) :: [String.t()]
     defrust(names(scores), do: Map.keys(scores))
 
+    @spec tallied(%{String.t() => integer()}, String.t()) :: %{String.t() => integer()}
+    defrust tallied(scores, name) do
+      scores = Map.put(scores, name, 1)
+      scores
+    end
+
     @spec lengths([String.t()]) :: %{String.t() => R.usize()}
     defrust(lengths(names), do: Map.new(names, fn name -> {name.clone(), name.len()} end))
   end
@@ -58,6 +64,13 @@ defmodule RustQ.Meta.Lower.MapTest do
   test "an update takes the map at its last use and copies it otherwise" do
     assert rust_source!(Scores, :added) =~ "let mut rustq_updated = scores;"
     assert rust_source!(Scores, :kept) =~ "let mut rustq_updated = scores.clone();"
+  end
+
+  test "rebinding a map to its update changes it in place" do
+    source = rust_source!(Scores, :tallied)
+
+    assert source =~ "scores.insert(name, 1);"
+    refute source =~ "rustq_updated"
   end
 
   test "merge, keys, and new collect as Elixir's do" do

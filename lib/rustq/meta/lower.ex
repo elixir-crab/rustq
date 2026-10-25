@@ -125,7 +125,10 @@ defmodule RustQ.Meta.Lower do
       |> Enum.with_index(1)
       |> Enum.map(fn {expression, index} ->
         later =
-          expressions |> Enum.drop(index) |> used_variables() |> MapSet.union(context.in_use)
+          expressions
+          |> Enum.drop(index)
+          |> used_after(bound_by(expression))
+          |> MapSet.union(context.in_use)
 
         current = used_variables([expression])
         sources = sources(MapSet.union(later, current), built_from, context.vars)
@@ -136,6 +139,20 @@ defmodule RustQ.Meta.Lower do
     {statement_contexts, [final_context]} = Enum.split(contexts, -1)
     {statement_contexts, final_context}
   end
+
+  # A name rebound in a block means the new value from there on, as Elixir scopes it, so a use
+  # after the rebinding is not a use of the value before it.
+  defp used_after(expressions, shadowed) do
+    expressions
+    |> Enum.reduce({MapSet.new(), shadowed}, fn expression, {used, shadowed} ->
+      used = MapSet.union(used, MapSet.difference(used_variables([expression]), shadowed))
+      {used, MapSet.union(shadowed, bound_by(expression))}
+    end)
+    |> elem(0)
+  end
+
+  defp bound_by({:=, _, [pattern, _expression]}), do: variables_in(pattern)
+  defp bound_by(_expression), do: MapSet.new()
 
   defp record_built_from({:=, _, [pattern, expression]}, built_from) do
     from = used_variables([expression])
@@ -269,6 +286,7 @@ defmodule RustQ.Meta.Lower do
         |> collect_as(collect_target(expected_type)),
       type: empty_collection_type(expression, expected_type)
     }
+    |> updated_in_place()
   end
 
   defp lower_statement({:case, _, [expression, [do: clauses]]}, %Context{} = context) do
@@ -321,6 +339,49 @@ defmodule RustQ.Meta.Lower do
   defp lower_statement(expression, %Context{} = context) do
     %AST.ExprStmt{expr: lower_statement_expr(expression, context)}
   end
+
+  # `map = Map.put(map, key, value)` updates the map it rebinds, which nothing uses again, so it
+  # changes that map in place: `map.insert(key, value);`.
+  defp updated_in_place(
+         %AST.Let{
+           pattern: %AST.PatVar{name: name},
+           expr: %AST.BlockExpr{
+             body: [
+               %AST.Let{pattern: %AST.PatVar{name: :rustq_updated}, expr: %AST.Var{name: name}}
+               | rest
+             ]
+           }
+         } = let
+       ) do
+    case Enum.split(rest, -1) do
+      {[_ | _] = updates, [%AST.Return{expr: %AST.Var{name: :rustq_updated}}]} ->
+        case rename_var(updates, :rustq_updated, name) do
+          [update] -> update
+          updates -> %AST.ExprStmt{expr: %AST.BlockExpr{body: updates}}
+        end
+
+      _other ->
+        let
+    end
+  end
+
+  defp updated_in_place(statement), do: statement
+
+  defp rename_var(%AST.Var{name: from}, from, to), do: %AST.Var{name: to}
+
+  defp rename_var(%module{} = node, from, to) do
+    fields =
+      node
+      |> Map.from_struct()
+      |> Map.new(fn {key, value} -> {key, rename_var(value, from, to)} end)
+
+    struct(module, fields)
+  end
+
+  defp rename_var(values, from, to) when is_list(values),
+    do: Enum.map(values, &rename_var(&1, from, to))
+
+  defp rename_var(value, _from, _to), do: value
 
   defp cond_statement([{:->, _, [[true], body]} | _rest]), do: body
 

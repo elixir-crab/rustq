@@ -119,7 +119,10 @@ defmodule RustQ.Meta.Lower.Stdlib do
 
   def nonnegative_count(count, %Context{} = context) do
     case context.type_of.(count) do
-      %Type{kind: kind} when kind in [:u8, :u16, :u32, :u64, :usize] ->
+      %Type{kind: :usize} ->
+        {:ok, context.lower.(count)}
+
+      %Type{kind: kind} when kind in [:u8, :u16, :u32, :u64] ->
         {:ok, %AST.Cast{expr: context.lower.(count), type: %AST.TypePath{parts: [:usize]}}}
 
       _type ->

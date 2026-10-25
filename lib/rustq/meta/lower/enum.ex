@@ -755,7 +755,7 @@ defmodule RustQ.Meta.Lower.Enum do
     condition = if negate?, do: %AST.UnaryOp{op: :not, expr: condition}, else: condition
 
     argument =
-      if copy?(collection_inner(context.type_of.(collection))),
+      if Collection.copy?(collection_inner(context.type_of.(collection))),
         do: %AST.PatRef{pattern: %AST.PatVar{name: name}},
         else: name
 
@@ -889,21 +889,34 @@ defmodule RustQ.Meta.Lower.Enum do
   # A question needs no item it could take, so it borrows other items even from a list nothing
   # uses afterwards. Copying out a number or atom costs what borrowing it does, and keeps the
   # item's own type.
-  defp iteration(collection, use, others, context) do
-    case context.type_of.(collection) do
-      %Type{kind: :vec} = type ->
-        copy? = copy?(Type.vec_inner(type))
-        in_use? = (use == :question and not copy?) or context.in_use?.(collection, others)
+  defp iteration(collection, use, others, context),
+    do: iteration(context.type_of.(collection), collection, use, others, context)
 
-        cond do
-          not in_use? -> :owned
-          copy? -> :copied
-          use == :keeps_items -> :cloned
-          true -> :borrowed
-        end
+  defp iteration(%Type{kind: :vec} = type, collection, use, others, context),
+    do: list_iteration(collection, type, use, others, context)
 
-      _not_owned ->
-        :owned
+  defp iteration(%Type{} = type, _collection, :keeps_items, _others, _context),
+    do: lent_iteration(type)
+
+  defp iteration(_type, _collection, _use, _others, _context), do: :owned
+
+  defp list_iteration(collection, type, use, others, context) do
+    copy? = Collection.copy?(Type.vec_inner(type))
+    in_use? = (use == :question and not copy?) or context.in_use?.(collection, others)
+
+    cond do
+      not in_use? -> :owned
+      copy? -> :copied
+      use == :keeps_items -> :cloned
+      true -> :borrowed
+    end
+  end
+
+  # A slice lends its items, so items kept from it are copies.
+  defp lent_iteration(type) do
+    case Type.slice_inner(type) || collection_inner(type) do
+      %Type{} = inner -> if Collection.copy?(inner), do: :copied, else: :cloned
+      nil -> :owned
     end
   end
 
@@ -911,9 +924,6 @@ defmodule RustQ.Meta.Lower.Enum do
   defp borrowed_collection?(%Type{kind: kind}) when kind in [:slice, :ref], do: true
   defp borrowed_collection?(%Type{ast: %AST.TypeRef{}}), do: true
   defp borrowed_collection?(_type), do: false
-
-  defp copy?(%Type{} = type), do: Type.category(type) in [:integer, :number, :boolean, :atom]
-  defp copy?(_type), do: false
 
   defp lower_collection(collection, context) do
     case context.type_of.(collection) do
@@ -939,7 +949,7 @@ defmodule RustQ.Meta.Lower.Enum do
     seen_key =
       case key do
         [] ->
-          if copy?(collection_inner(context.type_of.(enumerable))),
+          if Collection.copy?(collection_inner(context.type_of.(enumerable))),
             do: item,
             else: quote(do: unquote(item).clone())
 

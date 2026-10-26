@@ -1,5 +1,5 @@
 fn run(style: &mut TextStyle, family: String) -> NifResult<()> {
-    style.set_font_families(&vec![family]);
+    style.set_font_families(&[family]);
     Ok(())
 }
 

@@ -1,9 +1,10 @@
 defmodule RustQ.Meta.Lower.MapSet do
   @moduledoc """
   Lowers `MapSet` functions on a `HashSet` or `BTreeSet` for `RustQ.Meta.Lower.Stdlib`, and
-  types such calls: `new/0` (`new/1,2` are comprehensions; see `RustQ.Meta.Desugar`), `put`, `delete`, `member?`, `union`, `difference`, `intersection`,
-  `subset?`, `disjoint?`, `size`, and `to_list`. An update takes the set only at its last use;
-  see `RustQ.Meta.Lower.Collection`.
+  types such calls: `new/0`, `new/1` of listed items (other `new/1,2` calls are
+  comprehensions; see `RustQ.Meta.Desugar`), `put`, `delete`, `member?`, `union`, `difference`,
+  `intersection`, `subset?`, `disjoint?`, `size`, and `to_list`. An update takes the set only
+  at its last use; see `RustQ.Meta.Lower.Collection`.
   """
 
   use RustQ.Meta.Lower.Stdlib.Lowering
@@ -18,6 +19,10 @@ defmodule RustQ.Meta.Lower.MapSet do
 
   def lower(%Call{function: :new, args: []}, %Context{}),
     do: {:ok, A.path_call([:HashSet, :new])}
+
+  # A set of listed items is built from an array of them.
+  def lower(%Call{function: :new, args: [items]}, %Context{} = context) when is_list(items),
+    do: {:ok, A.path_call([:HashSet, :from], [A.array(Enum.map(items, &lowered(&1, context)))])}
 
   def lower(%Call{args: [set | _]} = call, %Context{} = context) do
     case Collection.keyed_of(set, context) do

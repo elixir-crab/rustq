@@ -78,6 +78,11 @@ defmodule RustQ.Meta.Desugar do
   defp rewrite({{:., _, [{:__aliases__, _, [:Map]}, :new]}, _, [enumerable | transform]}),
     do: comprehension(enumerable, transform, quote(do: HashMap.new()))
 
+  # A set of listed items is built from them as they are; see `RustQ.Meta.Lower.MapSet`.
+  defp rewrite({{:., _, [{:__aliases__, _, [:MapSet]}, :new]}, _, [items]} = call)
+       when is_list(items),
+       do: call
+
   defp rewrite({{:., _, [{:__aliases__, _, [:MapSet]}, :new]}, _, [enumerable | transform]}),
     do: comprehension(enumerable, transform, quote(do: HashSet.new()))
 

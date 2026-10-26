@@ -123,16 +123,9 @@ defmodule RustQ.Meta.Lower.Comprehension do
     {filters, rest} = Enum.split_while(rest, &(not generator?(&1)))
 
     {collection, item_type} = generator_items(collection, context)
+    {iteration, item_type} = iteration(collection, item_type, {nested?, generated}, context)
 
-    root = root_variable(collection)
-
-    reused? =
-      root != nil and
-        ((nested? and root not in generated) or
-           (item_type != nil and root not in generated and
-              Lower.in_use?(collection, context)))
-
-    {stage, binder} = generator_stage(pattern, collection, filters, item_type, reused?)
+    {stage, binder} = generator_stage(pattern, collection, filters, item_type, iteration)
     bound = LowerPattern.context_with_match_pattern(pattern, item_type, context)
 
     generated = LowerPattern.binding_pattern_names(pattern) ++ generated
@@ -193,12 +186,14 @@ defmodule RustQ.Meta.Lower.Comprehension do
   defp untyped(body), do: body
 
   # A generator over a list gives its closures the list's items, which they may then use as
-  # that type; other collections leave their items untyped.
+  # that type, and one over a slice references to them; other collections leave their items
+  # untyped.
   defp comprehension_item_type(collection, %Context{} = context) do
     unless iterator_call?(collection) do
       case Lower.infer_expr_type(collection, context.vars) ||
              Typing.synth(collection, Lower.typing_env(context)) do
         %Type{kind: :vec} = type -> Type.vec_inner(type)
+        %Type{kind: :slice} = type -> Type.ref(Type.slice_inner(type))
         _unknown -> nil
       end
     end
@@ -360,11 +355,43 @@ defmodule RustQ.Meta.Lower.Comprehension do
   # A later generator over a collection from outside the comprehension iterates it once per
   # item of the earlier ones, so it copies its items rather than consuming it, as does a
   # generator over a collection still in use or reached through a reference.
-  defp generator_stage(pattern, collection, filters, item_type, reused?) do
+  # How a generator iterates its collection, and the type of each item.
+  defp iteration(collection, item_type, {nested?, generated}, %Context{} = context) do
+    root = root_variable(collection)
+
+    cond do
+      lent_field?(collection, root, item_type, generated, context) ->
+        {:lent, Type.ref(item_type)}
+
+      reused?(collection, root, item_type, {nested?, generated}, context) ->
+        {:reused, item_type}
+
+      true ->
+        {:owned, item_type}
+    end
+  end
+
+  # A list field of an item an earlier generator borrows is lent: iterated by reference, as a
+  # slice is.
+  defp lent_field?(collection, root, item_type, generated, context) do
+    item_type != nil and match?({{:., _, [_receiver, _field]}, _, []}, collection) and
+      root in generated and lent?(root, context)
+  end
+
+  # A collection an enclosing generator would iterate again, or still in use, is copied from.
+  defp reused?(_collection, nil, _item_type, _scope, _context), do: false
+
+  defp reused?(collection, root, item_type, {nested?, generated}, context) do
+    root not in generated and
+      (nested? or (item_type != nil and Lower.in_use?(collection, context)))
+  end
+
+  defp generator_stage(pattern, collection, filters, item_type, iteration) do
     items =
       cond do
         iterator_call?(collection) -> collection
-        reused? -> quote(do: unquote(collection) |> iter() |> cloned())
+        iteration == :lent -> quote(do: unquote(collection) |> iter())
+        iteration == :reused -> quote(do: unquote(collection) |> iter() |> cloned())
         true -> quote(do: unquote(collection) |> into_iter())
       end
 
@@ -385,6 +412,9 @@ defmodule RustQ.Meta.Lower.Comprehension do
     do: if(meta[:no_parens], do: root_variable(receiver))
 
   defp root_variable(_collection), do: nil
+
+  defp lent?(name, %Context{vars: vars}),
+    do: match?(%Type{kind: kind} when kind in [:ref, :mut_ref], Map.get(vars, name))
 
   # A collection already given as an iterator, as in `values.iter()`, is iterated as it is.
   defp iterator_call?({{:., _, [_receiver, method]}, _, args}) when is_list(args),
@@ -465,15 +495,29 @@ defmodule RustQ.Meta.Lower.Comprehension do
         %Type{} = return_type,
         %Context{} = context
       ) do
-    acc = A.var(:__rustq_reduce)
     acc_type = reduce_acc_type(initial, return_type)
+    context = with_items(pattern, expression, context)
+
+    {acc, update} =
+      case clauses do
+        # A single clause binding the accumulator to a variable names the accumulator.
+        [{:->, _, [[{name, _, ast_context} = variable], body]}]
+        when is_atom(name) and is_atom(ast_context) ->
+          {A.var(name), reduce_body(variable, body, acc_type, context)}
+
+        clauses ->
+          acc = A.var(:__rustq_reduce)
+          {acc, A.match_expr(acc, lower_for_reduce_arms(clauses, acc_type, context))}
+      end
 
     A.block_expr([
-      A.let_mut(acc.name, lower_reduce_initial(initial, acc_type, context)),
+      A.let_mut(acc.name, lower_reduce_initial(initial, acc_type, context),
+        type: annotated(acc_type)
+      ),
       A.for_(
         LowerPattern.lower_binding_pattern(pattern),
         Lower.lower_expr(expression, context),
-        [A.assign(acc, A.match_expr(acc, lower_for_reduce_arms(clauses, acc_type, context)))]
+        [A.assign(acc, update)]
       ),
       A.return_stmt(acc)
     ])
@@ -487,6 +531,11 @@ defmodule RustQ.Meta.Lower.Comprehension do
       suggestion: "Use `for pattern <- enumerable, reduce: initial do acc_pattern -> body end`."
     )
   end
+
+  # The accumulator is annotated with its type, which an empty initial value leaves to Rust,
+  # unless it is the result a fallible body propagates.
+  defp annotated(%Type{} = acc_type),
+    do: if(Type.propagates?(acc_type), do: nil, else: acc_type.ast)
 
   defp lower_reduce_initial(initial, %Type{} = acc_type, %Context{} = context) do
     if Type.propagates?(acc_type) do
@@ -509,27 +558,48 @@ defmodule RustQ.Meta.Lower.Comprehension do
 
   defp reduce_acc_type(_initial, %Type{} = return_type), do: return_type
 
+  # The loop binds the generator's items, typed as the collection lends them.
+  defp with_items(pattern, collection, %Context{} = context) do
+    case comprehension_item_type(collection, context) do
+      %Type{} = item_type -> LowerPattern.context_with_match_pattern(pattern, item_type, context)
+      nil -> context
+    end
+  end
+
+  # An accumulator no clause matches is carried on, unless a clause matches any.
   defp lower_for_reduce_arms(clauses, %Type{} = return_type, %Context{} = context) do
     carry = :__rustq_reduce_value
 
-    Enum.map(clauses, fn {:->, _, [[pattern], body]} ->
-      body_context = LowerPattern.context_with_match_pattern(pattern, return_type, context)
+    carried =
+      if Enum.any?(clauses, fn {:->, _, [[pattern], _body]} -> catch_all?(pattern) end),
+        do: [],
+        else: [%AST.Arm{pattern: %AST.PatVar{name: carry}, body: [A.return_stmt(A.var(carry))]}]
 
+    Enum.map(clauses, fn {:->, _, [[pattern], body]} ->
       %AST.Arm{
         pattern: LowerPattern.lower_match_pattern(pattern, return_type, context),
-        body:
-          Lower.lower_clause_body(
-            body,
-            %{body_context | position: :return, return_type: return_type},
-            return_type
-          )
+        body: lower_reduce_clause(pattern, body, return_type, context)
       }
-    end) ++
-      [
-        %AST.Arm{
-          pattern: %AST.PatVar{name: carry},
-          body: [A.return_stmt(A.var(carry))]
-        }
-      ]
+    end) ++ carried
   end
+
+  defp reduce_body(pattern, body, %Type{} = return_type, %Context{} = context) do
+    case lower_reduce_clause(pattern, body, return_type, context) do
+      [%AST.Return{expr: expr}] -> expr
+      statements -> A.block_expr(statements)
+    end
+  end
+
+  defp lower_reduce_clause(pattern, body, %Type{} = return_type, %Context{} = context) do
+    body_context = LowerPattern.context_with_match_pattern(pattern, return_type, context)
+
+    Lower.lower_clause_body(
+      body,
+      %{body_context | position: :return, return_type: return_type},
+      return_type
+    )
+  end
+
+  defp catch_all?({name, _, ast_context}) when is_atom(name) and is_atom(ast_context), do: true
+  defp catch_all?(_pattern), do: false
 end

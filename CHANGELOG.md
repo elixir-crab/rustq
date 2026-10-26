@@ -54,6 +54,11 @@
   asks an array, looking a `String` up as a `&str`.
 - A comprehension over a list of tuples still in use iterates it by
   reference, copying copy elements rather than cloning every item.
+- `MapSet.new/1` of listed items is `HashSet::from([...])`, and a list literal
+  where a slice is expected is a borrowed array, as `&[]`.
+- A `for ... reduce:` whose one clause binds the accumulator to a variable
+  names the accumulator after it, typed, rather than matching it each turn.
+- Comparing an option with `nil` is `is_some()` or `is_none()`.
 
 ### Fixed
 
@@ -78,6 +83,17 @@
 - A count passed where a `u32` or another integer is expected is cast to it.
 - `List.first/1` and `List.last/1` on an iterator collected into a list take
   from the iterator.
+- A nested generator over a list an earlier item holds iterates it by
+  reference instead of moving it out of a borrow, and a generator over a slice
+  types its items as references.
+- A `for ... reduce:` types the items it binds, so a borrowed copy item is read
+  where it is stored.
+- An option field reached through a reference is matched by reference, binding
+  a reference to what it holds.
+- A binding keeps the option or result type its right-hand side gives rather
+  than what a later use suggests, and a tuple destructured from a fallible call
+  types its elements.
+- An empty map whose type is left to Rust is `HashMap::new()`.
 
 ## 1.0.0-rc.19 - 2026-10-26
 

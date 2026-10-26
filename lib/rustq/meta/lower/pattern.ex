@@ -224,6 +224,15 @@ defmodule RustQ.Meta.Lower.Pattern do
     end
   end
 
+  # A pattern on a reference to an option binds a reference to what it holds, as Rust's
+  # default binding mode does.
+  def context_with_match_pattern(
+        pattern,
+        %Type{kind: :ref, meta: %{inner: %Type{kind: :option} = option}},
+        %Context{} = context
+      ),
+      do: context_with_match_pattern(pattern, Type.option(Type.ref(Type.inner(option))), context)
+
   # A tuple pattern on a reference to a tuple binds references to its elements, as Rust's
   # default binding mode does.
   def context_with_match_pattern(pattern, %Type{kind: :ref} = type, %Context{} = context)

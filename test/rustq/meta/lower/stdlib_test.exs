@@ -177,6 +177,9 @@ defmodule RustQ.Meta.Lower.StdlibTest do
       end
     end
 
+    @spec held?(R.option(R.u32())) :: R.bool()
+    defrust(held?(value), do: value != nil)
+
     @spec counted(R.ref(MapSet.t(R.u32()))) :: R.u32()
     defrust(counted(seen), do: depth(MapSet.size(seen)))
 
@@ -364,6 +367,10 @@ defmodule RustQ.Meta.Lower.StdlibTest do
     assert rust_source!(Readings, :weight) =~ "if *flag {"
     assert rust_source!(Readings, :both) =~ "*a && *b"
     assert rust_source!(Readings, :both) =~ "kind(left) == Kind::Number"
+  end
+
+  test "comparing an option with nil asks whether it holds a value" do
+    assert rust_source!(Readings, :held?) =~ "value.is_some()"
   end
 
   test "a count takes the integer type expected of it" do

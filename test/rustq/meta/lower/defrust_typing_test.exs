@@ -291,7 +291,7 @@ defmodule RustQ.Meta.Lower.DefrustTypingTest do
 
     source = AutoBorrowForReduceCase.__rustq_source__()
 
-    assert source =~ "let mut __rustq_reduce = &color;"
+    assert source =~ "let mut acc: &Color = &color;"
     assert source =~ "if flag { acc } else { acc }"
     assert RustQ.valid?(source, "auto_borrow_for_reduce.rs")
   end
@@ -446,5 +446,58 @@ defmodule RustQ.Meta.Lower.DefrustTypingTest do
     source = MutableMethodReceiverCase.__rustq_source__()
     assert source =~ "let mut builder = PathBuilder::new();"
     assert source =~ "builder.add_circle(Point::new(0.0, 0.0), 1.0, None);"
+  end
+
+  test "bindings keep the types their right-hand sides give" do
+    defmodule BorrowedOptionCase do
+      use RustQ.Meta
+      alias RustQ.Type, as: R
+
+      @typep item :: %{required(:names) => [String.t()]}
+      @typep holder :: %{required(:base) => R.option(item())}
+
+      @spec named(R.option(R.ref(item())), R.u32()) :: R.bool()
+      defrustp(named(base, _count), do: base != nil)
+
+      @spec made() :: R.nif_result({holder(), R.u32()})
+      defrustp(made(), do: ok({struct_literal(Holder, base: nil), 1}))
+
+      @spec run() :: R.nif_result(R.bool())
+      defrustp run() do
+        {holder, count} = made()
+        base = holder.base.as_ref()
+        ok(named(base, count))
+      end
+
+      @spec count(R.ref(holder())) :: R.usize()
+      defrustp count(holder) do
+        case holder.base do
+          {:some, item} -> length(item.names)
+          nil -> 0
+        end
+      end
+
+      @spec tallied(R.slice(R.u32())) :: HashMap.t(R.u32(), R.u32())
+      defrustp tallied(values) do
+        tally = %{}
+        record(mut_ref(tally), values)
+        tally
+      end
+
+      @spec record(R.mut_ref(HashMap.t(R.u32(), R.u32())), R.slice(R.u32())) :: R.unit()
+      defrustp record(tally, values) do
+        for value <- values do
+          tally.insert(deref(value), 1)
+        end
+      end
+    end
+
+    source = BorrowedOptionCase.__rustq_source__()
+
+    assert source =~ "Ok(named(base, count))"
+    assert source =~ "match &holder.base {"
+    assert source =~ "Some(item) => item.names.len()"
+    assert source =~ "let mut tally = HashMap::new();"
+    assert RustQ.valid?(source, "borrowed_option.rs")
   end
 end

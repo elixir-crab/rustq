@@ -421,19 +421,20 @@ defmodule RustQ.Meta.Typing do
   def infer_downstream_let_types(expressions, %Env{} = env, callbacks) when is_map(callbacks) do
     callbacks = Map.merge(default_inference_callbacks(), callbacks)
     inferred = Inference.infer_downstream_let_types(expressions, env.vars, callbacks)
-    rhs_types = non_propagating_let_rhs_types(expressions, env)
+    all_rhs_types = let_rhs_types(expressions, env)
+    rhs_types = Map.reject(all_rhs_types, fn {_name, type} -> Type.propagates?(type) end)
 
+    # A binding takes its right-hand side's type over what its uses suggest, unless it is an
+    # option or result those uses unwrap.
     inferred_types =
       Map.new(inferred, fn {name, type} ->
-        {name, inferred_binding_type(type, Map.get(rhs_types, name))}
+        {name, inferred_binding_type(type, Map.get(all_rhs_types, name))}
       end)
 
     # An option or result nothing downstream unwraps stays one, unless the binding's type is
     # already known.
     wrapped_types =
-      expressions
-      |> let_rhs_types(env)
-      |> Map.filter(fn {name, type} ->
+      Map.filter(all_rhs_types, fn {name, type} ->
         Type.propagates?(type) and not Map.has_key?(env.vars, name)
       end)
 
@@ -853,12 +854,6 @@ defmodule RustQ.Meta.Typing do
       (not Type.propagates?(inferred) or Type.compatible_with_expected?(Type.inner(rhs), inferred))
   end
 
-  defp non_propagating_let_rhs_types(expressions, %Env{} = env) do
-    expressions
-    |> let_rhs_types(env)
-    |> Map.reject(fn {_name, type} -> Type.propagates?(type) end)
-  end
-
   # Each binding's type, in order, so a later right-hand side reads the earlier bindings.
   defp let_rhs_types(expressions, %Env{} = env) do
     {types, _env} =
@@ -878,10 +873,12 @@ defmodule RustQ.Meta.Typing do
     end
   end
 
-  # A tuple of variables binds each to its element's type.
+  # A tuple of variables binds each to its element's type; a fallible right-hand side binds
+  # what it gives on success, as it propagates its error.
   defp let_rhs_type({:=, _meta, [pattern, expression]}, %Env{} = env) do
     with [_ | _] = names <- Pattern.tuple_elements(pattern),
-         %Type{kind: :tuple, meta: %{elements: elements}} <- synth(expression, env),
+         %Type{kind: :tuple, meta: %{elements: elements}} <-
+           expression |> synth(env) |> success_type(),
          true <- length(names) == length(elements) do
       for {{name, _meta, context}, %Type{} = type} <- Enum.zip(names, elements),
           is_atom(name) and is_atom(context) and name != :_,
@@ -892,6 +889,11 @@ defmodule RustQ.Meta.Typing do
   end
 
   defp let_rhs_type(_expression, _env), do: []
+
+  defp success_type(%Type{} = type),
+    do: if(Type.propagates?(type), do: Type.inner(type), else: type)
+
+  defp success_type(type), do: type
 
   defp coercion(%Type{} = actual, %Type{} = expected) do
     direct_coercion(actual, expected) ||

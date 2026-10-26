@@ -850,11 +850,14 @@ defmodule RustQ.Meta.Lower do
     if slice_type?(expected_type), do: A.ref(array), else: array
   end
 
+  # A list literal where a slice is expected is a borrowed array, which allocates nothing.
   defp lower_expected_expr_context(values, %Type{} = expected_type, %Context{} = context)
        when is_list(values) do
-    vec = A.vec(lower_expected_collection_values(values, expected_type, context))
+    values = lower_expected_collection_values(values, expected_type, context)
 
-    if slice_type?(expected_type), do: A.ref(vec), else: vec
+    if slice_type?(expected_type),
+      do: A.ref(%AST.ArrayLiteral{values: values}),
+      else: A.vec(values)
   end
 
   defp lower_expected_expr_context(
@@ -1200,6 +1203,9 @@ defmodule RustQ.Meta.Lower do
   defp lower_expr_context({:%{}, _, [{:|, _, [base, fields]}]}, %Context{} = context)
        when is_list(fields),
        do: lower_struct_update(base, fields, context)
+
+  # An empty map whose type is left to Rust is a `HashMap` that later uses type.
+  defp lower_expr_context({:%{}, _, []}, %Context{}), do: A.path_call([:HashMap, :new])
 
   defp lower_expr_context(
          {:__rustq_typed__, _, [expression, %Type{} = type]},
@@ -1606,12 +1612,19 @@ defmodule RustQ.Meta.Lower do
     end
   end
 
+  # An option field reached through a reference is matched by reference, as what it holds
+  # cannot be moved out.
   defp case_scrutinee(expression, %Type{} = expression_type, clauses, %Context{} = context) do
-    if propagate_case_scrutinee?(expression_type, clauses) do
-      inner = Type.inner(expression_type)
-      {inner, lower_checked_expr(expression, inner, context)}
-    else
-      {expression_type, lower_expr(expression, context)}
+    cond do
+      propagate_case_scrutinee?(expression_type, clauses) ->
+        inner = Type.inner(expression_type)
+        {inner, lower_checked_expr(expression, inner, context)}
+
+      lent_field?(expression, expression_type, context) ->
+        {Type.ref(expression_type), A.ref(lower_expr(expression, context))}
+
+      true ->
+        {expression_type, lower_expr(expression, context)}
     end
   end
 
@@ -1957,6 +1970,19 @@ defmodule RustQ.Meta.Lower do
       _owned -> in_use?(list, context)
     end
   end
+
+  # An option field holding what cannot be copied, reached through a reference.
+  defp lent_field?(expression, %Type{kind: :option} = type, %Context{} = context) do
+    case root_variable_node(expression) do
+      {name, _meta, _context} ->
+        behind_reference?(expression, name, context) and not Collection.copy?(Type.inner(type))
+
+      nil ->
+        false
+    end
+  end
+
+  defp lent_field?(_expression, _type, _context), do: false
 
   defp behind_reference?({name, _, ast_context}, name, _context) when is_atom(ast_context),
     do: false

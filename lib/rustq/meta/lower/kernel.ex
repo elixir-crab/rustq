@@ -55,6 +55,14 @@ defmodule RustQ.Meta.Lower.Kernel do
       when function in [:==, :!=],
       do: {:ok, emptiness(function, collection, context)}
 
+  # Comparing an option with `nil` asks whether it holds a value, which needs no equality on
+  # what it holds.
+  def lower(%Call{function: function, args: [option, nil]}, %Context{} = context)
+      when function in [:==, :!=] do
+    method = if function == :==, do: :is_none, else: :is_some
+    {:ok, A.method(lowered(option, context), method)}
+  end
+
   # Comparing two options or results compares the wrappers; neither side propagates.
   def lower(%Call{function: function, args: [left, right]}, %Context{} = context)
       when function in [:==, :!=] do

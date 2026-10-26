@@ -46,6 +46,29 @@ defmodule RustQ.Meta.Lower.StdlibTest do
       end
     end
 
+    @spec tag(R.ref(String.t())) :: R.option(R.u32())
+    defrust(tag(name), do: if(name.is_empty(), do: nil, else: some(name.len() |> cast(R.u32()))))
+
+    @spec firsts(R.slice(String.t())) :: R.vec(R.usize())
+    defrust firsts(names) do
+      first =
+        for {name, index} <- names |> Enum.with_index() |> Enum.reverse(),
+            {:some, tag} <- [tag(name)],
+            into: %{},
+            do: {tag, index}
+
+      for name <- names, {:some, tag} <- [tag(name)], do: first[tag]
+    end
+
+    @spec regrouped(R.vec(String.t())) :: R.vec(String.t())
+    defrust regrouped(names) do
+      {long, short} = Enum.split_with(names, fn name -> name.len() > 3 end)
+      short ++ copies(long ++ long)
+    end
+
+    @spec copies(R.slice(String.t())) :: R.vec(String.t())
+    defrust(copies(names), do: Enum.map(names, fn name -> name.clone() end))
+
     @spec joined(R.vec(R.u32()), R.vec(R.u32())) :: R.vec(R.u32())
     defrust(joined(left, right), do: left ++ right)
   end
@@ -72,8 +95,24 @@ defmodule RustQ.Meta.Lower.StdlibTest do
     assert rust_source!(Collections, :numbers) =~ "for number in 1..=count {"
   end
 
+  test "a map a comprehension builds is indexed by a borrowed key" do
+    source = rust_source!(Collections, :firsts)
+
+    assert source =~ ".rev()\n        .map("
+    refute source =~ ".collect()\n        .into_iter()"
+    assert source =~ "first[&tag]"
+  end
+
+  test "a list split or joined for a slice is borrowed" do
+    source = rust_source!(Collections, :regrouped)
+
+    assert source =~ ".chain(long.iter().cloned())"
+    assert source =~ ".collect::<Vec<String>>(),"
+  end
+
   test "++ concatenates lists" do
-    assert rust_source!(Collections, :joined) =~ "left.into_iter().chain(right).collect()"
+    assert rust_source!(Collections, :joined) =~
+             "left.into_iter().chain(right).collect::<Vec<u32>>()"
   end
 
   test "normalizes remote stdlib calls and local Kernel forms" do

@@ -632,6 +632,9 @@ defmodule RustQ.Meta.Type do
     })
   end
 
+  # A `Vec` read from Rust is a list, as one a spec names is.
+  defp from_syn_path_parts(["Vec"], _name, [item], _assoc, _generic_args), do: vec(item)
+
   defp from_syn_path_parts(parts, name, args, assoc, generic_args) do
     ast = %AST.TypePath{
       parts: Enum.map(parts, &Identifier.atom!/1),

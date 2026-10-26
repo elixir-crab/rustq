@@ -220,7 +220,7 @@ defmodule RustQ.Meta.Lower.EnumTest do
   test "a generator over one value matches it beside the item" do
     source = rust_source!(Lists, :by_length)
 
-    assert source =~ ".map(|name| (name, nonzero(name)))"
+    assert source =~ ".map(|name| (nonzero(name), name))"
     refute source =~ "vec!["
   end
 

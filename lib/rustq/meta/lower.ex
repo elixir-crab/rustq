@@ -1215,13 +1215,16 @@ defmodule RustQ.Meta.Lower do
     do: A.index(lower_expr(receiver, context), lower_expr(index, context))
 
   # `container[key]` indexes; a map is indexed by a reference to its key.
+  # A map is indexed by a borrowed key.
   defp lower_expr_context({{:., _, [Access, :get]}, _, [receiver, key]}, %Context{} = context) do
-    index = lower_expr(key, context)
+    receiver_type =
+      infer_expr_type(receiver, context.vars) || Typing.synth(receiver, typing_env(context))
 
     index =
-      if map_type?(infer_expr_type(receiver, context.vars)),
-        do: A.ref(index),
-        else: index
+      case Collection.keyed(receiver_type) do
+        {:map, _key, _value} -> borrowed_key(key, context)
+        _list -> lower_expr(key, context)
+      end
 
     A.index(lower_expr(receiver, context), index)
   end
@@ -2012,10 +2015,9 @@ defmodule RustQ.Meta.Lower do
         receiver_type =
           infer_expr_type(receiver, context.vars) || Typing.synth(receiver, typing_env(context))
 
-        %AST.MethodCall{
-          receiver: lower_dot_receiver(receiver, :into_iter, context),
-          method: borrowed_iteration(:into_iter, [], receiver_type)
-        }
+        receiver
+        |> lower_dot_receiver(:into_iter, context)
+        |> iterated(borrowed_iteration(:into_iter, [], receiver_type))
 
       true ->
         %AST.MethodCall{
@@ -2394,6 +2396,28 @@ defmodule RustQ.Meta.Lower do
     )
   end
 
+  # A map's key is read by reference; one already a reference is passed as it is.
+  defp borrowed_key(key, %Context{} = context) do
+    case infer_expr_type(key, context.vars) || Typing.synth(key, typing_env(context)) do
+      %Type{kind: kind} when kind in [:ref, :mut_ref] -> lower_expr(key, context)
+      _owned -> A.ref(lower_expr(key, context))
+    end
+  end
+
+  # Iterating what an iterator collects into a list is iterating the iterator.
+  defp iterated(%AST.MethodCall{method: :collect, receiver: iterator} = collected, method) do
+    if listed?(collected), do: iterator, else: A.method(collected, method)
+  end
+
+  defp iterated(receiver, method), do: A.method(receiver, method)
+
+  # A collect into a list, or into whatever is needed, not a map or set, which keeps one item
+  # per key.
+  defp listed?(%AST.MethodCall{generics: []}), do: true
+  defp listed?(%AST.MethodCall{generics: [%AST.TypeVec{}]}), do: true
+  defp listed?(%AST.MethodCall{generics: [%AST.TypePath{parts: [:Vec]}]}), do: true
+  defp listed?(%AST.MethodCall{}), do: false
+
   defp lower_expected_operand(expression, %Type{} = expected_type, %Context{} = context) do
     if fallible_expression?(expression, context) and propagation_allowed?(context.return_type),
       do: A.try(lower_expr(expression, context)),
@@ -2533,14 +2557,6 @@ defmodule RustQ.Meta.Lower do
     Enum.map(statements, &lower_statement(&1, %{context | position: :statement})) ++
       [A.return_stmt(lower_expr(final, %{context | position: :return}))]
   end
-
-  defp map_type?(%Type{kind: kind} = type) when kind in [:ref, :mut_ref],
-    do: map_type?(Type.ref_inner(type))
-
-  defp map_type?(%Type{rust: rust}) when is_binary(rust),
-    do: String.starts_with?(rust, ["HashMap<", "BTreeMap<"])
-
-  defp map_type?(_type), do: false
 
   @doc "A captured named function, as the Rust path of that function."
   def lower_function_capture({name, _, capture_context}, %Context{})

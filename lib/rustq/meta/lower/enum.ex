@@ -102,19 +102,17 @@ defmodule RustQ.Meta.Lower.Enum do
     do:
       {:ok,
        left
-       |> lowered(context)
-       |> A.method(:into_iter)
-       |> A.method(:chain, [lowered(right, context)])
-       |> A.method(:collect)}
+       |> iterate(:keeps_items, context)
+       |> A.method(:chain, [iterable(right, left, context)])
+       |> collect(context)}
 
   defp lower_call(%Call{function: :zip, args: [left, right]}, %Context{} = context),
     do:
       {:ok,
        left
-       |> lowered(context)
-       |> A.method(:into_iter)
-       |> A.method(:zip, [lowered(right, context)])
-       |> A.method(:collect)}
+       |> iterate(:keeps_items, context)
+       |> A.method(:zip, [iterable(right, left, context)])
+       |> collect(context)}
 
   defp lower_call(%Call{function: :unzip, args: [collection]}, %Context{} = context),
     do:
@@ -949,7 +947,30 @@ defmodule RustQ.Meta.Lower.Enum do
     %AST.MethodCall{receiver: receiver, method: :collect, args: [], generics: [type]}
   end
 
+  # Where a slice is expected, the items collect into a list it borrows.
+  defp collect(receiver, %Context{expected: %Type{kind: :slice} = expected}) do
+    vec = expected |> Type.slice_inner() |> Type.vec()
+    A.ref(%AST.MethodCall{receiver: receiver, method: :collect, args: [], generics: [vec.ast]})
+  end
+
   defp collect(receiver, %Context{}), do: A.method(receiver, :collect)
+
+  # What `chain` and `zip` take: any iterable, so a list taken whole is passed as it is. The
+  # list the iterator before it borrows is still borrowed, so it is copied from too.
+  defp iterable(collection, before, context) do
+    iterator =
+      if same_root?(collection, before),
+        do: iterate_as(collection, :cloned, context),
+        else: iterate(collection, :keeps_items, context)
+
+    case iterator do
+      %AST.MethodCall{method: :into_iter, receiver: list, args: []} -> list
+      iterator -> iterator
+    end
+  end
+
+  defp same_root?({name, _, context}, {name, _, context}) when is_atom(context), do: true
+  defp same_root?(_collection, _before), do: false
 
   defp continuation(body) do
     Macro.prewalk(body, fn

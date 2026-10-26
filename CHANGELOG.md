@@ -14,6 +14,19 @@
 - `first..last//step` with a positive literal step counts up between dynamic
   bounds, as Rust's `first..=last` does.
 - `left ++ right` concatenates lists.
+- A comprehension's type follows all its generators, `{:some, value}` and
+  `{:ok, value}` patterns included, and a tuple bound with `=` types each
+  variable.
+- A `Vec` read from Rust source is a list, as one a spec names is.
+
+### Fixed
+
+- A map is indexed by a borrowed key.
+- Collecting into a slice argument collects a `Vec` and borrows it.
+- `Enum.concat/2` and `Enum.zip/2` take a list only at its last use, and copy
+  from one the other side borrows.
+- An iterator collected into a list and iterated again is iterated as it is.
+- A generator over one value computes it before the item moves into the pair.
 
 ## 1.0.0-rc.19 - 2026-10-26
 

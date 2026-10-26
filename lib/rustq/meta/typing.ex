@@ -149,6 +149,17 @@ defmodule RustQ.Meta.Typing do
     end
   end
 
+  # `RustQ.Meta.Desugar`'s iteration of a list is the list, and enumerating a list pairs each
+  # item with its index.
+  def synth({:__rustq_items__, _meta, [list]}, %Env{} = env), do: synth(list, env)
+
+  def synth({:|>, _meta, [list, {:enumerate, _, []}]}, %Env{} = env) do
+    with %Type{} = list <- synth(list, env),
+         %Type{} = item <- Type.vec_inner(list) || slice_item(list) do
+      Type.vec(Type.tuple([RustQ.Spec.type(quote(do: RustQ.Type.usize())), item]))
+    end
+  end
+
   def synth({:|>, _meta, [left, right]}, %Env{} = env) do
     case Call.pipe_remote(left, right) do
       {:ok, call} -> synth(call, env)
@@ -175,14 +186,13 @@ defmodule RustQ.Meta.Typing do
 
   # A comprehension collects its body's values into a list, or into the map or set `into:`
   # names, as `RustQ.Meta.Desugar` writes `Map.new/1,2` and `MapSet.new/1,2`.
-  def synth({:for, _meta, [{:<-, _, [pattern, collection]} | rest]}, %Env{} = env) do
-    {_qualifiers, options} = Enum.split_while(rest, &(not Keyword.keyword?(&1) or &1 == []))
+  def synth({:for, _meta, [{:<-, _, _generator} | _rest] = args}, %Env{} = env) do
+    {qualifiers, options} = Enum.split_while(args, &(not Keyword.keyword?(&1) or &1 == []))
     options = Enum.concat(options)
 
-    with %Type{} = list <- synth(collection, env),
-         %Type{} = item <- Type.vec_inner(list) || slice_item(list),
+    with %Env{} = bound <- Enum.reduce_while(qualifiers, env, &bind_generator/2),
          {:ok, body} <- Keyword.fetch(options, :do),
-         %Type{} = value <- synth(body, bind_pattern(pattern, item, env)) do
+         %Type{} = value <- synth(body, bound) do
       collected(Keyword.get(options, :into), value)
     else
       _unknown -> nil
@@ -217,6 +227,14 @@ defmodule RustQ.Meta.Typing do
        when is_atom(name) and is_atom(context),
        do: %{env | vars: Map.put(env.vars, name, item)}
 
+  # `{:some, value}` and `{:ok, value}` bind what the option or result holds.
+  defp bind_pattern({:some, value}, %Type{kind: :option} = item, %Env{} = env),
+    do: bind_inner(value, item, env)
+
+  defp bind_pattern({:ok, value}, %Type{kind: kind} = item, %Env{} = env)
+       when kind in [:result, :nif_result],
+       do: bind_inner(value, item, env)
+
   defp bind_pattern(
          {left, right},
          %Type{kind: :tuple, meta: %{elements: [left_type, right_type]}},
@@ -228,6 +246,26 @@ defmodule RustQ.Meta.Typing do
          |> then(&bind_pattern(right, right_type, &1))
 
   defp bind_pattern(_pattern, _item, %Env{} = env), do: env
+
+  defp bind_inner(pattern, %Type{} = wrapper, %Env{} = env) do
+    case Type.inner(wrapper) do
+      %Type{} = inner -> bind_pattern(pattern, inner, env)
+      nil -> env
+    end
+  end
+
+  # Each generator binds its pattern to the items of its collection, in the variables the
+  # earlier ones bound; filters bind nothing.
+  defp bind_generator({:<-, _, [pattern, collection]}, %Env{} = env) do
+    with %Type{} = list <- synth(collection, env),
+         %Type{} = item <- Type.vec_inner(list) || slice_item(list) do
+      {:cont, bind_pattern(pattern, item, env)}
+    else
+      _unknown -> {:halt, nil}
+    end
+  end
+
+  defp bind_generator(_filter, %Env{} = env), do: {:cont, env}
 
   defp collected(into, %Type{} = value) do
     case {Collection.keyed(constructed(into)), value} do
@@ -762,6 +800,19 @@ defmodule RustQ.Meta.Typing do
     case synth(expression, env) do
       %Type{} = type -> [{name, type}]
       nil -> []
+    end
+  end
+
+  # A tuple of variables binds each to its element's type.
+  defp let_rhs_type({:=, _meta, [pattern, expression]}, %Env{} = env) do
+    with [_ | _] = names <- Pattern.tuple_elements(pattern),
+         %Type{kind: :tuple, meta: %{elements: elements}} <- synth(expression, env),
+         true <- length(names) == length(elements) do
+      for {{name, _meta, context}, %Type{} = type} <- Enum.zip(names, elements),
+          is_atom(name) and is_atom(context) and name != :_,
+          do: {name, type}
+    else
+      _other -> []
     end
   end
 

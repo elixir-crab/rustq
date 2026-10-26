@@ -145,18 +145,19 @@ defmodule RustQ.Meta.Lower.Comprehension do
 
       # A generator over one value, as `{:some, id} <- [record_id(record)]`, matches that value
       # beside the item instead of iterating a list made for it.
+      # The value comes first, so it may borrow what the item moves into the pair.
       [{:<-, meta, [value_pattern, [value]]} | later] ->
         paired =
           quote(
             do:
               unquote(stage)
               |> map(fn unquote(typed_arg(binder, binder_type)) ->
-                {unquote(binder), unquote(value)}
+                {unquote(value), unquote(binder)}
               end)
           )
 
         comprehension_pipeline(
-          [{:<-, meta, [{binder, value_pattern}, paired]} | later],
+          [{:<-, meta, [{value_pattern, binder}, paired]} | later],
           body,
           bound,
           {nested?, generated}

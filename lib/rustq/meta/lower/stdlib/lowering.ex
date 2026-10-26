@@ -148,6 +148,11 @@ defmodule RustQ.Meta.Lower.Stdlib.Lowering do
      ])}
   end
 
+  @doc "A Rust count as Elixir's integer, an `i64`, unless the call is expected to produce a `usize`."
+  @spec integer_count(AST.expr(), Context.t()) :: AST.expr()
+  def integer_count(count, %Context{expected: %Type{kind: :usize}}), do: count
+  def integer_count(count, %Context{}), do: A.cast(count, A.type(:i64))
+
   @doc "`count` as a `usize`, when it is a literal or unsigned count that cannot be negative."
   @spec nonnegative_count(Macro.t(), Context.t()) :: {:ok, AST.expr()} | :unsupported
   def nonnegative_count(count, %Context{} = context) when is_integer(count) and count >= 0,

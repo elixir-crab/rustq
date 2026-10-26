@@ -148,6 +148,33 @@ defmodule RustQ.Meta.Lower.EnumTest do
 
     @spec doubled_sum([integer()]) :: integer()
     defrust(doubled_sum(values), do: Enum.sum(Enum.map(values, fn value -> value * 2 end)))
+
+    @spec nth_set(R.option(String.t()), R.option(String.t()), R.usize()) :: R.option(R.usize())
+    defrust nth_set(name, text, index) do
+      set = [name.is_some(), text.is_some()]
+
+      case set
+           |> Enum.with_index()
+           |> Enum.filter(fn {set, _field} -> set end)
+           |> Enum.at(index) do
+        {:some, {_set, field}} -> some(field)
+        :none -> nil
+      end
+    end
+
+    @spec set_count(R.option(String.t()), R.option(String.t())) :: R.usize()
+    defrust set_count(name, text) do
+      set = [name.is_some(), text.is_some()]
+      Enum.count(set, fn set -> set end)
+    end
+
+    @spec labelled(R.ref(R.option(String.t())), R.usize()) :: R.option({String.t(), R.usize()})
+    defrust labelled(name, field) do
+      case field do
+        0 -> name.as_ref().map(fn value -> {value.clone(), field} end)
+        _ -> nil
+      end
+    end
   end
 
   test "a question borrows the list it asks about" do
@@ -231,5 +258,19 @@ defmodule RustQ.Meta.Lower.EnumTest do
 
     assert rust_source!(Pipelines, :doubled_sum) =~
              "values.into_iter().map(|value| value * 2).sum()"
+  end
+
+  test "an item at an index of a stage is the iterator's nth, kept by a pattern on its copy" do
+    assert rust_source!(Pipelines, :nth_set) =~
+             ~r/\.filter\(\|&\(set, _field\)\| set\)\s*\.nth\(index\)/
+  end
+
+  test "a count where a usize is expected stays a usize" do
+    assert rust_source!(Pipelines, :set_count) =~ ~r/\.filter\(\|&set\| set\)\s*\.count\(\)\n/
+  end
+
+  test "an option mapped from a reference's as_ref is an option already" do
+    assert rust_source!(Pipelines, :labelled) =~
+             "0 => name.as_ref().map(|value| (value.clone(), field)),"
   end
 end

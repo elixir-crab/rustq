@@ -44,15 +44,16 @@ defmodule RustQ.Meta.StdMethodsTest do
     refute Enum.any?(all, &String.starts_with?(Atom.to_string(&1), "_"))
   end
 
-  test "derives what std's methods on its values return, where the receiver's types do not matter" do
+  test "derives what std's methods on its values return, with the receiver's type parameters" do
     returns = StdMethods.returns()
 
-    assert %{code: "usize"} = returns[{"str", "len"}]
-    assert %{code: "bool"} = returns[{"String", "is_empty"}]
-    assert %{code: "& str"} = returns[{"str", "trim"}]
-    assert %{code: "usize"} = returns[{"Vec", "len"}]
+    assert {[], %{code: "usize"}} = returns[{"str", "len"}]
+    assert {[], %{code: "bool"}} = returns[{"String", "is_empty"}]
+    assert {[], %{code: "& str"}} = returns[{"str", "trim"}]
+    assert {[:T, :A], %{code: "usize"}} = returns[{"Vec", "len"}]
+    assert {[:T], %{code: "Option < & T >"}} = returns[{"[T]", "first"}]
 
-    # `Vec::first` returns `Option<&T>`, which depends on the list's item type.
-    refute Map.has_key?(returns, {"[T]", "first"})
+    # `get` on a slice returns what its index type `I` reaches, which the method chooses.
+    refute Map.has_key?(returns, {"[T]", "get"})
   end
 end

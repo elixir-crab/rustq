@@ -539,2342 +539,6734 @@ defmodule RustQ.Meta.StdMethods do
 
   @doc """
   What the inherent methods of std's strings, characters, lists, maps, sets, and options
-  return, keyed by the type they belong to and their name, where that type does not depend
-  on the receiver's own type parameters: `str`'s `len` returns `usize`.
+  return, keyed by the type they belong to and their name, with the type parameters of the
+  type they belong to, in the order it takes them: `str`'s `len` returns `usize`, and
+  `Option`'s `as_ref` returns `Option<&T>` for its `T`.
   """
   def returns,
     do: %{
-      {"str", "slice_mut_unchecked"} => %RustQ.Syn.Type.Ref{
-        code: "& mut str",
-        inner: %RustQ.Syn.Type.Path{
-          code: "str",
-          name: "str",
-          callable: nil,
-          segments: ["str"],
-          args: [],
-          assoc: %{},
-          generic_args: []
-        },
-        lifetime: nil,
-        mutable: true
-      },
-      {"str", "trim_right"} => %RustQ.Syn.Type.Ref{
-        code: "& str",
-        inner: %RustQ.Syn.Type.Path{
-          code: "str",
-          name: "str",
-          callable: nil,
-          segments: ["str"],
-          args: [],
-          assoc: %{},
-          generic_args: []
-        },
-        lifetime: nil,
-        mutable: false
-      },
-      {"char", "is_ascii_control"} => %RustQ.Syn.Type.Path{
-        code: "bool",
-        name: "bool",
-        callable: nil,
-        segments: ["bool"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"str", "trim_start"} => %RustQ.Syn.Type.Ref{
-        code: "& str",
-        inner: %RustQ.Syn.Type.Path{
-          code: "str",
-          name: "str",
-          callable: nil,
-          segments: ["str"],
-          args: [],
-          assoc: %{},
-          generic_args: []
-        },
-        lifetime: nil,
-        mutable: false
-      },
-      {"char", "is_lowercase"} => %RustQ.Syn.Type.Path{
-        code: "bool",
-        name: "bool",
-        callable: nil,
-        segments: ["bool"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"str", "find"} => %RustQ.Syn.Type.Option{
-        code: "Option < usize >",
-        inner: %RustQ.Syn.Type.Path{
-          code: "usize",
-          name: "usize",
-          callable: nil,
-          segments: ["usize"],
-          args: [],
-          assoc: %{},
-          generic_args: []
-        }
-      },
-      {"str", "strip_circumfix"} => %RustQ.Syn.Type.Option{
-        code: "Option < & str >",
-        inner: %RustQ.Syn.Type.Ref{
-          code: "& str",
-          inner: %RustQ.Syn.Type.Path{
-            code: "str",
-            name: "str",
-            callable: nil,
-            segments: ["str"],
-            args: [],
-            assoc: %{},
-            generic_args: []
-          },
-          lifetime: nil,
-          mutable: false
-        }
-      },
-      {"Vec", "as_ptr"} => %RustQ.Syn.Type.Raw{code: "* const T"},
-      {"String", "as_str"} => %RustQ.Syn.Type.Ref{
-        code: "& str",
-        inner: %RustQ.Syn.Type.Path{
-          code: "str",
-          name: "str",
-          callable: nil,
-          segments: ["str"],
-          args: [],
-          assoc: %{},
-          generic_args: []
-        },
-        lifetime: nil,
-        mutable: false
-      },
-      {"str", "as_bytes"} => %RustQ.Syn.Type.Ref{
-        code: "& [u8]",
-        inner: %RustQ.Syn.Type.Slice{
-          code: "[u8]",
-          inner: %RustQ.Syn.Type.Path{
-            code: "u8",
-            name: "u8",
-            callable: nil,
-            segments: ["u8"],
-            args: [],
-            assoc: %{},
-            generic_args: []
-          }
-        },
-        lifetime: nil,
-        mutable: false
-      },
-      {"Vec", "capacity"} => %RustQ.Syn.Type.Path{
-        code: "usize",
-        name: "usize",
-        callable: nil,
-        segments: ["usize"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"str", "get_unchecked_mut"} => %RustQ.Syn.Type.Ref{
-        code: "& mut I :: Output",
-        inner: %RustQ.Syn.Type.Path{
-          code: "I :: Output",
-          name: "Output",
-          callable: nil,
-          segments: ["I", "Output"],
-          args: [],
-          assoc: %{},
-          generic_args: []
-        },
-        lifetime: nil,
-        mutable: true
-      },
-      {"str", "strip_suffix"} => %RustQ.Syn.Type.Option{
-        code: "Option < & str >",
-        inner: %RustQ.Syn.Type.Ref{
-          code: "& str",
-          inner: %RustQ.Syn.Type.Path{
-            code: "str",
-            name: "str",
-            callable: nil,
-            segments: ["str"],
-            args: [],
-            assoc: %{},
-            generic_args: []
-          },
-          lifetime: nil,
-          mutable: false
-        }
-      },
-      {"char", "is_ascii_alphanumeric"} => %RustQ.Syn.Type.Path{
-        code: "bool",
-        name: "bool",
-        callable: nil,
-        segments: ["bool"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"[T]", "binary_search_by_key"} => %RustQ.Syn.Type.Result{
-        code: "Result < usize , usize >",
-        ok: %RustQ.Syn.Type.Path{
-          code: "usize",
-          name: "usize",
-          callable: nil,
-          segments: ["usize"],
-          args: [],
-          assoc: %{},
-          generic_args: []
-        },
-        error: %RustQ.Syn.Type.Path{
-          code: "usize",
-          name: "usize",
-          callable: nil,
-          segments: ["usize"],
-          args: [],
-          assoc: %{},
-          generic_args: []
-        }
-      },
-      {"str", "ends_with"} => %RustQ.Syn.Type.Path{
-        code: "bool",
-        name: "bool",
-        callable: nil,
-        segments: ["bool"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"HashSet", "capacity"} => %RustQ.Syn.Type.Path{
-        code: "usize",
-        name: "usize",
-        callable: nil,
-        segments: ["usize"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"Vec", "try_reserve"} => %RustQ.Syn.Type.Result{
-        code: "Result < () , TryReserveError >",
-        ok: %RustQ.Syn.Type.Tuple{code: "()", elems: []},
-        error: %RustQ.Syn.Type.Path{
-          code: "TryReserveError",
-          name: "TryReserveError",
-          callable: nil,
-          segments: ["TryReserveError"],
-          args: [],
-          assoc: %{},
-          generic_args: []
-        }
-      },
-      {"[T]", "get_mut"} => %RustQ.Syn.Type.Option{
-        code: "Option < & mut I :: Output >",
-        inner: %RustQ.Syn.Type.Ref{
-          code: "& mut I :: Output",
-          inner: %RustQ.Syn.Type.Path{
-            code: "I :: Output",
-            name: "Output",
-            callable: nil,
-            segments: ["I", "Output"],
-            args: [],
-            assoc: %{},
-            generic_args: []
-          },
-          lifetime: nil,
-          mutable: true
-        }
-      },
-      {"str", "escape_debug"} => %RustQ.Syn.Type.Path{
-        code: "EscapeDebug < '_ >",
-        name: "EscapeDebug",
-        callable: nil,
-        segments: ["EscapeDebug"],
-        args: [],
-        assoc: %{},
-        generic_args: [
-          %RustQ.Syn.Type.GenericArgument{kind: :lifetime, name: nil, type: nil, source: "'_"}
-        ]
-      },
-      {"str", "into_boxed_bytes"} => %RustQ.Syn.Type.Path{
-        code: "Box < [u8] >",
-        name: "Box",
-        callable: nil,
-        segments: ["Box"],
-        args: [
-          %RustQ.Syn.Type.Slice{
-            code: "[u8]",
-            inner: %RustQ.Syn.Type.Path{
-              code: "u8",
-              name: "u8",
-              callable: nil,
-              segments: ["u8"],
-              args: [],
-              assoc: %{},
-              generic_args: []
-            }
-          }
-        ],
-        assoc: %{},
-        generic_args: [
-          %RustQ.Syn.Type.GenericArgument{
-            kind: :type,
-            name: nil,
-            type: %RustQ.Syn.Type.Slice{
-              code: "[u8]",
-              inner: %RustQ.Syn.Type.Path{
-                code: "u8",
-                name: "u8",
-                callable: nil,
-                segments: ["u8"],
-                args: [],
-                assoc: %{},
-                generic_args: []
-              }
-            },
-            source: nil
-          }
-        ]
-      },
-      {"str", "len"} => %RustQ.Syn.Type.Path{
-        code: "usize",
-        name: "usize",
-        callable: nil,
-        segments: ["usize"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"String", "is_empty"} => %RustQ.Syn.Type.Path{
-        code: "bool",
-        name: "bool",
-        callable: nil,
-        segments: ["bool"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"char", "len_utf8"} => %RustQ.Syn.Type.Path{
-        code: "usize",
-        name: "usize",
-        callable: nil,
-        segments: ["usize"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"[T]", "is_sorted"} => %RustQ.Syn.Type.Path{
-        code: "bool",
-        name: "bool",
-        callable: nil,
-        segments: ["bool"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"char", "encode_utf8"} => %RustQ.Syn.Type.Ref{
-        code: "& mut str",
-        inner: %RustQ.Syn.Type.Path{
-          code: "str",
-          name: "str",
-          callable: nil,
-          segments: ["str"],
-          args: [],
-          assoc: %{},
-          generic_args: []
-        },
-        lifetime: nil,
-        mutable: true
-      },
-      {"str", "slice_unchecked"} => %RustQ.Syn.Type.Ref{
-        code: "& str",
-        inner: %RustQ.Syn.Type.Path{
-          code: "str",
-          name: "str",
-          callable: nil,
-          segments: ["str"],
-          args: [],
-          assoc: %{},
-          generic_args: []
-        },
-        lifetime: nil,
-        mutable: false
-      },
-      {"str", "to_uppercase"} => %RustQ.Syn.Type.Path{
-        code: "String",
-        name: "String",
-        callable: nil,
-        segments: ["String"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"[T]", "join"} => %RustQ.Syn.Type.Raw{code: "< Self as Join < Separator > > :: Output"},
-      {"str", "replacen"} => %RustQ.Syn.Type.Path{
-        code: "String",
-        name: "String",
-        callable: nil,
-        segments: ["String"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"[T]", "connect"} => %RustQ.Syn.Type.Raw{code: "< Self as Join < Separator > > :: Output"},
-      {"Vec", "as_mut_ptr"} => %RustQ.Syn.Type.Raw{code: "* mut T"},
-      {"HashSet", "is_empty"} => %RustQ.Syn.Type.Path{
-        code: "bool",
-        name: "bool",
-        callable: nil,
-        segments: ["bool"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"char", "len_utf16"} => %RustQ.Syn.Type.Path{
-        code: "usize",
-        name: "usize",
-        callable: nil,
-        segments: ["usize"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"str", "split_ascii_whitespace"} => %RustQ.Syn.Type.Path{
-        code: "SplitAsciiWhitespace < '_ >",
-        name: "SplitAsciiWhitespace",
-        callable: nil,
-        segments: ["SplitAsciiWhitespace"],
-        args: [],
-        assoc: %{},
-        generic_args: [
-          %RustQ.Syn.Type.GenericArgument{kind: :lifetime, name: nil, type: nil, source: "'_"}
-        ]
-      },
-      {"HashSet", "is_disjoint"} => %RustQ.Syn.Type.Path{
-        code: "bool",
-        name: "bool",
-        callable: nil,
-        segments: ["bool"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"str", "to_lowercase"} => %RustQ.Syn.Type.Path{
-        code: "String",
-        name: "String",
-        callable: nil,
-        segments: ["String"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"[T]", "trim_ascii_end"} => %RustQ.Syn.Type.Ref{
-        code: "& [u8]",
-        inner: %RustQ.Syn.Type.Slice{
-          code: "[u8]",
-          inner: %RustQ.Syn.Type.Path{
-            code: "u8",
-            name: "u8",
-            callable: nil,
-            segments: ["u8"],
-            args: [],
-            assoc: %{},
-            generic_args: []
-          }
-        },
-        lifetime: nil,
-        mutable: false
-      },
-      {"HashSet", "insert"} => %RustQ.Syn.Type.Path{
-        code: "bool",
-        name: "bool",
-        callable: nil,
-        segments: ["bool"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"str", "trim_left_matches"} => %RustQ.Syn.Type.Ref{
-        code: "& str",
-        inner: %RustQ.Syn.Type.Path{
-          code: "str",
-          name: "str",
-          callable: nil,
-          segments: ["str"],
-          args: [],
-          assoc: %{},
-          generic_args: []
-        },
-        lifetime: nil,
-        mutable: false
-      },
-      {"str", "trim"} => %RustQ.Syn.Type.Ref{
-        code: "& str",
-        inner: %RustQ.Syn.Type.Path{
-          code: "str",
-          name: "str",
-          callable: nil,
-          segments: ["str"],
-          args: [],
-          assoc: %{},
-          generic_args: []
-        },
-        lifetime: nil,
-        mutable: false
-      },
-      {"Vec", "into_raw_parts"} => %RustQ.Syn.Type.Tuple{
-        code: "(* mut T , usize , usize)",
-        elems: [
-          %RustQ.Syn.Type.Raw{code: "* mut T"},
-          %RustQ.Syn.Type.Path{
-            code: "usize",
-            name: "usize",
-            callable: nil,
-            segments: ["usize"],
-            args: [],
-            assoc: %{},
-            generic_args: []
-          },
-          %RustQ.Syn.Type.Path{
-            code: "usize",
-            name: "usize",
-            callable: nil,
-            segments: ["usize"],
-            args: [],
-            assoc: %{},
-            generic_args: []
-          }
-        ]
-      },
-      {"String", "len"} => %RustQ.Syn.Type.Path{
-        code: "usize",
-        name: "usize",
-        callable: nil,
-        segments: ["usize"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"char", "escape_unicode"} => %RustQ.Syn.Type.Path{
-        code: "EscapeUnicode",
-        name: "EscapeUnicode",
-        callable: nil,
-        segments: ["EscapeUnicode"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"[T]", "to_ascii_lowercase"} => %RustQ.Syn.Type.Path{
-        code: "Vec < u8 >",
-        name: "Vec",
-        callable: nil,
-        segments: ["Vec"],
-        args: [
-          %RustQ.Syn.Type.Path{
-            code: "u8",
-            name: "u8",
-            callable: nil,
-            segments: ["u8"],
-            args: [],
-            assoc: %{},
-            generic_args: []
-          }
-        ],
-        assoc: %{},
-        generic_args: [
-          %RustQ.Syn.Type.GenericArgument{
-            kind: :type,
-            name: nil,
-            type: %RustQ.Syn.Type.Path{
-              code: "u8",
-              name: "u8",
-              callable: nil,
-              segments: ["u8"],
-              args: [],
-              assoc: %{},
-              generic_args: []
-            },
-            source: nil
-          }
-        ]
-      },
-      {"str", "trim_left"} => %RustQ.Syn.Type.Ref{
-        code: "& str",
-        inner: %RustQ.Syn.Type.Path{
-          code: "str",
-          name: "str",
-          callable: nil,
-          segments: ["str"],
-          args: [],
-          assoc: %{},
-          generic_args: []
-        },
-        lifetime: nil,
-        mutable: false
-      },
-      {"str", "contains"} => %RustQ.Syn.Type.Path{
-        code: "bool",
-        name: "bool",
-        callable: nil,
-        segments: ["bool"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"str", "as_bytes_mut"} => %RustQ.Syn.Type.Ref{
-        code: "& mut [u8]",
-        inner: %RustQ.Syn.Type.Slice{
-          code: "[u8]",
-          inner: %RustQ.Syn.Type.Path{
-            code: "u8",
-            name: "u8",
-            callable: nil,
-            segments: ["u8"],
-            args: [],
-            assoc: %{},
-            generic_args: []
-          }
-        },
-        lifetime: nil,
-        mutable: true
-      },
-      {"[T]", "concat"} => %RustQ.Syn.Type.Raw{code: "< Self as Concat < Item > > :: Output"},
-      {"[T]", "as_ptr"} => %RustQ.Syn.Type.Raw{code: "* const T"},
-      {"String", "drain"} => %RustQ.Syn.Type.Path{
-        code: "Drain < '_ >",
-        name: "Drain",
-        callable: nil,
-        segments: ["Drain"],
-        args: [],
-        assoc: %{},
-        generic_args: [
-          %RustQ.Syn.Type.GenericArgument{kind: :lifetime, name: nil, type: nil, source: "'_"}
-        ]
-      },
-      {"String", "pop"} => %RustQ.Syn.Type.Option{
-        code: "Option < char >",
-        inner: %RustQ.Syn.Type.Path{
-          code: "char",
-          name: "char",
-          callable: nil,
-          segments: ["char"],
-          args: [],
-          assoc: %{},
-          generic_args: []
-        }
-      },
-      {"[T]", "get"} => %RustQ.Syn.Type.Option{
-        code: "Option < & I :: Output >",
-        inner: %RustQ.Syn.Type.Ref{
-          code: "& I :: Output",
-          inner: %RustQ.Syn.Type.Path{
-            code: "I :: Output",
-            name: "Output",
-            callable: nil,
-            segments: ["I", "Output"],
-            args: [],
-            assoc: %{},
-            generic_args: []
-          },
-          lifetime: nil,
-          mutable: false
-        }
-      },
-      {"char", "is_digit"} => %RustQ.Syn.Type.Path{
-        code: "bool",
-        name: "bool",
-        callable: nil,
-        segments: ["bool"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"[T]", "binary_search"} => %RustQ.Syn.Type.Result{
-        code: "Result < usize , usize >",
-        ok: %RustQ.Syn.Type.Path{
-          code: "usize",
-          name: "usize",
-          callable: nil,
-          segments: ["usize"],
-          args: [],
-          assoc: %{},
-          generic_args: []
-        },
-        error: %RustQ.Syn.Type.Path{
-          code: "usize",
-          name: "usize",
-          callable: nil,
-          segments: ["usize"],
-          args: [],
-          assoc: %{},
-          generic_args: []
-        }
-      },
-      {"[T]", "subslice_range"} => %RustQ.Syn.Type.Option{
-        code: "Option < core :: range :: Range < usize > >",
-        inner: %RustQ.Syn.Type.Path{
-          code: "core :: range :: Range < usize >",
-          name: "Range",
-          callable: nil,
-          segments: ["core", "range", "Range"],
-          args: [
-            %RustQ.Syn.Type.Path{
-              code: "usize",
-              name: "usize",
-              callable: nil,
-              segments: ["usize"],
-              args: [],
-              assoc: %{},
-              generic_args: []
-            }
-          ],
-          assoc: %{},
-          generic_args: [
-            %RustQ.Syn.Type.GenericArgument{
-              kind: :type,
-              name: nil,
-              type: %RustQ.Syn.Type.Path{
-                code: "usize",
-                name: "usize",
-                callable: nil,
-                segments: ["usize"],
-                args: [],
-                assoc: %{},
-                generic_args: []
-              },
-              source: nil
-            }
-          ]
-        }
-      },
-      {"char", "eq_ignore_ascii_case"} => %RustQ.Syn.Type.Path{
-        code: "bool",
-        name: "bool",
-        callable: nil,
-        segments: ["bool"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"HashMap", "try_reserve"} => %RustQ.Syn.Type.Result{
-        code: "Result < () , TryReserveError >",
-        ok: %RustQ.Syn.Type.Tuple{code: "()", elems: []},
-        error: %RustQ.Syn.Type.Path{
-          code: "TryReserveError",
-          name: "TryReserveError",
-          callable: nil,
-          segments: ["TryReserveError"],
-          args: [],
-          assoc: %{},
-          generic_args: []
-        }
-      },
-      {"Option", "is_some"} => %RustQ.Syn.Type.Path{
-        code: "bool",
-        name: "bool",
-        callable: nil,
-        segments: ["bool"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"char", "is_uppercase"} => %RustQ.Syn.Type.Path{
-        code: "bool",
-        name: "bool",
-        callable: nil,
-        segments: ["bool"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"[T]", "partition_point"} => %RustQ.Syn.Type.Path{
-        code: "usize",
-        name: "usize",
-        callable: nil,
-        segments: ["usize"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"String", "as_mut_vec"} => %RustQ.Syn.Type.Ref{
-        code: "& mut Vec < u8 >",
-        inner: %RustQ.Syn.Type.Path{
-          code: "Vec < u8 >",
-          name: "Vec",
-          callable: nil,
-          segments: ["Vec"],
-          args: [
-            %RustQ.Syn.Type.Path{
-              code: "u8",
-              name: "u8",
-              callable: nil,
-              segments: ["u8"],
-              args: [],
-              assoc: %{},
-              generic_args: []
-            }
-          ],
-          assoc: %{},
-          generic_args: [
-            %RustQ.Syn.Type.GenericArgument{
-              kind: :type,
-              name: nil,
-              type: %RustQ.Syn.Type.Path{
-                code: "u8",
-                name: "u8",
-                callable: nil,
-                segments: ["u8"],
-                args: [],
-                assoc: %{},
-                generic_args: []
-              },
-              source: nil
-            }
-          ]
-        },
-        lifetime: nil,
-        mutable: true
-      },
-      {"Option", "is_none"} => %RustQ.Syn.Type.Path{
-        code: "bool",
-        name: "bool",
-        callable: nil,
-        segments: ["bool"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"str", "get"} => %RustQ.Syn.Type.Option{
-        code: "Option < & I :: Output >",
-        inner: %RustQ.Syn.Type.Ref{
-          code: "& I :: Output",
-          inner: %RustQ.Syn.Type.Path{
-            code: "I :: Output",
-            name: "Output",
-            callable: nil,
-            segments: ["I", "Output"],
-            args: [],
-            assoc: %{},
-            generic_args: []
-          },
-          lifetime: nil,
-          mutable: false
-        }
-      },
-      {"str", "chars"} => %RustQ.Syn.Type.Path{
-        code: "Chars < '_ >",
-        name: "Chars",
-        callable: nil,
-        segments: ["Chars"],
-        args: [],
-        assoc: %{},
-        generic_args: [
-          %RustQ.Syn.Type.GenericArgument{kind: :lifetime, name: nil, type: nil, source: "'_"}
-        ]
-      },
-      {"HashSet", "remove"} => %RustQ.Syn.Type.Path{
-        code: "bool",
-        name: "bool",
-        callable: nil,
-        segments: ["bool"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"str", "split_whitespace"} => %RustQ.Syn.Type.Path{
-        code: "SplitWhitespace < '_ >",
-        name: "SplitWhitespace",
-        callable: nil,
-        segments: ["SplitWhitespace"],
-        args: [],
-        assoc: %{},
-        generic_args: [
-          %RustQ.Syn.Type.GenericArgument{kind: :lifetime, name: nil, type: nil, source: "'_"}
-        ]
-      },
-      {"str", "repeat"} => %RustQ.Syn.Type.Path{
-        code: "String",
-        name: "String",
-        callable: nil,
-        segments: ["String"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"String", "try_reserve_exact"} => %RustQ.Syn.Type.Result{
-        code: "Result < () , TryReserveError >",
-        ok: %RustQ.Syn.Type.Tuple{code: "()", elems: []},
-        error: %RustQ.Syn.Type.Path{
-          code: "TryReserveError",
-          name: "TryReserveError",
-          callable: nil,
-          segments: ["TryReserveError"],
-          args: [],
-          assoc: %{},
-          generic_args: []
-        }
-      },
-      {"str", "get_mut"} => %RustQ.Syn.Type.Option{
-        code: "Option < & mut I :: Output >",
-        inner: %RustQ.Syn.Type.Ref{
-          code: "& mut I :: Output",
-          inner: %RustQ.Syn.Type.Path{
-            code: "I :: Output",
-            name: "Output",
-            callable: nil,
-            segments: ["I", "Output"],
-            args: [],
-            assoc: %{},
-            generic_args: []
-          },
-          lifetime: nil,
-          mutable: true
-        }
-      },
-      {"[T]", "contains"} => %RustQ.Syn.Type.Path{
-        code: "bool",
-        name: "bool",
-        callable: nil,
-        segments: ["bool"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"char", "escape_debug"} => %RustQ.Syn.Type.Path{
-        code: "EscapeDebug",
-        name: "EscapeDebug",
-        callable: nil,
-        segments: ["EscapeDebug"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"str", "is_ascii"} => %RustQ.Syn.Type.Path{
-        code: "bool",
-        name: "bool",
-        callable: nil,
-        segments: ["bool"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"[T]", "is_empty"} => %RustQ.Syn.Type.Path{
-        code: "bool",
-        name: "bool",
-        callable: nil,
-        segments: ["bool"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"str", "as_mut_ptr"} => %RustQ.Syn.Type.Raw{code: "* mut u8"},
-      {"str", "trim_end_matches"} => %RustQ.Syn.Type.Ref{
-        code: "& str",
-        inner: %RustQ.Syn.Type.Path{
-          code: "str",
-          name: "str",
-          callable: nil,
-          segments: ["str"],
-          args: [],
-          assoc: %{},
-          generic_args: []
-        },
-        lifetime: nil,
-        mutable: false
-      },
-      {"Option", "is_some_and"} => %RustQ.Syn.Type.Path{
-        code: "bool",
-        name: "bool",
-        callable: nil,
-        segments: ["bool"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"str", "lines"} => %RustQ.Syn.Type.Path{
-        code: "Lines < '_ >",
-        name: "Lines",
-        callable: nil,
-        segments: ["Lines"],
-        args: [],
-        assoc: %{},
-        generic_args: [
-          %RustQ.Syn.Type.GenericArgument{kind: :lifetime, name: nil, type: nil, source: "'_"}
-        ]
-      },
-      {"HashMap", "capacity"} => %RustQ.Syn.Type.Path{
-        code: "usize",
-        name: "usize",
-        callable: nil,
-        segments: ["usize"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"[T]", "as_ptr_range"} => %RustQ.Syn.Type.Path{
-        code: "Range < * const T >",
-        name: "Range",
-        callable: nil,
-        segments: ["Range"],
-        args: [%RustQ.Syn.Type.Raw{code: "* const T"}],
-        assoc: %{},
-        generic_args: [
-          %RustQ.Syn.Type.GenericArgument{
-            kind: :type,
-            name: nil,
-            type: %RustQ.Syn.Type.Raw{code: "* const T"},
-            source: nil
-          }
-        ]
-      },
-      {"String", "as_mut_str"} => %RustQ.Syn.Type.Ref{
-        code: "& mut str",
-        inner: %RustQ.Syn.Type.Path{
-          code: "str",
-          name: "str",
-          callable: nil,
-          segments: ["str"],
-          args: [],
-          assoc: %{},
-          generic_args: []
-        },
-        lifetime: nil,
-        mutable: true
-      },
-      {"str", "split_at_mut_checked"} => %RustQ.Syn.Type.Option{
-        code: "Option < (& mut str , & mut str) >",
-        inner: %RustQ.Syn.Type.Tuple{
-          code: "(& mut str , & mut str)",
-          elems: [
-            %RustQ.Syn.Type.Ref{
-              code: "& mut str",
-              inner: %RustQ.Syn.Type.Path{
-                code: "str",
-                name: "str",
-                callable: nil,
-                segments: ["str"],
-                args: [],
-                assoc: %{},
-                generic_args: []
-              },
-              lifetime: nil,
-              mutable: true
-            },
-            %RustQ.Syn.Type.Ref{
-              code: "& mut str",
-              inner: %RustQ.Syn.Type.Path{
-                code: "str",
-                name: "str",
-                callable: nil,
-                segments: ["str"],
-                args: [],
-                assoc: %{},
-                generic_args: []
-              },
-              lifetime: nil,
-              mutable: true
-            }
-          ]
-        }
-      },
-      {"str", "trim_ascii_end"} => %RustQ.Syn.Type.Ref{
-        code: "& str",
-        inner: %RustQ.Syn.Type.Path{
-          code: "str",
-          name: "str",
-          callable: nil,
-          segments: ["str"],
-          args: [],
-          assoc: %{},
-          generic_args: []
-        },
-        lifetime: nil,
-        mutable: false
-      },
-      {"str", "to_ascii_uppercase"} => %RustQ.Syn.Type.Path{
-        code: "String",
-        name: "String",
-        callable: nil,
-        segments: ["String"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"str", "split_at_mut"} => %RustQ.Syn.Type.Tuple{
-        code: "(& mut str , & mut str)",
-        elems: [
-          %RustQ.Syn.Type.Ref{
-            code: "& mut str",
-            inner: %RustQ.Syn.Type.Path{
-              code: "str",
-              name: "str",
-              callable: nil,
-              segments: ["str"],
-              args: [],
-              assoc: %{},
-              generic_args: []
-            },
-            lifetime: nil,
-            mutable: true
-          },
-          %RustQ.Syn.Type.Ref{
-            code: "& mut str",
-            inner: %RustQ.Syn.Type.Path{
-              code: "str",
-              name: "str",
-              callable: nil,
-              segments: ["str"],
-              args: [],
-              assoc: %{},
-              generic_args: []
-            },
-            lifetime: nil,
-            mutable: true
-          }
-        ]
-      },
-      {"str", "char_indices"} => %RustQ.Syn.Type.Path{
-        code: "CharIndices < '_ >",
-        name: "CharIndices",
-        callable: nil,
-        segments: ["CharIndices"],
-        args: [],
-        assoc: %{},
-        generic_args: [
-          %RustQ.Syn.Type.GenericArgument{kind: :lifetime, name: nil, type: nil, source: "'_"}
-        ]
-      },
-      {"char", "to_digit"} => %RustQ.Syn.Type.Option{
-        code: "Option < u32 >",
-        inner: %RustQ.Syn.Type.Path{
-          code: "u32",
-          name: "u32",
-          callable: nil,
-          segments: ["u32"],
-          args: [],
-          assoc: %{},
-          generic_args: []
-        }
-      },
-      {"str", "escape_unicode"} => %RustQ.Syn.Type.Path{
-        code: "EscapeUnicode < '_ >",
-        name: "EscapeUnicode",
-        callable: nil,
-        segments: ["EscapeUnicode"],
-        args: [],
-        assoc: %{},
-        generic_args: [
-          %RustQ.Syn.Type.GenericArgument{kind: :lifetime, name: nil, type: nil, source: "'_"}
-        ]
-      },
-      {"[T]", "starts_with"} => %RustQ.Syn.Type.Path{
-        code: "bool",
-        name: "bool",
-        callable: nil,
-        segments: ["bool"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"Option", "is_none_or"} => %RustQ.Syn.Type.Path{
-        code: "bool",
-        name: "bool",
-        callable: nil,
-        segments: ["bool"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"str", "get_unchecked"} => %RustQ.Syn.Type.Ref{
-        code: "& I :: Output",
-        inner: %RustQ.Syn.Type.Path{
-          code: "I :: Output",
-          name: "Output",
-          callable: nil,
-          segments: ["I", "Output"],
-          args: [],
-          assoc: %{},
-          generic_args: []
-        },
-        lifetime: nil,
-        mutable: false
-      },
-      {"[T]", "as_mut_ptr_range"} => %RustQ.Syn.Type.Path{
-        code: "Range < * mut T >",
-        name: "Range",
-        callable: nil,
-        segments: ["Range"],
-        args: [%RustQ.Syn.Type.Raw{code: "* mut T"}],
-        assoc: %{},
-        generic_args: [
-          %RustQ.Syn.Type.GenericArgument{
-            kind: :type,
-            name: nil,
-            type: %RustQ.Syn.Type.Raw{code: "* mut T"},
-            source: nil
-          }
-        ]
-      },
-      {"char", "to_ascii_lowercase"} => %RustQ.Syn.Type.Path{
-        code: "char",
-        name: "char",
-        callable: nil,
-        segments: ["char"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"String", "remove"} => %RustQ.Syn.Type.Path{
-        code: "char",
-        name: "char",
-        callable: nil,
-        segments: ["char"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"str", "ceil_char_boundary"} => %RustQ.Syn.Type.Path{
-        code: "usize",
-        name: "usize",
-        callable: nil,
-        segments: ["usize"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"HashMap", "is_empty"} => %RustQ.Syn.Type.Path{
-        code: "bool",
-        name: "bool",
-        callable: nil,
-        segments: ["bool"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"[T]", "ends_with"} => %RustQ.Syn.Type.Path{
-        code: "bool",
-        name: "bool",
-        callable: nil,
-        segments: ["bool"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"HashMap", "contains_key"} => %RustQ.Syn.Type.Path{
-        code: "bool",
-        name: "bool",
-        callable: nil,
-        segments: ["bool"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"str", "split_at_checked"} => %RustQ.Syn.Type.Option{
-        code: "Option < (& str , & str) >",
-        inner: %RustQ.Syn.Type.Tuple{
-          code: "(& str , & str)",
-          elems: [
-            %RustQ.Syn.Type.Ref{
-              code: "& str",
-              inner: %RustQ.Syn.Type.Path{
-                code: "str",
-                name: "str",
-                callable: nil,
-                segments: ["str"],
-                args: [],
-                assoc: %{},
-                generic_args: []
-              },
-              lifetime: nil,
-              mutable: false
-            },
-            %RustQ.Syn.Type.Ref{
-              code: "& str",
-              inner: %RustQ.Syn.Type.Path{
-                code: "str",
-                name: "str",
-                callable: nil,
-                segments: ["str"],
-                args: [],
-                assoc: %{},
-                generic_args: []
-              },
-              lifetime: nil,
-              mutable: false
-            }
-          ]
-        }
-      },
-      {"[T]", "is_ascii"} => %RustQ.Syn.Type.Path{
-        code: "bool",
-        name: "bool",
-        callable: nil,
-        segments: ["bool"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"[T]", "get_unchecked"} => %RustQ.Syn.Type.Ref{
-        code: "& I :: Output",
-        inner: %RustQ.Syn.Type.Path{
-          code: "I :: Output",
-          name: "Output",
-          callable: nil,
-          segments: ["I", "Output"],
-          args: [],
-          assoc: %{},
-          generic_args: []
-        },
-        lifetime: nil,
-        mutable: false
-      },
-      {"Vec", "is_empty"} => %RustQ.Syn.Type.Path{
-        code: "bool",
-        name: "bool",
-        callable: nil,
-        segments: ["bool"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"str", "trim_ascii_start"} => %RustQ.Syn.Type.Ref{
-        code: "& str",
-        inner: %RustQ.Syn.Type.Path{
-          code: "str",
-          name: "str",
-          callable: nil,
-          segments: ["str"],
-          args: [],
-          assoc: %{},
-          generic_args: []
-        },
-        lifetime: nil,
-        mutable: false
-      },
-      {"char", "is_ascii_lowercase"} => %RustQ.Syn.Type.Path{
-        code: "bool",
-        name: "bool",
-        callable: nil,
-        segments: ["bool"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"[T]", "escape_ascii"} => %RustQ.Syn.Type.Path{
-        code: "EscapeAscii < '_ >",
-        name: "EscapeAscii",
-        callable: nil,
-        segments: ["EscapeAscii"],
-        args: [],
-        assoc: %{},
-        generic_args: [
-          %RustQ.Syn.Type.GenericArgument{kind: :lifetime, name: nil, type: nil, source: "'_"}
-        ]
-      },
-      {"str", "replace"} => %RustQ.Syn.Type.Path{
-        code: "String",
-        name: "String",
-        callable: nil,
-        segments: ["String"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"str", "split_at"} => %RustQ.Syn.Type.Tuple{
-        code: "(& str , & str)",
-        elems: [
-          %RustQ.Syn.Type.Ref{
-            code: "& str",
-            inner: %RustQ.Syn.Type.Path{
-              code: "str",
-              name: "str",
-              callable: nil,
-              segments: ["str"],
-              args: [],
-              assoc: %{},
-              generic_args: []
-            },
-            lifetime: nil,
-            mutable: false
-          },
-          %RustQ.Syn.Type.Ref{
-            code: "& str",
-            inner: %RustQ.Syn.Type.Path{
-              code: "str",
-              name: "str",
-              callable: nil,
-              segments: ["str"],
-              args: [],
-              assoc: %{},
-              generic_args: []
-            },
-            lifetime: nil,
-            mutable: false
-          }
-        ]
-      },
-      {"[T]", "trim_ascii"} => %RustQ.Syn.Type.Ref{
-        code: "& [u8]",
-        inner: %RustQ.Syn.Type.Slice{
-          code: "[u8]",
-          inner: %RustQ.Syn.Type.Path{
-            code: "u8",
-            name: "u8",
-            callable: nil,
-            segments: ["u8"],
-            args: [],
-            assoc: %{},
-            generic_args: []
-          }
-        },
-        lifetime: nil,
-        mutable: false
-      },
-      {"char", "is_ascii_whitespace"} => %RustQ.Syn.Type.Path{
-        code: "bool",
-        name: "bool",
-        callable: nil,
-        segments: ["bool"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"[T]", "is_sorted_by_key"} => %RustQ.Syn.Type.Path{
-        code: "bool",
-        name: "bool",
-        callable: nil,
-        segments: ["bool"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"[T]", "binary_search_by"} => %RustQ.Syn.Type.Result{
-        code: "Result < usize , usize >",
-        ok: %RustQ.Syn.Type.Path{
-          code: "usize",
-          name: "usize",
-          callable: nil,
-          segments: ["usize"],
-          args: [],
-          assoc: %{},
-          generic_args: []
-        },
-        error: %RustQ.Syn.Type.Path{
-          code: "usize",
-          name: "usize",
-          callable: nil,
-          segments: ["usize"],
-          args: [],
-          assoc: %{},
-          generic_args: []
-        }
-      },
-      {"char", "is_numeric"} => %RustQ.Syn.Type.Path{
-        code: "bool",
-        name: "bool",
-        callable: nil,
-        segments: ["bool"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"char", "is_ascii_punctuation"} => %RustQ.Syn.Type.Path{
-        code: "bool",
-        name: "bool",
-        callable: nil,
-        segments: ["bool"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"[T]", "trim_ascii_start"} => %RustQ.Syn.Type.Ref{
-        code: "& [u8]",
-        inner: %RustQ.Syn.Type.Slice{
-          code: "[u8]",
-          inner: %RustQ.Syn.Type.Path{
-            code: "u8",
-            name: "u8",
-            callable: nil,
-            segments: ["u8"],
-            args: [],
-            assoc: %{},
-            generic_args: []
-          }
-        },
-        lifetime: nil,
-        mutable: false
-      },
-      {"HashSet", "is_subset"} => %RustQ.Syn.Type.Path{
-        code: "bool",
-        name: "bool",
-        callable: nil,
-        segments: ["bool"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"str", "substr_range"} => %RustQ.Syn.Type.Option{
-        code: "Option < Range < usize > >",
-        inner: %RustQ.Syn.Type.Path{
-          code: "Range < usize >",
-          name: "Range",
-          callable: nil,
-          segments: ["Range"],
-          args: [
-            %RustQ.Syn.Type.Path{
-              code: "usize",
-              name: "usize",
-              callable: nil,
-              segments: ["usize"],
-              args: [],
-              assoc: %{},
-              generic_args: []
-            }
-          ],
-          assoc: %{},
-          generic_args: [
-            %RustQ.Syn.Type.GenericArgument{
-              kind: :type,
-              name: nil,
-              type: %RustQ.Syn.Type.Path{
-                code: "usize",
-                name: "usize",
-                callable: nil,
-                segments: ["usize"],
-                args: [],
-                assoc: %{},
-                generic_args: []
-              },
-              source: nil
-            }
-          ]
-        }
-      },
-      {"[T]", "get_disjoint_mut"} => %RustQ.Syn.Type.Result{
-        code: "Result < [& mut I :: Output ; N] , GetDisjointMutError >",
-        ok: %RustQ.Syn.Type.Array{
-          code: "[& mut I :: Output ; N]",
-          inner: %RustQ.Syn.Type.Ref{
-            code: "& mut I :: Output",
-            inner: %RustQ.Syn.Type.Path{
-              code: "I :: Output",
-              name: "Output",
-              callable: nil,
-              segments: ["I", "Output"],
-              args: [],
-              assoc: %{},
-              generic_args: []
-            },
-            lifetime: nil,
-            mutable: true
-          },
-          length: "N"
-        },
-        error: %RustQ.Syn.Type.Path{
-          code: "GetDisjointMutError",
-          name: "GetDisjointMutError",
-          callable: nil,
-          segments: ["GetDisjointMutError"],
-          args: [],
-          assoc: %{},
-          generic_args: []
-        }
-      },
-      {"[T]", "element_offset"} => %RustQ.Syn.Type.Option{
-        code: "Option < usize >",
-        inner: %RustQ.Syn.Type.Path{
-          code: "usize",
-          name: "usize",
-          callable: nil,
-          segments: ["usize"],
-          args: [],
-          assoc: %{},
-          generic_args: []
-        }
-      },
-      {"str", "strip_prefix"} => %RustQ.Syn.Type.Option{
-        code: "Option < & str >",
-        inner: %RustQ.Syn.Type.Ref{
-          code: "& str",
-          inner: %RustQ.Syn.Type.Path{
-            code: "str",
-            name: "str",
-            callable: nil,
-            segments: ["str"],
-            args: [],
-            assoc: %{},
-            generic_args: []
-          },
-          lifetime: nil,
-          mutable: false
-        }
-      },
-      {"char", "encode_utf16"} => %RustQ.Syn.Type.Ref{
-        code: "& mut [u16]",
-        inner: %RustQ.Syn.Type.Slice{
-          code: "[u16]",
-          inner: %RustQ.Syn.Type.Path{
-            code: "u16",
-            name: "u16",
-            callable: nil,
-            segments: ["u16"],
-            args: [],
-            assoc: %{},
-            generic_args: []
-          }
-        },
-        lifetime: nil,
-        mutable: true
-      },
-      {"HashSet", "contains"} => %RustQ.Syn.Type.Path{
-        code: "bool",
-        name: "bool",
-        callable: nil,
-        segments: ["bool"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"char", "to_uppercase"} => %RustQ.Syn.Type.Path{
-        code: "ToUppercase",
-        name: "ToUppercase",
-        callable: nil,
-        segments: ["ToUppercase"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"char", "is_ascii_digit"} => %RustQ.Syn.Type.Path{
-        code: "bool",
-        name: "bool",
-        callable: nil,
-        segments: ["bool"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"char", "is_alphabetic"} => %RustQ.Syn.Type.Path{
-        code: "bool",
-        name: "bool",
-        callable: nil,
-        segments: ["bool"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"str", "trim_end"} => %RustQ.Syn.Type.Ref{
-        code: "& str",
-        inner: %RustQ.Syn.Type.Path{
-          code: "str",
-          name: "str",
-          callable: nil,
-          segments: ["str"],
-          args: [],
-          assoc: %{},
-          generic_args: []
-        },
-        lifetime: nil,
-        mutable: false
-      },
-      {"char", "is_whitespace"} => %RustQ.Syn.Type.Path{
-        code: "bool",
-        name: "bool",
-        callable: nil,
-        segments: ["bool"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"[T]", "len"} => %RustQ.Syn.Type.Path{
-        code: "usize",
-        name: "usize",
-        callable: nil,
-        segments: ["usize"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"str", "trim_start_matches"} => %RustQ.Syn.Type.Ref{
-        code: "& str",
-        inner: %RustQ.Syn.Type.Path{
-          code: "str",
-          name: "str",
-          callable: nil,
-          segments: ["str"],
-          args: [],
-          assoc: %{},
-          generic_args: []
-        },
-        lifetime: nil,
-        mutable: false
-      },
-      {"[T]", "get_disjoint_unchecked_mut"} => %RustQ.Syn.Type.Array{
-        code: "[& mut I :: Output ; N]",
-        inner: %RustQ.Syn.Type.Ref{
-          code: "& mut I :: Output",
-          inner: %RustQ.Syn.Type.Path{
-            code: "I :: Output",
-            name: "Output",
-            callable: nil,
-            segments: ["I", "Output"],
-            args: [],
-            assoc: %{},
-            generic_args: []
-          },
-          lifetime: nil,
-          mutable: true
-        },
-        length: "N"
-      },
-      {"char", "is_ascii"} => %RustQ.Syn.Type.Path{
-        code: "bool",
-        name: "bool",
-        callable: nil,
-        segments: ["bool"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"String", "into_boxed_str"} => %RustQ.Syn.Type.Path{
-        code: "Box < str >",
-        name: "Box",
-        callable: nil,
-        segments: ["Box"],
-        args: [
-          %RustQ.Syn.Type.Path{
-            code: "str",
-            name: "str",
-            callable: nil,
-            segments: ["str"],
-            args: [],
-            assoc: %{},
-            generic_args: []
-          }
-        ],
-        assoc: %{},
-        generic_args: [
-          %RustQ.Syn.Type.GenericArgument{
-            kind: :type,
-            name: nil,
-            type: %RustQ.Syn.Type.Path{
-              code: "str",
-              name: "str",
-              callable: nil,
-              segments: ["str"],
-              args: [],
-              assoc: %{},
-              generic_args: []
-            },
-            source: nil
-          }
-        ]
-      },
-      {"char", "is_control"} => %RustQ.Syn.Type.Path{
-        code: "bool",
-        name: "bool",
-        callable: nil,
-        segments: ["bool"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"str", "is_empty"} => %RustQ.Syn.Type.Path{
-        code: "bool",
-        name: "bool",
-        callable: nil,
-        segments: ["bool"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"str", "is_char_boundary"} => %RustQ.Syn.Type.Path{
-        code: "bool",
-        name: "bool",
-        callable: nil,
-        segments: ["bool"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"HashSet", "len"} => %RustQ.Syn.Type.Path{
-        code: "usize",
-        name: "usize",
-        callable: nil,
-        segments: ["usize"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"String", "into_bytes"} => %RustQ.Syn.Type.Path{
-        code: "Vec < u8 >",
-        name: "Vec",
-        callable: nil,
-        segments: ["Vec"],
-        args: [
-          %RustQ.Syn.Type.Path{
-            code: "u8",
-            name: "u8",
-            callable: nil,
-            segments: ["u8"],
-            args: [],
-            assoc: %{},
-            generic_args: []
-          }
-        ],
-        assoc: %{},
-        generic_args: [
-          %RustQ.Syn.Type.GenericArgument{
-            kind: :type,
-            name: nil,
-            type: %RustQ.Syn.Type.Path{
-              code: "u8",
-              name: "u8",
-              callable: nil,
-              segments: ["u8"],
-              args: [],
-              assoc: %{},
-              generic_args: []
-            },
-            source: nil
-          }
-        ]
-      },
-      {"str", "trim_right_matches"} => %RustQ.Syn.Type.Ref{
-        code: "& str",
-        inner: %RustQ.Syn.Type.Path{
-          code: "str",
-          name: "str",
-          callable: nil,
-          segments: ["str"],
-          args: [],
-          assoc: %{},
-          generic_args: []
-        },
-        lifetime: nil,
-        mutable: false
-      },
-      {"[T]", "as_mut_ptr"} => %RustQ.Syn.Type.Raw{code: "* mut T"},
-      {"[T]", "is_sorted_by"} => %RustQ.Syn.Type.Path{
-        code: "bool",
-        name: "bool",
-        callable: nil,
-        segments: ["bool"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"char", "to_ascii_uppercase"} => %RustQ.Syn.Type.Path{
-        code: "char",
-        name: "char",
-        callable: nil,
-        segments: ["char"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"String", "into_raw_parts"} => %RustQ.Syn.Type.Tuple{
-        code: "(* mut u8 , usize , usize)",
-        elems: [
-          %RustQ.Syn.Type.Raw{code: "* mut u8"},
-          %RustQ.Syn.Type.Path{
-            code: "usize",
-            name: "usize",
-            callable: nil,
-            segments: ["usize"],
-            args: [],
-            assoc: %{},
-            generic_args: []
-          },
-          %RustQ.Syn.Type.Path{
-            code: "usize",
-            name: "usize",
-            callable: nil,
-            segments: ["usize"],
-            args: [],
-            assoc: %{},
-            generic_args: []
-          }
-        ]
-      },
-      {"str", "to_ascii_lowercase"} => %RustQ.Syn.Type.Path{
-        code: "String",
-        name: "String",
-        callable: nil,
-        segments: ["String"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"str", "eq_ignore_ascii_case"} => %RustQ.Syn.Type.Path{
-        code: "bool",
-        name: "bool",
-        callable: nil,
-        segments: ["bool"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"char", "is_alphanumeric"} => %RustQ.Syn.Type.Path{
-        code: "bool",
-        name: "bool",
-        callable: nil,
-        segments: ["bool"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"[T]", "to_ascii_uppercase"} => %RustQ.Syn.Type.Path{
-        code: "Vec < u8 >",
-        name: "Vec",
-        callable: nil,
-        segments: ["Vec"],
-        args: [
-          %RustQ.Syn.Type.Path{
-            code: "u8",
-            name: "u8",
-            callable: nil,
-            segments: ["u8"],
-            args: [],
-            assoc: %{},
-            generic_args: []
-          }
-        ],
-        assoc: %{},
-        generic_args: [
-          %RustQ.Syn.Type.GenericArgument{
-            kind: :type,
-            name: nil,
-            type: %RustQ.Syn.Type.Path{
-              code: "u8",
-              name: "u8",
-              callable: nil,
-              segments: ["u8"],
-              args: [],
-              assoc: %{},
-              generic_args: []
-            },
-            source: nil
-          }
-        ]
-      },
-      {"str", "trim_matches"} => %RustQ.Syn.Type.Ref{
-        code: "& str",
-        inner: %RustQ.Syn.Type.Path{
-          code: "str",
-          name: "str",
-          callable: nil,
-          segments: ["str"],
-          args: [],
-          assoc: %{},
-          generic_args: []
-        },
-        lifetime: nil,
-        mutable: false
-      },
-      {"HashMap", "len"} => %RustQ.Syn.Type.Path{
-        code: "usize",
-        name: "usize",
-        callable: nil,
-        segments: ["usize"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"str", "split_once"} => %RustQ.Syn.Type.Option{
-        code: "Option < (& '_ str , & '_ str) >",
-        inner: %RustQ.Syn.Type.Tuple{
-          code: "(& '_ str , & '_ str)",
-          elems: [
-            %RustQ.Syn.Type.Ref{
-              code: "& '_ str",
-              inner: %RustQ.Syn.Type.Path{
-                code: "str",
-                name: "str",
-                callable: nil,
-                segments: ["str"],
-                args: [],
-                assoc: %{},
-                generic_args: []
-              },
-              lifetime: "'_",
-              mutable: false
-            },
-            %RustQ.Syn.Type.Ref{
-              code: "& '_ str",
-              inner: %RustQ.Syn.Type.Path{
-                code: "str",
-                name: "str",
-                callable: nil,
-                segments: ["str"],
-                args: [],
-                assoc: %{},
-                generic_args: []
-              },
-              lifetime: "'_",
-              mutable: false
-            }
-          ]
-        }
-      },
-      {"str", "bytes"} => %RustQ.Syn.Type.Path{
-        code: "Bytes < '_ >",
-        name: "Bytes",
-        callable: nil,
-        segments: ["Bytes"],
-        args: [],
-        assoc: %{},
-        generic_args: [
-          %RustQ.Syn.Type.GenericArgument{kind: :lifetime, name: nil, type: nil, source: "'_"}
-        ]
-      },
-      {"Vec", "try_reserve_exact"} => %RustQ.Syn.Type.Result{
-        code: "Result < () , TryReserveError >",
-        ok: %RustQ.Syn.Type.Tuple{code: "()", elems: []},
-        error: %RustQ.Syn.Type.Path{
-          code: "TryReserveError",
-          name: "TryReserveError",
-          callable: nil,
-          segments: ["TryReserveError"],
-          args: [],
-          assoc: %{},
-          generic_args: []
-        }
-      },
-      {"HashSet", "is_superset"} => %RustQ.Syn.Type.Path{
-        code: "bool",
-        name: "bool",
-        callable: nil,
-        segments: ["bool"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"String", "split_off"} => %RustQ.Syn.Type.Path{
-        code: "String",
-        name: "String",
-        callable: nil,
-        segments: ["String"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"char", "is_ascii_hexdigit"} => %RustQ.Syn.Type.Path{
-        code: "bool",
-        name: "bool",
-        callable: nil,
-        segments: ["bool"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"String", "as_bytes"} => %RustQ.Syn.Type.Ref{
-        code: "& [u8]",
-        inner: %RustQ.Syn.Type.Slice{
-          code: "[u8]",
-          inner: %RustQ.Syn.Type.Path{
-            code: "u8",
-            name: "u8",
-            callable: nil,
-            segments: ["u8"],
-            args: [],
-            assoc: %{},
-            generic_args: []
-          }
-        },
-        lifetime: nil,
-        mutable: false
-      },
-      {"Option", "as_deref_mut"} => %RustQ.Syn.Type.Option{
-        code: "Option < & mut T :: Target >",
-        inner: %RustQ.Syn.Type.Ref{
-          code: "& mut T :: Target",
-          inner: %RustQ.Syn.Type.Path{
-            code: "T :: Target",
-            name: "Target",
-            callable: nil,
-            segments: ["T", "Target"],
-            args: [],
-            assoc: %{},
-            generic_args: []
-          },
-          lifetime: nil,
-          mutable: true
-        }
-      },
-      {"str", "floor_char_boundary"} => %RustQ.Syn.Type.Path{
-        code: "usize",
-        name: "usize",
-        callable: nil,
-        segments: ["usize"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"char", "is_ascii_graphic"} => %RustQ.Syn.Type.Path{
-        code: "bool",
-        name: "bool",
-        callable: nil,
-        segments: ["bool"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"[T]", "utf8_chunks"} => %RustQ.Syn.Type.Path{
-        code: "Utf8Chunks < '_ >",
-        name: "Utf8Chunks",
-        callable: nil,
-        segments: ["Utf8Chunks"],
-        args: [],
-        assoc: %{},
-        generic_args: [
-          %RustQ.Syn.Type.GenericArgument{kind: :lifetime, name: nil, type: nil, source: "'_"}
-        ]
-      },
-      {"str", "lines_any"} => %RustQ.Syn.Type.Path{
-        code: "LinesAny < '_ >",
-        name: "LinesAny",
-        callable: nil,
-        segments: ["LinesAny"],
-        args: [],
-        assoc: %{},
-        generic_args: [
-          %RustQ.Syn.Type.GenericArgument{kind: :lifetime, name: nil, type: nil, source: "'_"}
-        ]
-      },
-      {"String", "leak"} => %RustQ.Syn.Type.Ref{
-        code: "& 'a mut str",
-        inner: %RustQ.Syn.Type.Path{
-          code: "str",
-          name: "str",
-          callable: nil,
-          segments: ["str"],
-          args: [],
-          assoc: %{},
-          generic_args: []
-        },
-        lifetime: "'a",
-        mutable: true
-      },
-      {"Vec", "len"} => %RustQ.Syn.Type.Path{
-        code: "usize",
-        name: "usize",
-        callable: nil,
-        segments: ["usize"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"HashSet", "try_reserve"} => %RustQ.Syn.Type.Result{
-        code: "Result < () , TryReserveError >",
-        ok: %RustQ.Syn.Type.Tuple{code: "()", elems: []},
-        error: %RustQ.Syn.Type.Path{
-          code: "TryReserveError",
-          name: "TryReserveError",
-          callable: nil,
-          segments: ["TryReserveError"],
-          args: [],
-          assoc: %{},
-          generic_args: []
-        }
-      },
-      {"char", "is_ascii_uppercase"} => %RustQ.Syn.Type.Path{
-        code: "bool",
-        name: "bool",
-        callable: nil,
-        segments: ["bool"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"str", "encode_utf16"} => %RustQ.Syn.Type.Path{
-        code: "EncodeUtf16 < '_ >",
-        name: "EncodeUtf16",
-        callable: nil,
-        segments: ["EncodeUtf16"],
-        args: [],
-        assoc: %{},
-        generic_args: [
-          %RustQ.Syn.Type.GenericArgument{kind: :lifetime, name: nil, type: nil, source: "'_"}
-        ]
-      },
-      {"char", "escape_default"} => %RustQ.Syn.Type.Path{
-        code: "EscapeDefault",
-        name: "EscapeDefault",
-        callable: nil,
-        segments: ["EscapeDefault"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"str", "trim_ascii"} => %RustQ.Syn.Type.Ref{
-        code: "& str",
-        inner: %RustQ.Syn.Type.Path{
-          code: "str",
-          name: "str",
-          callable: nil,
-          segments: ["str"],
-          args: [],
-          assoc: %{},
-          generic_args: []
-        },
-        lifetime: nil,
-        mutable: false
-      },
-      {"str", "as_ptr"} => %RustQ.Syn.Type.Raw{code: "* const u8"},
-      {"char", "to_lowercase"} => %RustQ.Syn.Type.Path{
-        code: "ToLowercase",
-        name: "ToLowercase",
-        callable: nil,
-        segments: ["ToLowercase"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"Option", "as_deref"} => %RustQ.Syn.Type.Option{
-        code: "Option < & T :: Target >",
-        inner: %RustQ.Syn.Type.Ref{
-          code: "& T :: Target",
-          inner: %RustQ.Syn.Type.Path{
-            code: "T :: Target",
-            name: "Target",
-            callable: nil,
-            segments: ["T", "Target"],
-            args: [],
-            assoc: %{},
-            generic_args: []
-          },
-          lifetime: nil,
-          mutable: false
-        }
-      },
-      {"String", "try_reserve"} => %RustQ.Syn.Type.Result{
-        code: "Result < () , TryReserveError >",
-        ok: %RustQ.Syn.Type.Tuple{code: "()", elems: []},
-        error: %RustQ.Syn.Type.Path{
-          code: "TryReserveError",
-          name: "TryReserveError",
-          callable: nil,
-          segments: ["TryReserveError"],
-          args: [],
-          assoc: %{},
-          generic_args: []
-        }
-      },
-      {"str", "rsplit_once"} => %RustQ.Syn.Type.Option{
-        code: "Option < (& '_ str , & '_ str) >",
-        inner: %RustQ.Syn.Type.Tuple{
-          code: "(& '_ str , & '_ str)",
-          elems: [
-            %RustQ.Syn.Type.Ref{
-              code: "& '_ str",
-              inner: %RustQ.Syn.Type.Path{
-                code: "str",
-                name: "str",
-                callable: nil,
-                segments: ["str"],
-                args: [],
-                assoc: %{},
-                generic_args: []
-              },
-              lifetime: "'_",
-              mutable: false
-            },
-            %RustQ.Syn.Type.Ref{
-              code: "& '_ str",
-              inner: %RustQ.Syn.Type.Path{
-                code: "str",
-                name: "str",
-                callable: nil,
-                segments: ["str"],
-                args: [],
-                assoc: %{},
-                generic_args: []
-              },
-              lifetime: "'_",
-              mutable: false
-            }
-          ]
-        }
-      },
-      {"str", "starts_with"} => %RustQ.Syn.Type.Path{
-        code: "bool",
-        name: "bool",
-        callable: nil,
-        segments: ["bool"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"str", "into_string"} => %RustQ.Syn.Type.Path{
-        code: "String",
-        name: "String",
-        callable: nil,
-        segments: ["String"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"str", "escape_default"} => %RustQ.Syn.Type.Path{
-        code: "EscapeDefault < '_ >",
-        name: "EscapeDefault",
-        callable: nil,
-        segments: ["EscapeDefault"],
-        args: [],
-        assoc: %{},
-        generic_args: [
-          %RustQ.Syn.Type.GenericArgument{kind: :lifetime, name: nil, type: nil, source: "'_"}
-        ]
-      },
-      {"char", "is_ascii_alphabetic"} => %RustQ.Syn.Type.Path{
-        code: "bool",
-        name: "bool",
-        callable: nil,
-        segments: ["bool"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"String", "capacity"} => %RustQ.Syn.Type.Path{
-        code: "usize",
-        name: "usize",
-        callable: nil,
-        segments: ["usize"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      },
-      {"[T]", "get_unchecked_mut"} => %RustQ.Syn.Type.Ref{
-        code: "& mut I :: Output",
-        inner: %RustQ.Syn.Type.Path{
-          code: "I :: Output",
-          name: "Output",
-          callable: nil,
-          segments: ["I", "Output"],
-          args: [],
-          assoc: %{},
-          generic_args: []
-        },
-        lifetime: nil,
-        mutable: true
-      },
-      {"str", "rfind"} => %RustQ.Syn.Type.Option{
-        code: "Option < usize >",
-        inner: %RustQ.Syn.Type.Path{
-          code: "usize",
-          name: "usize",
-          callable: nil,
-          segments: ["usize"],
-          args: [],
-          assoc: %{},
-          generic_args: []
-        }
-      },
-      {"[T]", "eq_ignore_ascii_case"} => %RustQ.Syn.Type.Path{
-        code: "bool",
-        name: "bool",
-        callable: nil,
-        segments: ["bool"],
-        args: [],
-        assoc: %{},
-        generic_args: []
-      }
+      {"Vec", "pop"} =>
+        {[:T, :A],
+         %RustQ.Syn.Type.Option{
+           code: "Option < T >",
+           inner: %RustQ.Syn.Type.Path{
+             code: "T",
+             name: "T",
+             callable: nil,
+             segments: ["T"],
+             args: [],
+             assoc: %{},
+             generic_args: []
+           }
+         }},
+      {"str", "slice_mut_unchecked"} =>
+        {[],
+         %RustQ.Syn.Type.Ref{
+           code: "& mut str",
+           inner: %RustQ.Syn.Type.Path{
+             code: "str",
+             name: "str",
+             callable: nil,
+             segments: ["str"],
+             args: [],
+             assoc: %{},
+             generic_args: []
+           },
+           lifetime: nil,
+           mutable: true
+         }},
+      {"Vec", "swap_remove"} =>
+        {[:T, :A],
+         %RustQ.Syn.Type.Path{
+           code: "T",
+           name: "T",
+           callable: nil,
+           segments: ["T"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"[T]", "assume_init_ref"} =>
+        {[:T],
+         %RustQ.Syn.Type.Ref{
+           code: "& [T]",
+           inner: %RustQ.Syn.Type.Slice{
+             code: "[T]",
+             inner: %RustQ.Syn.Type.Path{
+               code: "T",
+               name: "T",
+               callable: nil,
+               segments: ["T"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             }
+           },
+           lifetime: nil,
+           mutable: false
+         }},
+      {"Option", "get_or_insert"} =>
+        {[:T],
+         %RustQ.Syn.Type.Ref{
+           code: "& mut T",
+           inner: %RustQ.Syn.Type.Path{
+             code: "T",
+             name: "T",
+             callable: nil,
+             segments: ["T"],
+             args: [],
+             assoc: %{},
+             generic_args: []
+           },
+           lifetime: nil,
+           mutable: true
+         }},
+      {"str", "trim_right"} =>
+        {[],
+         %RustQ.Syn.Type.Ref{
+           code: "& str",
+           inner: %RustQ.Syn.Type.Path{
+             code: "str",
+             name: "str",
+             callable: nil,
+             segments: ["str"],
+             args: [],
+             assoc: %{},
+             generic_args: []
+           },
+           lifetime: nil,
+           mutable: false
+         }},
+      {"char", "is_ascii_control"} =>
+        {[],
+         %RustQ.Syn.Type.Path{
+           code: "bool",
+           name: "bool",
+           callable: nil,
+           segments: ["bool"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"str", "trim_start"} =>
+        {[],
+         %RustQ.Syn.Type.Ref{
+           code: "& str",
+           inner: %RustQ.Syn.Type.Path{
+             code: "str",
+             name: "str",
+             callable: nil,
+             segments: ["str"],
+             args: [],
+             assoc: %{},
+             generic_args: []
+           },
+           lifetime: nil,
+           mutable: false
+         }},
+      {"char", "is_lowercase"} =>
+        {[],
+         %RustQ.Syn.Type.Path{
+           code: "bool",
+           name: "bool",
+           callable: nil,
+           segments: ["bool"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"Option", "xor"} =>
+        {[:T],
+         %RustQ.Syn.Type.Option{
+           code: "Option < T >",
+           inner: %RustQ.Syn.Type.Path{
+             code: "T",
+             name: "T",
+             callable: nil,
+             segments: ["T"],
+             args: [],
+             assoc: %{},
+             generic_args: []
+           }
+         }},
+      {"str", "find"} =>
+        {[],
+         %RustQ.Syn.Type.Option{
+           code: "Option < usize >",
+           inner: %RustQ.Syn.Type.Path{
+             code: "usize",
+             name: "usize",
+             callable: nil,
+             segments: ["usize"],
+             args: [],
+             assoc: %{},
+             generic_args: []
+           }
+         }},
+      {"str", "strip_circumfix"} =>
+        {[],
+         %RustQ.Syn.Type.Option{
+           code: "Option < & str >",
+           inner: %RustQ.Syn.Type.Ref{
+             code: "& str",
+             inner: %RustQ.Syn.Type.Path{
+               code: "str",
+               name: "str",
+               callable: nil,
+               segments: ["str"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             },
+             lifetime: nil,
+             mutable: false
+           }
+         }},
+      {"Vec", "as_ptr"} => {[:T, :A], %RustQ.Syn.Type.Raw{code: "* const T"}},
+      {"Option", "get_or_insert_default"} =>
+        {[:T],
+         %RustQ.Syn.Type.Ref{
+           code: "& mut T",
+           inner: %RustQ.Syn.Type.Path{
+             code: "T",
+             name: "T",
+             callable: nil,
+             segments: ["T"],
+             args: [],
+             assoc: %{},
+             generic_args: []
+           },
+           lifetime: nil,
+           mutable: true
+         }},
+      {"Option", "or_else"} =>
+        {[:T],
+         %RustQ.Syn.Type.Option{
+           code: "Option < T >",
+           inner: %RustQ.Syn.Type.Path{
+             code: "T",
+             name: "T",
+             callable: nil,
+             segments: ["T"],
+             args: [],
+             assoc: %{},
+             generic_args: []
+           }
+         }},
+      {"String", "as_str"} =>
+        {[],
+         %RustQ.Syn.Type.Ref{
+           code: "& str",
+           inner: %RustQ.Syn.Type.Path{
+             code: "str",
+             name: "str",
+             callable: nil,
+             segments: ["str"],
+             args: [],
+             assoc: %{},
+             generic_args: []
+           },
+           lifetime: nil,
+           mutable: false
+         }},
+      {"[T]", "as_chunks_unchecked_mut"} =>
+        {[:T],
+         %RustQ.Syn.Type.Ref{
+           code: "& mut [[T ; N]]",
+           inner: %RustQ.Syn.Type.Slice{
+             code: "[[T ; N]]",
+             inner: %RustQ.Syn.Type.Array{
+               code: "[T ; N]",
+               inner: %RustQ.Syn.Type.Path{
+                 code: "T",
+                 name: "T",
+                 callable: nil,
+                 segments: ["T"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               length: "N"
+             }
+           },
+           lifetime: nil,
+           mutable: true
+         }},
+      {"str", "as_bytes"} =>
+        {[],
+         %RustQ.Syn.Type.Ref{
+           code: "& [u8]",
+           inner: %RustQ.Syn.Type.Slice{
+             code: "[u8]",
+             inner: %RustQ.Syn.Type.Path{
+               code: "u8",
+               name: "u8",
+               callable: nil,
+               segments: ["u8"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             }
+           },
+           lifetime: nil,
+           mutable: false
+         }},
+      {"Vec", "capacity"} =>
+        {[:T, :A],
+         %RustQ.Syn.Type.Path{
+           code: "usize",
+           name: "usize",
+           callable: nil,
+           segments: ["usize"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"[T]", "chunks"} =>
+        {[:T],
+         %RustQ.Syn.Type.Path{
+           code: "Chunks < '_ , T >",
+           name: "Chunks",
+           callable: nil,
+           segments: ["Chunks"],
+           args: [
+             %RustQ.Syn.Type.Path{
+               code: "T",
+               name: "T",
+               callable: nil,
+               segments: ["T"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             }
+           ],
+           assoc: %{},
+           generic_args: [
+             %RustQ.Syn.Type.GenericArgument{kind: :lifetime, name: nil, type: nil, source: "'_"},
+             %RustQ.Syn.Type.GenericArgument{
+               kind: :type,
+               name: nil,
+               type: %RustQ.Syn.Type.Path{
+                 code: "T",
+                 name: "T",
+                 callable: nil,
+                 segments: ["T"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               source: nil
+             }
+           ]
+         }},
+      {"str", "strip_suffix"} =>
+        {[],
+         %RustQ.Syn.Type.Option{
+           code: "Option < & str >",
+           inner: %RustQ.Syn.Type.Ref{
+             code: "& str",
+             inner: %RustQ.Syn.Type.Path{
+               code: "str",
+               name: "str",
+               callable: nil,
+               segments: ["str"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             },
+             lifetime: nil,
+             mutable: false
+           }
+         }},
+      {"char", "is_ascii_alphanumeric"} =>
+        {[],
+         %RustQ.Syn.Type.Path{
+           code: "bool",
+           name: "bool",
+           callable: nil,
+           segments: ["bool"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"[T]", "as_flattened"} =>
+        {[:T],
+         %RustQ.Syn.Type.Ref{
+           code: "& [T]",
+           inner: %RustQ.Syn.Type.Slice{
+             code: "[T]",
+             inner: %RustQ.Syn.Type.Path{
+               code: "T",
+               name: "T",
+               callable: nil,
+               segments: ["T"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             }
+           },
+           lifetime: nil,
+           mutable: false
+         }},
+      {"[T]", "binary_search_by_key"} =>
+        {[:T],
+         %RustQ.Syn.Type.Result{
+           code: "Result < usize , usize >",
+           ok: %RustQ.Syn.Type.Path{
+             code: "usize",
+             name: "usize",
+             callable: nil,
+             segments: ["usize"],
+             args: [],
+             assoc: %{},
+             generic_args: []
+           },
+           error: %RustQ.Syn.Type.Path{
+             code: "usize",
+             name: "usize",
+             callable: nil,
+             segments: ["usize"],
+             args: [],
+             assoc: %{},
+             generic_args: []
+           }
+         }},
+      {"str", "ends_with"} =>
+        {[],
+         %RustQ.Syn.Type.Path{
+           code: "bool",
+           name: "bool",
+           callable: nil,
+           segments: ["bool"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"HashSet", "capacity"} =>
+        {[:T, :S, :A],
+         %RustQ.Syn.Type.Path{
+           code: "usize",
+           name: "usize",
+           callable: nil,
+           segments: ["usize"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"Vec", "try_reserve"} =>
+        {[:T, :A],
+         %RustQ.Syn.Type.Result{
+           code: "Result < () , TryReserveError >",
+           ok: %RustQ.Syn.Type.Tuple{code: "()", elems: []},
+           error: %RustQ.Syn.Type.Path{
+             code: "TryReserveError",
+             name: "TryReserveError",
+             callable: nil,
+             segments: ["TryReserveError"],
+             args: [],
+             assoc: %{},
+             generic_args: []
+           }
+         }},
+      {"[T]", "split_at_mut"} =>
+        {[:T],
+         %RustQ.Syn.Type.Tuple{
+           code: "(& mut [T] , & mut [T])",
+           elems: [
+             %RustQ.Syn.Type.Ref{
+               code: "& mut [T]",
+               inner: %RustQ.Syn.Type.Slice{
+                 code: "[T]",
+                 inner: %RustQ.Syn.Type.Path{
+                   code: "T",
+                   name: "T",
+                   callable: nil,
+                   segments: ["T"],
+                   args: [],
+                   assoc: %{},
+                   generic_args: []
+                 }
+               },
+               lifetime: nil,
+               mutable: true
+             },
+             %RustQ.Syn.Type.Ref{
+               code: "& mut [T]",
+               inner: %RustQ.Syn.Type.Slice{
+                 code: "[T]",
+                 inner: %RustQ.Syn.Type.Path{
+                   code: "T",
+                   name: "T",
+                   callable: nil,
+                   segments: ["T"],
+                   args: [],
+                   assoc: %{},
+                   generic_args: []
+                 }
+               },
+               lifetime: nil,
+               mutable: true
+             }
+           ]
+         }},
+      {"[T]", "split_at"} =>
+        {[:T],
+         %RustQ.Syn.Type.Tuple{
+           code: "(& [T] , & [T])",
+           elems: [
+             %RustQ.Syn.Type.Ref{
+               code: "& [T]",
+               inner: %RustQ.Syn.Type.Slice{
+                 code: "[T]",
+                 inner: %RustQ.Syn.Type.Path{
+                   code: "T",
+                   name: "T",
+                   callable: nil,
+                   segments: ["T"],
+                   args: [],
+                   assoc: %{},
+                   generic_args: []
+                 }
+               },
+               lifetime: nil,
+               mutable: false
+             },
+             %RustQ.Syn.Type.Ref{
+               code: "& [T]",
+               inner: %RustQ.Syn.Type.Slice{
+                 code: "[T]",
+                 inner: %RustQ.Syn.Type.Path{
+                   code: "T",
+                   name: "T",
+                   callable: nil,
+                   segments: ["T"],
+                   args: [],
+                   assoc: %{},
+                   generic_args: []
+                 }
+               },
+               lifetime: nil,
+               mutable: false
+             }
+           ]
+         }},
+      {"[T]", "as_chunks_mut"} =>
+        {[:T],
+         %RustQ.Syn.Type.Tuple{
+           code: "(& mut [[T ; N]] , & mut [T])",
+           elems: [
+             %RustQ.Syn.Type.Ref{
+               code: "& mut [[T ; N]]",
+               inner: %RustQ.Syn.Type.Slice{
+                 code: "[[T ; N]]",
+                 inner: %RustQ.Syn.Type.Array{
+                   code: "[T ; N]",
+                   inner: %RustQ.Syn.Type.Path{
+                     code: "T",
+                     name: "T",
+                     callable: nil,
+                     segments: ["T"],
+                     args: [],
+                     assoc: %{},
+                     generic_args: []
+                   },
+                   length: "N"
+                 }
+               },
+               lifetime: nil,
+               mutable: true
+             },
+             %RustQ.Syn.Type.Ref{
+               code: "& mut [T]",
+               inner: %RustQ.Syn.Type.Slice{
+                 code: "[T]",
+                 inner: %RustQ.Syn.Type.Path{
+                   code: "T",
+                   name: "T",
+                   callable: nil,
+                   segments: ["T"],
+                   args: [],
+                   assoc: %{},
+                   generic_args: []
+                 }
+               },
+               lifetime: nil,
+               mutable: true
+             }
+           ]
+         }},
+      {"[T]", "rchunks_mut"} =>
+        {[:T],
+         %RustQ.Syn.Type.Path{
+           code: "RChunksMut < '_ , T >",
+           name: "RChunksMut",
+           callable: nil,
+           segments: ["RChunksMut"],
+           args: [
+             %RustQ.Syn.Type.Path{
+               code: "T",
+               name: "T",
+               callable: nil,
+               segments: ["T"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             }
+           ],
+           assoc: %{},
+           generic_args: [
+             %RustQ.Syn.Type.GenericArgument{kind: :lifetime, name: nil, type: nil, source: "'_"},
+             %RustQ.Syn.Type.GenericArgument{
+               kind: :type,
+               name: nil,
+               type: %RustQ.Syn.Type.Path{
+                 code: "T",
+                 name: "T",
+                 callable: nil,
+                 segments: ["T"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               source: nil
+             }
+           ]
+         }},
+      {"str", "escape_debug"} =>
+        {[],
+         %RustQ.Syn.Type.Path{
+           code: "EscapeDebug < '_ >",
+           name: "EscapeDebug",
+           callable: nil,
+           segments: ["EscapeDebug"],
+           args: [],
+           assoc: %{},
+           generic_args: [
+             %RustQ.Syn.Type.GenericArgument{kind: :lifetime, name: nil, type: nil, source: "'_"}
+           ]
+         }},
+      {"[T]", "split_last_chunk"} =>
+        {[:T],
+         %RustQ.Syn.Type.Option{
+           code: "Option < (& [T] , & [T ; N]) >",
+           inner: %RustQ.Syn.Type.Tuple{
+             code: "(& [T] , & [T ; N])",
+             elems: [
+               %RustQ.Syn.Type.Ref{
+                 code: "& [T]",
+                 inner: %RustQ.Syn.Type.Slice{
+                   code: "[T]",
+                   inner: %RustQ.Syn.Type.Path{
+                     code: "T",
+                     name: "T",
+                     callable: nil,
+                     segments: ["T"],
+                     args: [],
+                     assoc: %{},
+                     generic_args: []
+                   }
+                 },
+                 lifetime: nil,
+                 mutable: false
+               },
+               %RustQ.Syn.Type.Ref{
+                 code: "& [T ; N]",
+                 inner: %RustQ.Syn.Type.Array{
+                   code: "[T ; N]",
+                   inner: %RustQ.Syn.Type.Path{
+                     code: "T",
+                     name: "T",
+                     callable: nil,
+                     segments: ["T"],
+                     args: [],
+                     assoc: %{},
+                     generic_args: []
+                   },
+                   length: "N"
+                 },
+                 lifetime: nil,
+                 mutable: false
+               }
+             ]
+           }
+         }},
+      {"str", "into_boxed_bytes"} =>
+        {[],
+         %RustQ.Syn.Type.Path{
+           code: "Box < [u8] >",
+           name: "Box",
+           callable: nil,
+           segments: ["Box"],
+           args: [
+             %RustQ.Syn.Type.Slice{
+               code: "[u8]",
+               inner: %RustQ.Syn.Type.Path{
+                 code: "u8",
+                 name: "u8",
+                 callable: nil,
+                 segments: ["u8"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               }
+             }
+           ],
+           assoc: %{},
+           generic_args: [
+             %RustQ.Syn.Type.GenericArgument{
+               kind: :type,
+               name: nil,
+               type: %RustQ.Syn.Type.Slice{
+                 code: "[u8]",
+                 inner: %RustQ.Syn.Type.Path{
+                   code: "u8",
+                   name: "u8",
+                   callable: nil,
+                   segments: ["u8"],
+                   args: [],
+                   assoc: %{},
+                   generic_args: []
+                 }
+               },
+               source: nil
+             }
+           ]
+         }},
+      {"[T]", "write_copy_of_slice"} =>
+        {[:T],
+         %RustQ.Syn.Type.Ref{
+           code: "& mut [T]",
+           inner: %RustQ.Syn.Type.Slice{
+             code: "[T]",
+             inner: %RustQ.Syn.Type.Path{
+               code: "T",
+               name: "T",
+               callable: nil,
+               segments: ["T"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             }
+           },
+           lifetime: nil,
+           mutable: true
+         }},
+      {"str", "len"} =>
+        {[],
+         %RustQ.Syn.Type.Path{
+           code: "usize",
+           name: "usize",
+           callable: nil,
+           segments: ["usize"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"String", "is_empty"} =>
+        {[],
+         %RustQ.Syn.Type.Path{
+           code: "bool",
+           name: "bool",
+           callable: nil,
+           segments: ["bool"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"[T]", "array_windows"} =>
+        {[:T],
+         %RustQ.Syn.Type.Path{
+           code: "ArrayWindows < '_ , T , N >",
+           name: "ArrayWindows",
+           callable: nil,
+           segments: ["ArrayWindows"],
+           args: [
+             %RustQ.Syn.Type.Path{
+               code: "T",
+               name: "T",
+               callable: nil,
+               segments: ["T"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             },
+             %RustQ.Syn.Type.Path{
+               code: "N",
+               name: "N",
+               callable: nil,
+               segments: ["N"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             }
+           ],
+           assoc: %{},
+           generic_args: [
+             %RustQ.Syn.Type.GenericArgument{kind: :lifetime, name: nil, type: nil, source: "'_"},
+             %RustQ.Syn.Type.GenericArgument{
+               kind: :type,
+               name: nil,
+               type: %RustQ.Syn.Type.Path{
+                 code: "T",
+                 name: "T",
+                 callable: nil,
+                 segments: ["T"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               source: nil
+             },
+             %RustQ.Syn.Type.GenericArgument{
+               kind: :type,
+               name: nil,
+               type: %RustQ.Syn.Type.Path{
+                 code: "N",
+                 name: "N",
+                 callable: nil,
+                 segments: ["N"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               source: nil
+             }
+           ]
+         }},
+      {"HashMap", "values_mut"} =>
+        {[:K, :V, :S, :A],
+         %RustQ.Syn.Type.Path{
+           code: "ValuesMut < '_ , K , V >",
+           name: "ValuesMut",
+           callable: nil,
+           segments: ["ValuesMut"],
+           args: [
+             %RustQ.Syn.Type.Path{
+               code: "K",
+               name: "K",
+               callable: nil,
+               segments: ["K"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             },
+             %RustQ.Syn.Type.Path{
+               code: "V",
+               name: "V",
+               callable: nil,
+               segments: ["V"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             }
+           ],
+           assoc: %{},
+           generic_args: [
+             %RustQ.Syn.Type.GenericArgument{kind: :lifetime, name: nil, type: nil, source: "'_"},
+             %RustQ.Syn.Type.GenericArgument{
+               kind: :type,
+               name: nil,
+               type: %RustQ.Syn.Type.Path{
+                 code: "K",
+                 name: "K",
+                 callable: nil,
+                 segments: ["K"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               source: nil
+             },
+             %RustQ.Syn.Type.GenericArgument{
+               kind: :type,
+               name: nil,
+               type: %RustQ.Syn.Type.Path{
+                 code: "V",
+                 name: "V",
+                 callable: nil,
+                 segments: ["V"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               source: nil
+             }
+           ]
+         }},
+      {"char", "len_utf8"} =>
+        {[],
+         %RustQ.Syn.Type.Path{
+           code: "usize",
+           name: "usize",
+           callable: nil,
+           segments: ["usize"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"[T]", "is_sorted"} =>
+        {[:T],
+         %RustQ.Syn.Type.Path{
+           code: "bool",
+           name: "bool",
+           callable: nil,
+           segments: ["bool"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"char", "encode_utf8"} =>
+        {[],
+         %RustQ.Syn.Type.Ref{
+           code: "& mut str",
+           inner: %RustQ.Syn.Type.Path{
+             code: "str",
+             name: "str",
+             callable: nil,
+             segments: ["str"],
+             args: [],
+             assoc: %{},
+             generic_args: []
+           },
+           lifetime: nil,
+           mutable: true
+         }},
+      {"str", "slice_unchecked"} =>
+        {[],
+         %RustQ.Syn.Type.Ref{
+           code: "& str",
+           inner: %RustQ.Syn.Type.Path{
+             code: "str",
+             name: "str",
+             callable: nil,
+             segments: ["str"],
+             args: [],
+             assoc: %{},
+             generic_args: []
+           },
+           lifetime: nil,
+           mutable: false
+         }},
+      {"str", "to_uppercase"} =>
+        {[],
+         %RustQ.Syn.Type.Path{
+           code: "String",
+           name: "String",
+           callable: nil,
+           segments: ["String"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"[T]", "join"} =>
+        {[:T], %RustQ.Syn.Type.Raw{code: "< Self as Join < Separator > > :: Output"}},
+      {"str", "replacen"} =>
+        {[],
+         %RustQ.Syn.Type.Path{
+           code: "String",
+           name: "String",
+           callable: nil,
+           segments: ["String"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"Option", "unwrap"} =>
+        {[:T],
+         %RustQ.Syn.Type.Path{
+           code: "T",
+           name: "T",
+           callable: nil,
+           segments: ["T"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"Vec", "remove"} =>
+        {[:T, :A],
+         %RustQ.Syn.Type.Path{
+           code: "T",
+           name: "T",
+           callable: nil,
+           segments: ["T"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"[T]", "connect"} =>
+        {[:T], %RustQ.Syn.Type.Raw{code: "< Self as Join < Separator > > :: Output"}},
+      {"Vec", "as_mut_ptr"} => {[:T, :A], %RustQ.Syn.Type.Raw{code: "* mut T"}},
+      {"HashSet", "is_empty"} =>
+        {[:T, :S, :A],
+         %RustQ.Syn.Type.Path{
+           code: "bool",
+           name: "bool",
+           callable: nil,
+           segments: ["bool"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"[T]", "assume_init_mut"} =>
+        {[:T],
+         %RustQ.Syn.Type.Ref{
+           code: "& mut [T]",
+           inner: %RustQ.Syn.Type.Slice{
+             code: "[T]",
+             inner: %RustQ.Syn.Type.Path{
+               code: "T",
+               name: "T",
+               callable: nil,
+               segments: ["T"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             }
+           },
+           lifetime: nil,
+           mutable: true
+         }},
+      {"char", "len_utf16"} =>
+        {[],
+         %RustQ.Syn.Type.Path{
+           code: "usize",
+           name: "usize",
+           callable: nil,
+           segments: ["usize"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"str", "split_ascii_whitespace"} =>
+        {[],
+         %RustQ.Syn.Type.Path{
+           code: "SplitAsciiWhitespace < '_ >",
+           name: "SplitAsciiWhitespace",
+           callable: nil,
+           segments: ["SplitAsciiWhitespace"],
+           args: [],
+           assoc: %{},
+           generic_args: [
+             %RustQ.Syn.Type.GenericArgument{kind: :lifetime, name: nil, type: nil, source: "'_"}
+           ]
+         }},
+      {"[T]", "rchunks"} =>
+        {[:T],
+         %RustQ.Syn.Type.Path{
+           code: "RChunks < '_ , T >",
+           name: "RChunks",
+           callable: nil,
+           segments: ["RChunks"],
+           args: [
+             %RustQ.Syn.Type.Path{
+               code: "T",
+               name: "T",
+               callable: nil,
+               segments: ["T"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             }
+           ],
+           assoc: %{},
+           generic_args: [
+             %RustQ.Syn.Type.GenericArgument{kind: :lifetime, name: nil, type: nil, source: "'_"},
+             %RustQ.Syn.Type.GenericArgument{
+               kind: :type,
+               name: nil,
+               type: %RustQ.Syn.Type.Path{
+                 code: "T",
+                 name: "T",
+                 callable: nil,
+                 segments: ["T"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               source: nil
+             }
+           ]
+         }},
+      {"HashSet", "is_disjoint"} =>
+        {[:T, :S, :A],
+         %RustQ.Syn.Type.Path{
+           code: "bool",
+           name: "bool",
+           callable: nil,
+           segments: ["bool"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"HashSet", "symmetric_difference"} =>
+        {[:T, :S, :A],
+         %RustQ.Syn.Type.Path{
+           code: "SymmetricDifference < 'a , T , S , A >",
+           name: "SymmetricDifference",
+           callable: nil,
+           segments: ["SymmetricDifference"],
+           args: [
+             %RustQ.Syn.Type.Path{
+               code: "T",
+               name: "T",
+               callable: nil,
+               segments: ["T"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             },
+             %RustQ.Syn.Type.Path{
+               code: "S",
+               name: "S",
+               callable: nil,
+               segments: ["S"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             },
+             %RustQ.Syn.Type.Path{
+               code: "A",
+               name: "A",
+               callable: nil,
+               segments: ["A"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             }
+           ],
+           assoc: %{},
+           generic_args: [
+             %RustQ.Syn.Type.GenericArgument{kind: :lifetime, name: nil, type: nil, source: "'a"},
+             %RustQ.Syn.Type.GenericArgument{
+               kind: :type,
+               name: nil,
+               type: %RustQ.Syn.Type.Path{
+                 code: "T",
+                 name: "T",
+                 callable: nil,
+                 segments: ["T"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               source: nil
+             },
+             %RustQ.Syn.Type.GenericArgument{
+               kind: :type,
+               name: nil,
+               type: %RustQ.Syn.Type.Path{
+                 code: "S",
+                 name: "S",
+                 callable: nil,
+                 segments: ["S"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               source: nil
+             },
+             %RustQ.Syn.Type.GenericArgument{
+               kind: :type,
+               name: nil,
+               type: %RustQ.Syn.Type.Path{
+                 code: "A",
+                 name: "A",
+                 callable: nil,
+                 segments: ["A"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               source: nil
+             }
+           ]
+         }},
+      {"str", "to_lowercase"} =>
+        {[],
+         %RustQ.Syn.Type.Path{
+           code: "String",
+           name: "String",
+           callable: nil,
+           segments: ["String"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"Option", "as_ref"} =>
+        {[:T],
+         %RustQ.Syn.Type.Option{
+           code: "Option < & T >",
+           inner: %RustQ.Syn.Type.Ref{
+             code: "& T",
+             inner: %RustQ.Syn.Type.Path{
+               code: "T",
+               name: "T",
+               callable: nil,
+               segments: ["T"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             },
+             lifetime: nil,
+             mutable: false
+           }
+         }},
+      {"[T]", "split_at_mut_unchecked"} =>
+        {[:T],
+         %RustQ.Syn.Type.Tuple{
+           code: "(& mut [T] , & mut [T])",
+           elems: [
+             %RustQ.Syn.Type.Ref{
+               code: "& mut [T]",
+               inner: %RustQ.Syn.Type.Slice{
+                 code: "[T]",
+                 inner: %RustQ.Syn.Type.Path{
+                   code: "T",
+                   name: "T",
+                   callable: nil,
+                   segments: ["T"],
+                   args: [],
+                   assoc: %{},
+                   generic_args: []
+                 }
+               },
+               lifetime: nil,
+               mutable: true
+             },
+             %RustQ.Syn.Type.Ref{
+               code: "& mut [T]",
+               inner: %RustQ.Syn.Type.Slice{
+                 code: "[T]",
+                 inner: %RustQ.Syn.Type.Path{
+                   code: "T",
+                   name: "T",
+                   callable: nil,
+                   segments: ["T"],
+                   args: [],
+                   assoc: %{},
+                   generic_args: []
+                 }
+               },
+               lifetime: nil,
+               mutable: true
+             }
+           ]
+         }},
+      {"[T]", "trim_ascii_end"} =>
+        {[],
+         %RustQ.Syn.Type.Ref{
+           code: "& [u8]",
+           inner: %RustQ.Syn.Type.Slice{
+             code: "[u8]",
+             inner: %RustQ.Syn.Type.Path{
+               code: "u8",
+               name: "u8",
+               callable: nil,
+               segments: ["u8"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             }
+           },
+           lifetime: nil,
+           mutable: false
+         }},
+      {"[T]", "split_last_chunk_mut"} =>
+        {[:T],
+         %RustQ.Syn.Type.Option{
+           code: "Option < (& mut [T] , & mut [T ; N]) >",
+           inner: %RustQ.Syn.Type.Tuple{
+             code: "(& mut [T] , & mut [T ; N])",
+             elems: [
+               %RustQ.Syn.Type.Ref{
+                 code: "& mut [T]",
+                 inner: %RustQ.Syn.Type.Slice{
+                   code: "[T]",
+                   inner: %RustQ.Syn.Type.Path{
+                     code: "T",
+                     name: "T",
+                     callable: nil,
+                     segments: ["T"],
+                     args: [],
+                     assoc: %{},
+                     generic_args: []
+                   }
+                 },
+                 lifetime: nil,
+                 mutable: true
+               },
+               %RustQ.Syn.Type.Ref{
+                 code: "& mut [T ; N]",
+                 inner: %RustQ.Syn.Type.Array{
+                   code: "[T ; N]",
+                   inner: %RustQ.Syn.Type.Path{
+                     code: "T",
+                     name: "T",
+                     callable: nil,
+                     segments: ["T"],
+                     args: [],
+                     assoc: %{},
+                     generic_args: []
+                   },
+                   length: "N"
+                 },
+                 lifetime: nil,
+                 mutable: true
+               }
+             ]
+           }
+         }},
+      {"HashMap", "into_keys"} =>
+        {[:K, :V, :S, :A],
+         %RustQ.Syn.Type.Path{
+           code: "IntoKeys < K , V , A >",
+           name: "IntoKeys",
+           callable: nil,
+           segments: ["IntoKeys"],
+           args: [
+             %RustQ.Syn.Type.Path{
+               code: "K",
+               name: "K",
+               callable: nil,
+               segments: ["K"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             },
+             %RustQ.Syn.Type.Path{
+               code: "V",
+               name: "V",
+               callable: nil,
+               segments: ["V"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             },
+             %RustQ.Syn.Type.Path{
+               code: "A",
+               name: "A",
+               callable: nil,
+               segments: ["A"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             }
+           ],
+           assoc: %{},
+           generic_args: [
+             %RustQ.Syn.Type.GenericArgument{
+               kind: :type,
+               name: nil,
+               type: %RustQ.Syn.Type.Path{
+                 code: "K",
+                 name: "K",
+                 callable: nil,
+                 segments: ["K"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               source: nil
+             },
+             %RustQ.Syn.Type.GenericArgument{
+               kind: :type,
+               name: nil,
+               type: %RustQ.Syn.Type.Path{
+                 code: "V",
+                 name: "V",
+                 callable: nil,
+                 segments: ["V"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               source: nil
+             },
+             %RustQ.Syn.Type.GenericArgument{
+               kind: :type,
+               name: nil,
+               type: %RustQ.Syn.Type.Path{
+                 code: "A",
+                 name: "A",
+                 callable: nil,
+                 segments: ["A"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               source: nil
+             }
+           ]
+         }},
+      {"[T]", "last_mut"} =>
+        {[:T],
+         %RustQ.Syn.Type.Option{
+           code: "Option < & mut T >",
+           inner: %RustQ.Syn.Type.Ref{
+             code: "& mut T",
+             inner: %RustQ.Syn.Type.Path{
+               code: "T",
+               name: "T",
+               callable: nil,
+               segments: ["T"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             },
+             lifetime: nil,
+             mutable: true
+           }
+         }},
+      {"HashSet", "insert"} =>
+        {[:T, :S, :A],
+         %RustQ.Syn.Type.Path{
+           code: "bool",
+           name: "bool",
+           callable: nil,
+           segments: ["bool"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"str", "trim_left_matches"} =>
+        {[],
+         %RustQ.Syn.Type.Ref{
+           code: "& str",
+           inner: %RustQ.Syn.Type.Path{
+             code: "str",
+             name: "str",
+             callable: nil,
+             segments: ["str"],
+             args: [],
+             assoc: %{},
+             generic_args: []
+           },
+           lifetime: nil,
+           mutable: false
+         }},
+      {"str", "trim"} =>
+        {[],
+         %RustQ.Syn.Type.Ref{
+           code: "& str",
+           inner: %RustQ.Syn.Type.Path{
+             code: "str",
+             name: "str",
+             callable: nil,
+             segments: ["str"],
+             args: [],
+             assoc: %{},
+             generic_args: []
+           },
+           lifetime: nil,
+           mutable: false
+         }},
+      {"[T]", "first_chunk_mut"} =>
+        {[:T],
+         %RustQ.Syn.Type.Option{
+           code: "Option < & mut [T ; N] >",
+           inner: %RustQ.Syn.Type.Ref{
+             code: "& mut [T ; N]",
+             inner: %RustQ.Syn.Type.Array{
+               code: "[T ; N]",
+               inner: %RustQ.Syn.Type.Path{
+                 code: "T",
+                 name: "T",
+                 callable: nil,
+                 segments: ["T"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               length: "N"
+             },
+             lifetime: nil,
+             mutable: true
+           }
+         }},
+      {"Vec", "drain"} =>
+        {[:T, :A],
+         %RustQ.Syn.Type.Path{
+           code: "Drain < '_ , T , A >",
+           name: "Drain",
+           callable: nil,
+           segments: ["Drain"],
+           args: [
+             %RustQ.Syn.Type.Path{
+               code: "T",
+               name: "T",
+               callable: nil,
+               segments: ["T"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             },
+             %RustQ.Syn.Type.Path{
+               code: "A",
+               name: "A",
+               callable: nil,
+               segments: ["A"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             }
+           ],
+           assoc: %{},
+           generic_args: [
+             %RustQ.Syn.Type.GenericArgument{kind: :lifetime, name: nil, type: nil, source: "'_"},
+             %RustQ.Syn.Type.GenericArgument{
+               kind: :type,
+               name: nil,
+               type: %RustQ.Syn.Type.Path{
+                 code: "T",
+                 name: "T",
+                 callable: nil,
+                 segments: ["T"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               source: nil
+             },
+             %RustQ.Syn.Type.GenericArgument{
+               kind: :type,
+               name: nil,
+               type: %RustQ.Syn.Type.Path{
+                 code: "A",
+                 name: "A",
+                 callable: nil,
+                 segments: ["A"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               source: nil
+             }
+           ]
+         }},
+      {"Vec", "into_raw_parts"} =>
+        {[:T],
+         %RustQ.Syn.Type.Tuple{
+           code: "(* mut T , usize , usize)",
+           elems: [
+             %RustQ.Syn.Type.Raw{code: "* mut T"},
+             %RustQ.Syn.Type.Path{
+               code: "usize",
+               name: "usize",
+               callable: nil,
+               segments: ["usize"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             },
+             %RustQ.Syn.Type.Path{
+               code: "usize",
+               name: "usize",
+               callable: nil,
+               segments: ["usize"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             }
+           ]
+         }},
+      {"[T]", "strip_suffix"} =>
+        {[:T],
+         %RustQ.Syn.Type.Option{
+           code: "Option < & [T] >",
+           inner: %RustQ.Syn.Type.Ref{
+             code: "& [T]",
+             inner: %RustQ.Syn.Type.Slice{
+               code: "[T]",
+               inner: %RustQ.Syn.Type.Path{
+                 code: "T",
+                 name: "T",
+                 callable: nil,
+                 segments: ["T"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               }
+             },
+             lifetime: nil,
+             mutable: false
+           }
+         }},
+      {"String", "len"} =>
+        {[],
+         %RustQ.Syn.Type.Path{
+           code: "usize",
+           name: "usize",
+           callable: nil,
+           segments: ["usize"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"char", "escape_unicode"} =>
+        {[],
+         %RustQ.Syn.Type.Path{
+           code: "EscapeUnicode",
+           name: "EscapeUnicode",
+           callable: nil,
+           segments: ["EscapeUnicode"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"HashSet", "replace"} =>
+        {[:T, :S, :A],
+         %RustQ.Syn.Type.Option{
+           code: "Option < T >",
+           inner: %RustQ.Syn.Type.Path{
+             code: "T",
+             name: "T",
+             callable: nil,
+             segments: ["T"],
+             args: [],
+             assoc: %{},
+             generic_args: []
+           }
+         }},
+      {"[T]", "to_ascii_lowercase"} =>
+        {[],
+         %RustQ.Syn.Type.Path{
+           code: "Vec < u8 >",
+           name: "Vec",
+           callable: nil,
+           segments: ["Vec"],
+           args: [
+             %RustQ.Syn.Type.Path{
+               code: "u8",
+               name: "u8",
+               callable: nil,
+               segments: ["u8"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             }
+           ],
+           assoc: %{},
+           generic_args: [
+             %RustQ.Syn.Type.GenericArgument{
+               kind: :type,
+               name: nil,
+               type: %RustQ.Syn.Type.Path{
+                 code: "u8",
+                 name: "u8",
+                 callable: nil,
+                 segments: ["u8"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               source: nil
+             }
+           ]
+         }},
+      {"[T]", "split_first_chunk_mut"} =>
+        {[:T],
+         %RustQ.Syn.Type.Option{
+           code: "Option < (& mut [T ; N] , & mut [T]) >",
+           inner: %RustQ.Syn.Type.Tuple{
+             code: "(& mut [T ; N] , & mut [T])",
+             elems: [
+               %RustQ.Syn.Type.Ref{
+                 code: "& mut [T ; N]",
+                 inner: %RustQ.Syn.Type.Array{
+                   code: "[T ; N]",
+                   inner: %RustQ.Syn.Type.Path{
+                     code: "T",
+                     name: "T",
+                     callable: nil,
+                     segments: ["T"],
+                     args: [],
+                     assoc: %{},
+                     generic_args: []
+                   },
+                   length: "N"
+                 },
+                 lifetime: nil,
+                 mutable: true
+               },
+               %RustQ.Syn.Type.Ref{
+                 code: "& mut [T]",
+                 inner: %RustQ.Syn.Type.Slice{
+                   code: "[T]",
+                   inner: %RustQ.Syn.Type.Path{
+                     code: "T",
+                     name: "T",
+                     callable: nil,
+                     segments: ["T"],
+                     args: [],
+                     assoc: %{},
+                     generic_args: []
+                   }
+                 },
+                 lifetime: nil,
+                 mutable: true
+               }
+             ]
+           }
+         }},
+      {"Option", "transpose"} =>
+        {[:T, :E],
+         %RustQ.Syn.Type.Result{
+           code: "Result < Option < T > , E >",
+           ok: %RustQ.Syn.Type.Option{
+             code: "Option < T >",
+             inner: %RustQ.Syn.Type.Path{
+               code: "T",
+               name: "T",
+               callable: nil,
+               segments: ["T"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             }
+           },
+           error: %RustQ.Syn.Type.Path{
+             code: "E",
+             name: "E",
+             callable: nil,
+             segments: ["E"],
+             args: [],
+             assoc: %{},
+             generic_args: []
+           }
+         }},
+      {"str", "trim_left"} =>
+        {[],
+         %RustQ.Syn.Type.Ref{
+           code: "& str",
+           inner: %RustQ.Syn.Type.Path{
+             code: "str",
+             name: "str",
+             callable: nil,
+             segments: ["str"],
+             args: [],
+             assoc: %{},
+             generic_args: []
+           },
+           lifetime: nil,
+           mutable: false
+         }},
+      {"str", "contains"} =>
+        {[],
+         %RustQ.Syn.Type.Path{
+           code: "bool",
+           name: "bool",
+           callable: nil,
+           segments: ["bool"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"Option", "copied"} =>
+        {[:T],
+         %RustQ.Syn.Type.Option{
+           code: "Option < T >",
+           inner: %RustQ.Syn.Type.Path{
+             code: "T",
+             name: "T",
+             callable: nil,
+             segments: ["T"],
+             args: [],
+             assoc: %{},
+             generic_args: []
+           }
+         }},
+      {"str", "as_bytes_mut"} =>
+        {[],
+         %RustQ.Syn.Type.Ref{
+           code: "& mut [u8]",
+           inner: %RustQ.Syn.Type.Slice{
+             code: "[u8]",
+             inner: %RustQ.Syn.Type.Path{
+               code: "u8",
+               name: "u8",
+               callable: nil,
+               segments: ["u8"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             }
+           },
+           lifetime: nil,
+           mutable: true
+         }},
+      {"[T]", "concat"} =>
+        {[:T], %RustQ.Syn.Type.Raw{code: "< Self as Concat < Item > > :: Output"}},
+      {"[T]", "as_ptr"} => {[:T], %RustQ.Syn.Type.Raw{code: "* const T"}},
+      {"[T]", "select_nth_unstable_by"} =>
+        {[:T],
+         %RustQ.Syn.Type.Tuple{
+           code: "(& mut [T] , & mut T , & mut [T])",
+           elems: [
+             %RustQ.Syn.Type.Ref{
+               code: "& mut [T]",
+               inner: %RustQ.Syn.Type.Slice{
+                 code: "[T]",
+                 inner: %RustQ.Syn.Type.Path{
+                   code: "T",
+                   name: "T",
+                   callable: nil,
+                   segments: ["T"],
+                   args: [],
+                   assoc: %{},
+                   generic_args: []
+                 }
+               },
+               lifetime: nil,
+               mutable: true
+             },
+             %RustQ.Syn.Type.Ref{
+               code: "& mut T",
+               inner: %RustQ.Syn.Type.Path{
+                 code: "T",
+                 name: "T",
+                 callable: nil,
+                 segments: ["T"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               lifetime: nil,
+               mutable: true
+             },
+             %RustQ.Syn.Type.Ref{
+               code: "& mut [T]",
+               inner: %RustQ.Syn.Type.Slice{
+                 code: "[T]",
+                 inner: %RustQ.Syn.Type.Path{
+                   code: "T",
+                   name: "T",
+                   callable: nil,
+                   segments: ["T"],
+                   args: [],
+                   assoc: %{},
+                   generic_args: []
+                 }
+               },
+               lifetime: nil,
+               mutable: true
+             }
+           ]
+         }},
+      {"String", "drain"} =>
+        {[],
+         %RustQ.Syn.Type.Path{
+           code: "Drain < '_ >",
+           name: "Drain",
+           callable: nil,
+           segments: ["Drain"],
+           args: [],
+           assoc: %{},
+           generic_args: [
+             %RustQ.Syn.Type.GenericArgument{kind: :lifetime, name: nil, type: nil, source: "'_"}
+           ]
+         }},
+      {"[T]", "rchunks_exact_mut"} =>
+        {[:T],
+         %RustQ.Syn.Type.Path{
+           code: "RChunksExactMut < '_ , T >",
+           name: "RChunksExactMut",
+           callable: nil,
+           segments: ["RChunksExactMut"],
+           args: [
+             %RustQ.Syn.Type.Path{
+               code: "T",
+               name: "T",
+               callable: nil,
+               segments: ["T"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             }
+           ],
+           assoc: %{},
+           generic_args: [
+             %RustQ.Syn.Type.GenericArgument{kind: :lifetime, name: nil, type: nil, source: "'_"},
+             %RustQ.Syn.Type.GenericArgument{
+               kind: :type,
+               name: nil,
+               type: %RustQ.Syn.Type.Path{
+                 code: "T",
+                 name: "T",
+                 callable: nil,
+                 segments: ["T"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               source: nil
+             }
+           ]
+         }},
+      {"String", "pop"} =>
+        {[],
+         %RustQ.Syn.Type.Option{
+           code: "Option < char >",
+           inner: %RustQ.Syn.Type.Path{
+             code: "char",
+             name: "char",
+             callable: nil,
+             segments: ["char"],
+             args: [],
+             assoc: %{},
+             generic_args: []
+           }
+         }},
+      {"Option", "expect"} =>
+        {[:T],
+         %RustQ.Syn.Type.Path{
+           code: "T",
+           name: "T",
+           callable: nil,
+           segments: ["T"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"[T]", "chunks_exact"} =>
+        {[:T],
+         %RustQ.Syn.Type.Path{
+           code: "ChunksExact < '_ , T >",
+           name: "ChunksExact",
+           callable: nil,
+           segments: ["ChunksExact"],
+           args: [
+             %RustQ.Syn.Type.Path{
+               code: "T",
+               name: "T",
+               callable: nil,
+               segments: ["T"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             }
+           ],
+           assoc: %{},
+           generic_args: [
+             %RustQ.Syn.Type.GenericArgument{kind: :lifetime, name: nil, type: nil, source: "'_"},
+             %RustQ.Syn.Type.GenericArgument{
+               kind: :type,
+               name: nil,
+               type: %RustQ.Syn.Type.Path{
+                 code: "T",
+                 name: "T",
+                 callable: nil,
+                 segments: ["T"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               source: nil
+             }
+           ]
+         }},
+      {"Option", "flatten"} =>
+        {[:T],
+         %RustQ.Syn.Type.Option{
+           code: "Option < T >",
+           inner: %RustQ.Syn.Type.Path{
+             code: "T",
+             name: "T",
+             callable: nil,
+             segments: ["T"],
+             args: [],
+             assoc: %{},
+             generic_args: []
+           }
+         }},
+      {"[T]", "last"} =>
+        {[:T],
+         %RustQ.Syn.Type.Option{
+           code: "Option < & T >",
+           inner: %RustQ.Syn.Type.Ref{
+             code: "& T",
+             inner: %RustQ.Syn.Type.Path{
+               code: "T",
+               name: "T",
+               callable: nil,
+               segments: ["T"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             },
+             lifetime: nil,
+             mutable: false
+           }
+         }},
+      {"[T]", "first"} =>
+        {[:T],
+         %RustQ.Syn.Type.Option{
+           code: "Option < & T >",
+           inner: %RustQ.Syn.Type.Ref{
+             code: "& T",
+             inner: %RustQ.Syn.Type.Path{
+               code: "T",
+               name: "T",
+               callable: nil,
+               segments: ["T"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             },
+             lifetime: nil,
+             mutable: false
+           }
+         }},
+      {"char", "is_digit"} =>
+        {[],
+         %RustQ.Syn.Type.Path{
+           code: "bool",
+           name: "bool",
+           callable: nil,
+           segments: ["bool"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"HashSet", "intersection"} =>
+        {[:T, :S, :A],
+         %RustQ.Syn.Type.Path{
+           code: "Intersection < 'a , T , S , A >",
+           name: "Intersection",
+           callable: nil,
+           segments: ["Intersection"],
+           args: [
+             %RustQ.Syn.Type.Path{
+               code: "T",
+               name: "T",
+               callable: nil,
+               segments: ["T"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             },
+             %RustQ.Syn.Type.Path{
+               code: "S",
+               name: "S",
+               callable: nil,
+               segments: ["S"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             },
+             %RustQ.Syn.Type.Path{
+               code: "A",
+               name: "A",
+               callable: nil,
+               segments: ["A"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             }
+           ],
+           assoc: %{},
+           generic_args: [
+             %RustQ.Syn.Type.GenericArgument{kind: :lifetime, name: nil, type: nil, source: "'a"},
+             %RustQ.Syn.Type.GenericArgument{
+               kind: :type,
+               name: nil,
+               type: %RustQ.Syn.Type.Path{
+                 code: "T",
+                 name: "T",
+                 callable: nil,
+                 segments: ["T"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               source: nil
+             },
+             %RustQ.Syn.Type.GenericArgument{
+               kind: :type,
+               name: nil,
+               type: %RustQ.Syn.Type.Path{
+                 code: "S",
+                 name: "S",
+                 callable: nil,
+                 segments: ["S"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               source: nil
+             },
+             %RustQ.Syn.Type.GenericArgument{
+               kind: :type,
+               name: nil,
+               type: %RustQ.Syn.Type.Path{
+                 code: "A",
+                 name: "A",
+                 callable: nil,
+                 segments: ["A"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               source: nil
+             }
+           ]
+         }},
+      {"Option", "as_mut"} =>
+        {[:T],
+         %RustQ.Syn.Type.Option{
+           code: "Option < & mut T >",
+           inner: %RustQ.Syn.Type.Ref{
+             code: "& mut T",
+             inner: %RustQ.Syn.Type.Path{
+               code: "T",
+               name: "T",
+               callable: nil,
+               segments: ["T"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             },
+             lifetime: nil,
+             mutable: true
+           }
+         }},
+      {"[T]", "split_off_first_mut"} =>
+        {[:T],
+         %RustQ.Syn.Type.Option{
+           code: "Option < & 'a mut T >",
+           inner: %RustQ.Syn.Type.Ref{
+             code: "& 'a mut T",
+             inner: %RustQ.Syn.Type.Path{
+               code: "T",
+               name: "T",
+               callable: nil,
+               segments: ["T"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             },
+             lifetime: "'a",
+             mutable: true
+           }
+         }},
+      {"[T]", "binary_search"} =>
+        {[:T],
+         %RustQ.Syn.Type.Result{
+           code: "Result < usize , usize >",
+           ok: %RustQ.Syn.Type.Path{
+             code: "usize",
+             name: "usize",
+             callable: nil,
+             segments: ["usize"],
+             args: [],
+             assoc: %{},
+             generic_args: []
+           },
+           error: %RustQ.Syn.Type.Path{
+             code: "usize",
+             name: "usize",
+             callable: nil,
+             segments: ["usize"],
+             args: [],
+             assoc: %{},
+             generic_args: []
+           }
+         }},
+      {"[T]", "subslice_range"} =>
+        {[:T],
+         %RustQ.Syn.Type.Option{
+           code: "Option < core :: range :: Range < usize > >",
+           inner: %RustQ.Syn.Type.Path{
+             code: "core :: range :: Range < usize >",
+             name: "Range",
+             callable: nil,
+             segments: ["core", "range", "Range"],
+             args: [
+               %RustQ.Syn.Type.Path{
+                 code: "usize",
+                 name: "usize",
+                 callable: nil,
+                 segments: ["usize"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               }
+             ],
+             assoc: %{},
+             generic_args: [
+               %RustQ.Syn.Type.GenericArgument{
+                 kind: :type,
+                 name: nil,
+                 type: %RustQ.Syn.Type.Path{
+                   code: "usize",
+                   name: "usize",
+                   callable: nil,
+                   segments: ["usize"],
+                   args: [],
+                   assoc: %{},
+                   generic_args: []
+                 },
+                 source: nil
+               }
+             ]
+           }
+         }},
+      {"char", "eq_ignore_ascii_case"} =>
+        {[],
+         %RustQ.Syn.Type.Path{
+           code: "bool",
+           name: "bool",
+           callable: nil,
+           segments: ["bool"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"Vec", "as_mut_slice"} =>
+        {[:T, :A],
+         %RustQ.Syn.Type.Ref{
+           code: "& mut [T]",
+           inner: %RustQ.Syn.Type.Slice{
+             code: "[T]",
+             inner: %RustQ.Syn.Type.Path{
+               code: "T",
+               name: "T",
+               callable: nil,
+               segments: ["T"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             }
+           },
+           lifetime: nil,
+           mutable: true
+         }},
+      {"HashMap", "try_reserve"} =>
+        {[:K, :V, :S, :A],
+         %RustQ.Syn.Type.Result{
+           code: "Result < () , TryReserveError >",
+           ok: %RustQ.Syn.Type.Tuple{code: "()", elems: []},
+           error: %RustQ.Syn.Type.Path{
+             code: "TryReserveError",
+             name: "TryReserveError",
+             callable: nil,
+             segments: ["TryReserveError"],
+             args: [],
+             assoc: %{},
+             generic_args: []
+           }
+         }},
+      {"Option", "is_some"} =>
+        {[:T],
+         %RustQ.Syn.Type.Path{
+           code: "bool",
+           name: "bool",
+           callable: nil,
+           segments: ["bool"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"Option", "iter_mut"} =>
+        {[:T],
+         %RustQ.Syn.Type.Path{
+           code: "IterMut < '_ , T >",
+           name: "IterMut",
+           callable: nil,
+           segments: ["IterMut"],
+           args: [
+             %RustQ.Syn.Type.Path{
+               code: "T",
+               name: "T",
+               callable: nil,
+               segments: ["T"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             }
+           ],
+           assoc: %{},
+           generic_args: [
+             %RustQ.Syn.Type.GenericArgument{kind: :lifetime, name: nil, type: nil, source: "'_"},
+             %RustQ.Syn.Type.GenericArgument{
+               kind: :type,
+               name: nil,
+               type: %RustQ.Syn.Type.Path{
+                 code: "T",
+                 name: "T",
+                 callable: nil,
+                 segments: ["T"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               source: nil
+             }
+           ]
+         }},
+      {"char", "is_uppercase"} =>
+        {[],
+         %RustQ.Syn.Type.Path{
+           code: "bool",
+           name: "bool",
+           callable: nil,
+           segments: ["bool"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"Option", "unwrap_unchecked"} =>
+        {[:T],
+         %RustQ.Syn.Type.Path{
+           code: "T",
+           name: "T",
+           callable: nil,
+           segments: ["T"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"HashMap", "hasher"} =>
+        {[:K, :V, :S, :A],
+         %RustQ.Syn.Type.Ref{
+           code: "& S",
+           inner: %RustQ.Syn.Type.Path{
+             code: "S",
+             name: "S",
+             callable: nil,
+             segments: ["S"],
+             args: [],
+             assoc: %{},
+             generic_args: []
+           },
+           lifetime: nil,
+           mutable: false
+         }},
+      {"[T]", "strip_circumfix"} =>
+        {[:T],
+         %RustQ.Syn.Type.Option{
+           code: "Option < & [T] >",
+           inner: %RustQ.Syn.Type.Ref{
+             code: "& [T]",
+             inner: %RustQ.Syn.Type.Slice{
+               code: "[T]",
+               inner: %RustQ.Syn.Type.Path{
+                 code: "T",
+                 name: "T",
+                 callable: nil,
+                 segments: ["T"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               }
+             },
+             lifetime: nil,
+             mutable: false
+           }
+         }},
+      {"[T]", "windows"} =>
+        {[:T],
+         %RustQ.Syn.Type.Path{
+           code: "Windows < '_ , T >",
+           name: "Windows",
+           callable: nil,
+           segments: ["Windows"],
+           args: [
+             %RustQ.Syn.Type.Path{
+               code: "T",
+               name: "T",
+               callable: nil,
+               segments: ["T"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             }
+           ],
+           assoc: %{},
+           generic_args: [
+             %RustQ.Syn.Type.GenericArgument{kind: :lifetime, name: nil, type: nil, source: "'_"},
+             %RustQ.Syn.Type.GenericArgument{
+               kind: :type,
+               name: nil,
+               type: %RustQ.Syn.Type.Path{
+                 code: "T",
+                 name: "T",
+                 callable: nil,
+                 segments: ["T"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               source: nil
+             }
+           ]
+         }},
+      {"[T]", "first_mut"} =>
+        {[:T],
+         %RustQ.Syn.Type.Option{
+           code: "Option < & mut T >",
+           inner: %RustQ.Syn.Type.Ref{
+             code: "& mut T",
+             inner: %RustQ.Syn.Type.Path{
+               code: "T",
+               name: "T",
+               callable: nil,
+               segments: ["T"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             },
+             lifetime: nil,
+             mutable: true
+           }
+         }},
+      {"[T]", "partition_point"} =>
+        {[:T],
+         %RustQ.Syn.Type.Path{
+           code: "usize",
+           name: "usize",
+           callable: nil,
+           segments: ["usize"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"String", "as_mut_vec"} =>
+        {[],
+         %RustQ.Syn.Type.Ref{
+           code: "& mut Vec < u8 >",
+           inner: %RustQ.Syn.Type.Path{
+             code: "Vec < u8 >",
+             name: "Vec",
+             callable: nil,
+             segments: ["Vec"],
+             args: [
+               %RustQ.Syn.Type.Path{
+                 code: "u8",
+                 name: "u8",
+                 callable: nil,
+                 segments: ["u8"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               }
+             ],
+             assoc: %{},
+             generic_args: [
+               %RustQ.Syn.Type.GenericArgument{
+                 kind: :type,
+                 name: nil,
+                 type: %RustQ.Syn.Type.Path{
+                   code: "u8",
+                   name: "u8",
+                   callable: nil,
+                   segments: ["u8"],
+                   args: [],
+                   assoc: %{},
+                   generic_args: []
+                 },
+                 source: nil
+               }
+             ]
+           },
+           lifetime: nil,
+           mutable: true
+         }},
+      {"Option", "is_none"} =>
+        {[:T],
+         %RustQ.Syn.Type.Path{
+           code: "bool",
+           name: "bool",
+           callable: nil,
+           segments: ["bool"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"Option", "take"} =>
+        {[:T],
+         %RustQ.Syn.Type.Option{
+           code: "Option < T >",
+           inner: %RustQ.Syn.Type.Path{
+             code: "T",
+             name: "T",
+             callable: nil,
+             segments: ["T"],
+             args: [],
+             assoc: %{},
+             generic_args: []
+           }
+         }},
+      {"str", "chars"} =>
+        {[],
+         %RustQ.Syn.Type.Path{
+           code: "Chars < '_ >",
+           name: "Chars",
+           callable: nil,
+           segments: ["Chars"],
+           args: [],
+           assoc: %{},
+           generic_args: [
+             %RustQ.Syn.Type.GenericArgument{kind: :lifetime, name: nil, type: nil, source: "'_"}
+           ]
+         }},
+      {"HashSet", "remove"} =>
+        {[:T, :S, :A],
+         %RustQ.Syn.Type.Path{
+           code: "bool",
+           name: "bool",
+           callable: nil,
+           segments: ["bool"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"str", "split_whitespace"} =>
+        {[],
+         %RustQ.Syn.Type.Path{
+           code: "SplitWhitespace < '_ >",
+           name: "SplitWhitespace",
+           callable: nil,
+           segments: ["SplitWhitespace"],
+           args: [],
+           assoc: %{},
+           generic_args: [
+             %RustQ.Syn.Type.GenericArgument{kind: :lifetime, name: nil, type: nil, source: "'_"}
+           ]
+         }},
+      {"[T]", "split_at_mut_checked"} =>
+        {[:T],
+         %RustQ.Syn.Type.Option{
+           code: "Option < (& mut [T] , & mut [T]) >",
+           inner: %RustQ.Syn.Type.Tuple{
+             code: "(& mut [T] , & mut [T])",
+             elems: [
+               %RustQ.Syn.Type.Ref{
+                 code: "& mut [T]",
+                 inner: %RustQ.Syn.Type.Slice{
+                   code: "[T]",
+                   inner: %RustQ.Syn.Type.Path{
+                     code: "T",
+                     name: "T",
+                     callable: nil,
+                     segments: ["T"],
+                     args: [],
+                     assoc: %{},
+                     generic_args: []
+                   }
+                 },
+                 lifetime: nil,
+                 mutable: true
+               },
+               %RustQ.Syn.Type.Ref{
+                 code: "& mut [T]",
+                 inner: %RustQ.Syn.Type.Slice{
+                   code: "[T]",
+                   inner: %RustQ.Syn.Type.Path{
+                     code: "T",
+                     name: "T",
+                     callable: nil,
+                     segments: ["T"],
+                     args: [],
+                     assoc: %{},
+                     generic_args: []
+                   }
+                 },
+                 lifetime: nil,
+                 mutable: true
+               }
+             ]
+           }
+         }},
+      {"[T]", "chunks_mut"} =>
+        {[:T],
+         %RustQ.Syn.Type.Path{
+           code: "ChunksMut < '_ , T >",
+           name: "ChunksMut",
+           callable: nil,
+           segments: ["ChunksMut"],
+           args: [
+             %RustQ.Syn.Type.Path{
+               code: "T",
+               name: "T",
+               callable: nil,
+               segments: ["T"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             }
+           ],
+           assoc: %{},
+           generic_args: [
+             %RustQ.Syn.Type.GenericArgument{kind: :lifetime, name: nil, type: nil, source: "'_"},
+             %RustQ.Syn.Type.GenericArgument{
+               kind: :type,
+               name: nil,
+               type: %RustQ.Syn.Type.Path{
+                 code: "T",
+                 name: "T",
+                 callable: nil,
+                 segments: ["T"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               source: nil
+             }
+           ]
+         }},
+      {"str", "repeat"} =>
+        {[],
+         %RustQ.Syn.Type.Path{
+           code: "String",
+           name: "String",
+           callable: nil,
+           segments: ["String"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"String", "try_reserve_exact"} =>
+        {[],
+         %RustQ.Syn.Type.Result{
+           code: "Result < () , TryReserveError >",
+           ok: %RustQ.Syn.Type.Tuple{code: "()", elems: []},
+           error: %RustQ.Syn.Type.Path{
+             code: "TryReserveError",
+             name: "TryReserveError",
+             callable: nil,
+             segments: ["TryReserveError"],
+             args: [],
+             assoc: %{},
+             generic_args: []
+           }
+         }},
+      {"[T]", "contains"} =>
+        {[:T],
+         %RustQ.Syn.Type.Path{
+           code: "bool",
+           name: "bool",
+           callable: nil,
+           segments: ["bool"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"[T]", "as_chunks"} =>
+        {[:T],
+         %RustQ.Syn.Type.Tuple{
+           code: "(& [[T ; N]] , & [T])",
+           elems: [
+             %RustQ.Syn.Type.Ref{
+               code: "& [[T ; N]]",
+               inner: %RustQ.Syn.Type.Slice{
+                 code: "[[T ; N]]",
+                 inner: %RustQ.Syn.Type.Array{
+                   code: "[T ; N]",
+                   inner: %RustQ.Syn.Type.Path{
+                     code: "T",
+                     name: "T",
+                     callable: nil,
+                     segments: ["T"],
+                     args: [],
+                     assoc: %{},
+                     generic_args: []
+                   },
+                   length: "N"
+                 }
+               },
+               lifetime: nil,
+               mutable: false
+             },
+             %RustQ.Syn.Type.Ref{
+               code: "& [T]",
+               inner: %RustQ.Syn.Type.Slice{
+                 code: "[T]",
+                 inner: %RustQ.Syn.Type.Path{
+                   code: "T",
+                   name: "T",
+                   callable: nil,
+                   segments: ["T"],
+                   args: [],
+                   assoc: %{},
+                   generic_args: []
+                 }
+               },
+               lifetime: nil,
+               mutable: false
+             }
+           ]
+         }},
+      {"char", "escape_debug"} =>
+        {[],
+         %RustQ.Syn.Type.Path{
+           code: "EscapeDebug",
+           name: "EscapeDebug",
+           callable: nil,
+           segments: ["EscapeDebug"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"str", "is_ascii"} =>
+        {[],
+         %RustQ.Syn.Type.Path{
+           code: "bool",
+           name: "bool",
+           callable: nil,
+           segments: ["bool"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"[T]", "split_last_mut"} =>
+        {[:T],
+         %RustQ.Syn.Type.Option{
+           code: "Option < (& mut T , & mut [T]) >",
+           inner: %RustQ.Syn.Type.Tuple{
+             code: "(& mut T , & mut [T])",
+             elems: [
+               %RustQ.Syn.Type.Ref{
+                 code: "& mut T",
+                 inner: %RustQ.Syn.Type.Path{
+                   code: "T",
+                   name: "T",
+                   callable: nil,
+                   segments: ["T"],
+                   args: [],
+                   assoc: %{},
+                   generic_args: []
+                 },
+                 lifetime: nil,
+                 mutable: true
+               },
+               %RustQ.Syn.Type.Ref{
+                 code: "& mut [T]",
+                 inner: %RustQ.Syn.Type.Slice{
+                   code: "[T]",
+                   inner: %RustQ.Syn.Type.Path{
+                     code: "T",
+                     name: "T",
+                     callable: nil,
+                     segments: ["T"],
+                     args: [],
+                     assoc: %{},
+                     generic_args: []
+                   }
+                 },
+                 lifetime: nil,
+                 mutable: true
+               }
+             ]
+           }
+         }},
+      {"[T]", "is_empty"} =>
+        {[:T],
+         %RustQ.Syn.Type.Path{
+           code: "bool",
+           name: "bool",
+           callable: nil,
+           segments: ["bool"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"str", "as_mut_ptr"} => {[], %RustQ.Syn.Type.Raw{code: "* mut u8"}},
+      {"str", "trim_end_matches"} =>
+        {[],
+         %RustQ.Syn.Type.Ref{
+           code: "& str",
+           inner: %RustQ.Syn.Type.Path{
+             code: "str",
+             name: "str",
+             callable: nil,
+             segments: ["str"],
+             args: [],
+             assoc: %{},
+             generic_args: []
+           },
+           lifetime: nil,
+           mutable: false
+         }},
+      {"HashSet", "difference"} =>
+        {[:T, :S, :A],
+         %RustQ.Syn.Type.Path{
+           code: "Difference < 'a , T , S , A >",
+           name: "Difference",
+           callable: nil,
+           segments: ["Difference"],
+           args: [
+             %RustQ.Syn.Type.Path{
+               code: "T",
+               name: "T",
+               callable: nil,
+               segments: ["T"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             },
+             %RustQ.Syn.Type.Path{
+               code: "S",
+               name: "S",
+               callable: nil,
+               segments: ["S"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             },
+             %RustQ.Syn.Type.Path{
+               code: "A",
+               name: "A",
+               callable: nil,
+               segments: ["A"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             }
+           ],
+           assoc: %{},
+           generic_args: [
+             %RustQ.Syn.Type.GenericArgument{kind: :lifetime, name: nil, type: nil, source: "'a"},
+             %RustQ.Syn.Type.GenericArgument{
+               kind: :type,
+               name: nil,
+               type: %RustQ.Syn.Type.Path{
+                 code: "T",
+                 name: "T",
+                 callable: nil,
+                 segments: ["T"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               source: nil
+             },
+             %RustQ.Syn.Type.GenericArgument{
+               kind: :type,
+               name: nil,
+               type: %RustQ.Syn.Type.Path{
+                 code: "S",
+                 name: "S",
+                 callable: nil,
+                 segments: ["S"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               source: nil
+             },
+             %RustQ.Syn.Type.GenericArgument{
+               kind: :type,
+               name: nil,
+               type: %RustQ.Syn.Type.Path{
+                 code: "A",
+                 name: "A",
+                 callable: nil,
+                 segments: ["A"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               source: nil
+             }
+           ]
+         }},
+      {"Option", "is_some_and"} =>
+        {[:T],
+         %RustQ.Syn.Type.Path{
+           code: "bool",
+           name: "bool",
+           callable: nil,
+           segments: ["bool"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"HashMap", "get_disjoint_unchecked_mut"} =>
+        {[:K, :V, :S, :A],
+         %RustQ.Syn.Type.Array{
+           code: "[Option < & '_ mut V > ; N]",
+           inner: %RustQ.Syn.Type.Option{
+             code: "Option < & '_ mut V >",
+             inner: %RustQ.Syn.Type.Ref{
+               code: "& '_ mut V",
+               inner: %RustQ.Syn.Type.Path{
+                 code: "V",
+                 name: "V",
+                 callable: nil,
+                 segments: ["V"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               lifetime: "'_",
+               mutable: true
+             }
+           },
+           length: "N"
+         }},
+      {"str", "lines"} =>
+        {[],
+         %RustQ.Syn.Type.Path{
+           code: "Lines < '_ >",
+           name: "Lines",
+           callable: nil,
+           segments: ["Lines"],
+           args: [],
+           assoc: %{},
+           generic_args: [
+             %RustQ.Syn.Type.GenericArgument{kind: :lifetime, name: nil, type: nil, source: "'_"}
+           ]
+         }},
+      {"HashMap", "capacity"} =>
+        {[:K, :V, :S, :A],
+         %RustQ.Syn.Type.Path{
+           code: "usize",
+           name: "usize",
+           callable: nil,
+           segments: ["usize"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"[T]", "as_ptr_range"} =>
+        {[:T],
+         %RustQ.Syn.Type.Path{
+           code: "Range < * const T >",
+           name: "Range",
+           callable: nil,
+           segments: ["Range"],
+           args: [%RustQ.Syn.Type.Raw{code: "* const T"}],
+           assoc: %{},
+           generic_args: [
+             %RustQ.Syn.Type.GenericArgument{
+               kind: :type,
+               name: nil,
+               type: %RustQ.Syn.Type.Raw{code: "* const T"},
+               source: nil
+             }
+           ]
+         }},
+      {"HashSet", "hasher"} =>
+        {[:T, :S, :A],
+         %RustQ.Syn.Type.Ref{
+           code: "& S",
+           inner: %RustQ.Syn.Type.Path{
+             code: "S",
+             name: "S",
+             callable: nil,
+             segments: ["S"],
+             args: [],
+             assoc: %{},
+             generic_args: []
+           },
+           lifetime: nil,
+           mutable: false
+         }},
+      {"String", "as_mut_str"} =>
+        {[],
+         %RustQ.Syn.Type.Ref{
+           code: "& mut str",
+           inner: %RustQ.Syn.Type.Path{
+             code: "str",
+             name: "str",
+             callable: nil,
+             segments: ["str"],
+             args: [],
+             assoc: %{},
+             generic_args: []
+           },
+           lifetime: nil,
+           mutable: true
+         }},
+      {"str", "split_at_mut_checked"} =>
+        {[],
+         %RustQ.Syn.Type.Option{
+           code: "Option < (& mut str , & mut str) >",
+           inner: %RustQ.Syn.Type.Tuple{
+             code: "(& mut str , & mut str)",
+             elems: [
+               %RustQ.Syn.Type.Ref{
+                 code: "& mut str",
+                 inner: %RustQ.Syn.Type.Path{
+                   code: "str",
+                   name: "str",
+                   callable: nil,
+                   segments: ["str"],
+                   args: [],
+                   assoc: %{},
+                   generic_args: []
+                 },
+                 lifetime: nil,
+                 mutable: true
+               },
+               %RustQ.Syn.Type.Ref{
+                 code: "& mut str",
+                 inner: %RustQ.Syn.Type.Path{
+                   code: "str",
+                   name: "str",
+                   callable: nil,
+                   segments: ["str"],
+                   args: [],
+                   assoc: %{},
+                   generic_args: []
+                 },
+                 lifetime: nil,
+                 mutable: true
+               }
+             ]
+           }
+         }},
+      {"str", "trim_ascii_end"} =>
+        {[],
+         %RustQ.Syn.Type.Ref{
+           code: "& str",
+           inner: %RustQ.Syn.Type.Path{
+             code: "str",
+             name: "str",
+             callable: nil,
+             segments: ["str"],
+             args: [],
+             assoc: %{},
+             generic_args: []
+           },
+           lifetime: nil,
+           mutable: false
+         }},
+      {"str", "to_ascii_uppercase"} =>
+        {[],
+         %RustQ.Syn.Type.Path{
+           code: "String",
+           name: "String",
+           callable: nil,
+           segments: ["String"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"str", "split_at_mut"} =>
+        {[],
+         %RustQ.Syn.Type.Tuple{
+           code: "(& mut str , & mut str)",
+           elems: [
+             %RustQ.Syn.Type.Ref{
+               code: "& mut str",
+               inner: %RustQ.Syn.Type.Path{
+                 code: "str",
+                 name: "str",
+                 callable: nil,
+                 segments: ["str"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               lifetime: nil,
+               mutable: true
+             },
+             %RustQ.Syn.Type.Ref{
+               code: "& mut str",
+               inner: %RustQ.Syn.Type.Path{
+                 code: "str",
+                 name: "str",
+                 callable: nil,
+                 segments: ["str"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               lifetime: nil,
+               mutable: true
+             }
+           ]
+         }},
+      {"Option", "as_mut_slice"} =>
+        {[:T],
+         %RustQ.Syn.Type.Ref{
+           code: "& mut [T]",
+           inner: %RustQ.Syn.Type.Slice{
+             code: "[T]",
+             inner: %RustQ.Syn.Type.Path{
+               code: "T",
+               name: "T",
+               callable: nil,
+               segments: ["T"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             }
+           },
+           lifetime: nil,
+           mutable: true
+         }},
+      {"str", "char_indices"} =>
+        {[],
+         %RustQ.Syn.Type.Path{
+           code: "CharIndices < '_ >",
+           name: "CharIndices",
+           callable: nil,
+           segments: ["CharIndices"],
+           args: [],
+           assoc: %{},
+           generic_args: [
+             %RustQ.Syn.Type.GenericArgument{kind: :lifetime, name: nil, type: nil, source: "'_"}
+           ]
+         }},
+      {"Option", "take_if"} =>
+        {[:T],
+         %RustQ.Syn.Type.Option{
+           code: "Option < T >",
+           inner: %RustQ.Syn.Type.Path{
+             code: "T",
+             name: "T",
+             callable: nil,
+             segments: ["T"],
+             args: [],
+             assoc: %{},
+             generic_args: []
+           }
+         }},
+      {"char", "to_digit"} =>
+        {[],
+         %RustQ.Syn.Type.Option{
+           code: "Option < u32 >",
+           inner: %RustQ.Syn.Type.Path{
+             code: "u32",
+             name: "u32",
+             callable: nil,
+             segments: ["u32"],
+             args: [],
+             assoc: %{},
+             generic_args: []
+           }
+         }},
+      {"HashMap", "into_values"} =>
+        {[:K, :V, :S, :A],
+         %RustQ.Syn.Type.Path{
+           code: "IntoValues < K , V , A >",
+           name: "IntoValues",
+           callable: nil,
+           segments: ["IntoValues"],
+           args: [
+             %RustQ.Syn.Type.Path{
+               code: "K",
+               name: "K",
+               callable: nil,
+               segments: ["K"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             },
+             %RustQ.Syn.Type.Path{
+               code: "V",
+               name: "V",
+               callable: nil,
+               segments: ["V"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             },
+             %RustQ.Syn.Type.Path{
+               code: "A",
+               name: "A",
+               callable: nil,
+               segments: ["A"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             }
+           ],
+           assoc: %{},
+           generic_args: [
+             %RustQ.Syn.Type.GenericArgument{
+               kind: :type,
+               name: nil,
+               type: %RustQ.Syn.Type.Path{
+                 code: "K",
+                 name: "K",
+                 callable: nil,
+                 segments: ["K"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               source: nil
+             },
+             %RustQ.Syn.Type.GenericArgument{
+               kind: :type,
+               name: nil,
+               type: %RustQ.Syn.Type.Path{
+                 code: "V",
+                 name: "V",
+                 callable: nil,
+                 segments: ["V"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               source: nil
+             },
+             %RustQ.Syn.Type.GenericArgument{
+               kind: :type,
+               name: nil,
+               type: %RustQ.Syn.Type.Path{
+                 code: "A",
+                 name: "A",
+                 callable: nil,
+                 segments: ["A"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               source: nil
+             }
+           ]
+         }},
+      {"str", "escape_unicode"} =>
+        {[],
+         %RustQ.Syn.Type.Path{
+           code: "EscapeUnicode < '_ >",
+           name: "EscapeUnicode",
+           callable: nil,
+           segments: ["EscapeUnicode"],
+           args: [],
+           assoc: %{},
+           generic_args: [
+             %RustQ.Syn.Type.GenericArgument{kind: :lifetime, name: nil, type: nil, source: "'_"}
+           ]
+         }},
+      {"[T]", "as_rchunks"} =>
+        {[:T],
+         %RustQ.Syn.Type.Tuple{
+           code: "(& [T] , & [[T ; N]])",
+           elems: [
+             %RustQ.Syn.Type.Ref{
+               code: "& [T]",
+               inner: %RustQ.Syn.Type.Slice{
+                 code: "[T]",
+                 inner: %RustQ.Syn.Type.Path{
+                   code: "T",
+                   name: "T",
+                   callable: nil,
+                   segments: ["T"],
+                   args: [],
+                   assoc: %{},
+                   generic_args: []
+                 }
+               },
+               lifetime: nil,
+               mutable: false
+             },
+             %RustQ.Syn.Type.Ref{
+               code: "& [[T ; N]]",
+               inner: %RustQ.Syn.Type.Slice{
+                 code: "[[T ; N]]",
+                 inner: %RustQ.Syn.Type.Array{
+                   code: "[T ; N]",
+                   inner: %RustQ.Syn.Type.Path{
+                     code: "T",
+                     name: "T",
+                     callable: nil,
+                     segments: ["T"],
+                     args: [],
+                     assoc: %{},
+                     generic_args: []
+                   },
+                   length: "N"
+                 }
+               },
+               lifetime: nil,
+               mutable: false
+             }
+           ]
+         }},
+      {"[T]", "starts_with"} =>
+        {[:T],
+         %RustQ.Syn.Type.Path{
+           code: "bool",
+           name: "bool",
+           callable: nil,
+           segments: ["bool"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"[T]", "strip_prefix"} =>
+        {[:T],
+         %RustQ.Syn.Type.Option{
+           code: "Option < & [T] >",
+           inner: %RustQ.Syn.Type.Ref{
+             code: "& [T]",
+             inner: %RustQ.Syn.Type.Slice{
+               code: "[T]",
+               inner: %RustQ.Syn.Type.Path{
+                 code: "T",
+                 name: "T",
+                 callable: nil,
+                 segments: ["T"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               }
+             },
+             lifetime: nil,
+             mutable: false
+           }
+         }},
+      {"Option", "is_none_or"} =>
+        {[:T],
+         %RustQ.Syn.Type.Path{
+           code: "bool",
+           name: "bool",
+           callable: nil,
+           segments: ["bool"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"[T]", "iter_mut"} =>
+        {[:T],
+         %RustQ.Syn.Type.Path{
+           code: "IterMut < '_ , T >",
+           name: "IterMut",
+           callable: nil,
+           segments: ["IterMut"],
+           args: [
+             %RustQ.Syn.Type.Path{
+               code: "T",
+               name: "T",
+               callable: nil,
+               segments: ["T"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             }
+           ],
+           assoc: %{},
+           generic_args: [
+             %RustQ.Syn.Type.GenericArgument{kind: :lifetime, name: nil, type: nil, source: "'_"},
+             %RustQ.Syn.Type.GenericArgument{
+               kind: :type,
+               name: nil,
+               type: %RustQ.Syn.Type.Path{
+                 code: "T",
+                 name: "T",
+                 callable: nil,
+                 segments: ["T"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               source: nil
+             }
+           ]
+         }},
+      {"HashMap", "keys"} =>
+        {[:K, :V, :S, :A],
+         %RustQ.Syn.Type.Path{
+           code: "Keys < '_ , K , V >",
+           name: "Keys",
+           callable: nil,
+           segments: ["Keys"],
+           args: [
+             %RustQ.Syn.Type.Path{
+               code: "K",
+               name: "K",
+               callable: nil,
+               segments: ["K"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             },
+             %RustQ.Syn.Type.Path{
+               code: "V",
+               name: "V",
+               callable: nil,
+               segments: ["V"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             }
+           ],
+           assoc: %{},
+           generic_args: [
+             %RustQ.Syn.Type.GenericArgument{kind: :lifetime, name: nil, type: nil, source: "'_"},
+             %RustQ.Syn.Type.GenericArgument{
+               kind: :type,
+               name: nil,
+               type: %RustQ.Syn.Type.Path{
+                 code: "K",
+                 name: "K",
+                 callable: nil,
+                 segments: ["K"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               source: nil
+             },
+             %RustQ.Syn.Type.GenericArgument{
+               kind: :type,
+               name: nil,
+               type: %RustQ.Syn.Type.Path{
+                 code: "V",
+                 name: "V",
+                 callable: nil,
+                 segments: ["V"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               source: nil
+             }
+           ]
+         }},
+      {"[T]", "last_chunk"} =>
+        {[:T],
+         %RustQ.Syn.Type.Option{
+           code: "Option < & [T ; N] >",
+           inner: %RustQ.Syn.Type.Ref{
+             code: "& [T ; N]",
+             inner: %RustQ.Syn.Type.Array{
+               code: "[T ; N]",
+               inner: %RustQ.Syn.Type.Path{
+                 code: "T",
+                 name: "T",
+                 callable: nil,
+                 segments: ["T"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               length: "N"
+             },
+             lifetime: nil,
+             mutable: false
+           }
+         }},
+      {"HashMap", "get_mut"} =>
+        {[:K, :V, :S, :A],
+         %RustQ.Syn.Type.Option{
+           code: "Option < & mut V >",
+           inner: %RustQ.Syn.Type.Ref{
+             code: "& mut V",
+             inner: %RustQ.Syn.Type.Path{
+               code: "V",
+               name: "V",
+               callable: nil,
+               segments: ["V"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             },
+             lifetime: nil,
+             mutable: true
+           }
+         }},
+      {"[T]", "as_mut_ptr_range"} =>
+        {[:T],
+         %RustQ.Syn.Type.Path{
+           code: "Range < * mut T >",
+           name: "Range",
+           callable: nil,
+           segments: ["Range"],
+           args: [%RustQ.Syn.Type.Raw{code: "* mut T"}],
+           assoc: %{},
+           generic_args: [
+             %RustQ.Syn.Type.GenericArgument{
+               kind: :type,
+               name: nil,
+               type: %RustQ.Syn.Type.Raw{code: "* mut T"},
+               source: nil
+             }
+           ]
+         }},
+      {"char", "to_ascii_lowercase"} =>
+        {[],
+         %RustQ.Syn.Type.Path{
+           code: "char",
+           name: "char",
+           callable: nil,
+           segments: ["char"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"String", "remove"} =>
+        {[],
+         %RustQ.Syn.Type.Path{
+           code: "char",
+           name: "char",
+           callable: nil,
+           segments: ["char"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"[T]", "split_first_mut"} =>
+        {[:T],
+         %RustQ.Syn.Type.Option{
+           code: "Option < (& mut T , & mut [T]) >",
+           inner: %RustQ.Syn.Type.Tuple{
+             code: "(& mut T , & mut [T])",
+             elems: [
+               %RustQ.Syn.Type.Ref{
+                 code: "& mut T",
+                 inner: %RustQ.Syn.Type.Path{
+                   code: "T",
+                   name: "T",
+                   callable: nil,
+                   segments: ["T"],
+                   args: [],
+                   assoc: %{},
+                   generic_args: []
+                 },
+                 lifetime: nil,
+                 mutable: true
+               },
+               %RustQ.Syn.Type.Ref{
+                 code: "& mut [T]",
+                 inner: %RustQ.Syn.Type.Slice{
+                   code: "[T]",
+                   inner: %RustQ.Syn.Type.Path{
+                     code: "T",
+                     name: "T",
+                     callable: nil,
+                     segments: ["T"],
+                     args: [],
+                     assoc: %{},
+                     generic_args: []
+                   }
+                 },
+                 lifetime: nil,
+                 mutable: true
+               }
+             ]
+           }
+         }},
+      {"Option", "get_or_insert_with"} =>
+        {[:T],
+         %RustQ.Syn.Type.Ref{
+           code: "& mut T",
+           inner: %RustQ.Syn.Type.Path{
+             code: "T",
+             name: "T",
+             callable: nil,
+             segments: ["T"],
+             args: [],
+             assoc: %{},
+             generic_args: []
+           },
+           lifetime: nil,
+           mutable: true
+         }},
+      {"str", "ceil_char_boundary"} =>
+        {[],
+         %RustQ.Syn.Type.Path{
+           code: "usize",
+           name: "usize",
+           callable: nil,
+           segments: ["usize"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"HashMap", "is_empty"} =>
+        {[:K, :V, :S, :A],
+         %RustQ.Syn.Type.Path{
+           code: "bool",
+           name: "bool",
+           callable: nil,
+           segments: ["bool"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"[T]", "split_off_last_mut"} =>
+        {[:T],
+         %RustQ.Syn.Type.Option{
+           code: "Option < & 'a mut T >",
+           inner: %RustQ.Syn.Type.Ref{
+             code: "& 'a mut T",
+             inner: %RustQ.Syn.Type.Path{
+               code: "T",
+               name: "T",
+               callable: nil,
+               segments: ["T"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             },
+             lifetime: "'a",
+             mutable: true
+           }
+         }},
+      {"[T]", "ends_with"} =>
+        {[:T],
+         %RustQ.Syn.Type.Path{
+           code: "bool",
+           name: "bool",
+           callable: nil,
+           segments: ["bool"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"HashMap", "contains_key"} =>
+        {[:K, :V, :S, :A],
+         %RustQ.Syn.Type.Path{
+           code: "bool",
+           name: "bool",
+           callable: nil,
+           segments: ["bool"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"[T]", "split_first_chunk"} =>
+        {[:T],
+         %RustQ.Syn.Type.Option{
+           code: "Option < (& [T ; N] , & [T]) >",
+           inner: %RustQ.Syn.Type.Tuple{
+             code: "(& [T ; N] , & [T])",
+             elems: [
+               %RustQ.Syn.Type.Ref{
+                 code: "& [T ; N]",
+                 inner: %RustQ.Syn.Type.Array{
+                   code: "[T ; N]",
+                   inner: %RustQ.Syn.Type.Path{
+                     code: "T",
+                     name: "T",
+                     callable: nil,
+                     segments: ["T"],
+                     args: [],
+                     assoc: %{},
+                     generic_args: []
+                   },
+                   length: "N"
+                 },
+                 lifetime: nil,
+                 mutable: false
+               },
+               %RustQ.Syn.Type.Ref{
+                 code: "& [T]",
+                 inner: %RustQ.Syn.Type.Slice{
+                   code: "[T]",
+                   inner: %RustQ.Syn.Type.Path{
+                     code: "T",
+                     name: "T",
+                     callable: nil,
+                     segments: ["T"],
+                     args: [],
+                     assoc: %{},
+                     generic_args: []
+                   }
+                 },
+                 lifetime: nil,
+                 mutable: false
+               }
+             ]
+           }
+         }},
+      {"str", "split_at_checked"} =>
+        {[],
+         %RustQ.Syn.Type.Option{
+           code: "Option < (& str , & str) >",
+           inner: %RustQ.Syn.Type.Tuple{
+             code: "(& str , & str)",
+             elems: [
+               %RustQ.Syn.Type.Ref{
+                 code: "& str",
+                 inner: %RustQ.Syn.Type.Path{
+                   code: "str",
+                   name: "str",
+                   callable: nil,
+                   segments: ["str"],
+                   args: [],
+                   assoc: %{},
+                   generic_args: []
+                 },
+                 lifetime: nil,
+                 mutable: false
+               },
+               %RustQ.Syn.Type.Ref{
+                 code: "& str",
+                 inner: %RustQ.Syn.Type.Path{
+                   code: "str",
+                   name: "str",
+                   callable: nil,
+                   segments: ["str"],
+                   args: [],
+                   assoc: %{},
+                   generic_args: []
+                 },
+                 lifetime: nil,
+                 mutable: false
+               }
+             ]
+           }
+         }},
+      {"[T]", "is_ascii"} =>
+        {[],
+         %RustQ.Syn.Type.Path{
+           code: "bool",
+           name: "bool",
+           callable: nil,
+           segments: ["bool"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"HashSet", "take"} =>
+        {[:T, :S, :A],
+         %RustQ.Syn.Type.Option{
+           code: "Option < T >",
+           inner: %RustQ.Syn.Type.Path{
+             code: "T",
+             name: "T",
+             callable: nil,
+             segments: ["T"],
+             args: [],
+             assoc: %{},
+             generic_args: []
+           }
+         }},
+      {"Vec", "is_empty"} =>
+        {[:T, :A],
+         %RustQ.Syn.Type.Path{
+           code: "bool",
+           name: "bool",
+           callable: nil,
+           segments: ["bool"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"str", "trim_ascii_start"} =>
+        {[],
+         %RustQ.Syn.Type.Ref{
+           code: "& str",
+           inner: %RustQ.Syn.Type.Path{
+             code: "str",
+             name: "str",
+             callable: nil,
+             segments: ["str"],
+             args: [],
+             assoc: %{},
+             generic_args: []
+           },
+           lifetime: nil,
+           mutable: false
+         }},
+      {"char", "is_ascii_lowercase"} =>
+        {[],
+         %RustQ.Syn.Type.Path{
+           code: "bool",
+           name: "bool",
+           callable: nil,
+           segments: ["bool"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"[T]", "escape_ascii"} =>
+        {[],
+         %RustQ.Syn.Type.Path{
+           code: "EscapeAscii < '_ >",
+           name: "EscapeAscii",
+           callable: nil,
+           segments: ["EscapeAscii"],
+           args: [],
+           assoc: %{},
+           generic_args: [
+             %RustQ.Syn.Type.GenericArgument{kind: :lifetime, name: nil, type: nil, source: "'_"}
+           ]
+         }},
+      {"str", "replace"} =>
+        {[],
+         %RustQ.Syn.Type.Path{
+           code: "String",
+           name: "String",
+           callable: nil,
+           segments: ["String"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"HashMap", "get_key_value"} =>
+        {[:K, :V, :S, :A],
+         %RustQ.Syn.Type.Option{
+           code: "Option < (& K , & V) >",
+           inner: %RustQ.Syn.Type.Tuple{
+             code: "(& K , & V)",
+             elems: [
+               %RustQ.Syn.Type.Ref{
+                 code: "& K",
+                 inner: %RustQ.Syn.Type.Path{
+                   code: "K",
+                   name: "K",
+                   callable: nil,
+                   segments: ["K"],
+                   args: [],
+                   assoc: %{},
+                   generic_args: []
+                 },
+                 lifetime: nil,
+                 mutable: false
+               },
+               %RustQ.Syn.Type.Ref{
+                 code: "& V",
+                 inner: %RustQ.Syn.Type.Path{
+                   code: "V",
+                   name: "V",
+                   callable: nil,
+                   segments: ["V"],
+                   args: [],
+                   assoc: %{},
+                   generic_args: []
+                 },
+                 lifetime: nil,
+                 mutable: false
+               }
+             ]
+           }
+         }},
+      {"[T]", "to_vec"} =>
+        {[:T],
+         %RustQ.Syn.Type.Path{
+           code: "Vec < T >",
+           name: "Vec",
+           callable: nil,
+           segments: ["Vec"],
+           args: [
+             %RustQ.Syn.Type.Path{
+               code: "T",
+               name: "T",
+               callable: nil,
+               segments: ["T"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             }
+           ],
+           assoc: %{},
+           generic_args: [
+             %RustQ.Syn.Type.GenericArgument{
+               kind: :type,
+               name: nil,
+               type: %RustQ.Syn.Type.Path{
+                 code: "T",
+                 name: "T",
+                 callable: nil,
+                 segments: ["T"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               source: nil
+             }
+           ]
+         }},
+      {"str", "split_at"} =>
+        {[],
+         %RustQ.Syn.Type.Tuple{
+           code: "(& str , & str)",
+           elems: [
+             %RustQ.Syn.Type.Ref{
+               code: "& str",
+               inner: %RustQ.Syn.Type.Path{
+                 code: "str",
+                 name: "str",
+                 callable: nil,
+                 segments: ["str"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               lifetime: nil,
+               mutable: false
+             },
+             %RustQ.Syn.Type.Ref{
+               code: "& str",
+               inner: %RustQ.Syn.Type.Path{
+                 code: "str",
+                 name: "str",
+                 callable: nil,
+                 segments: ["str"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               lifetime: nil,
+               mutable: false
+             }
+           ]
+         }},
+      {"[T]", "trim_ascii"} =>
+        {[],
+         %RustQ.Syn.Type.Ref{
+           code: "& [u8]",
+           inner: %RustQ.Syn.Type.Slice{
+             code: "[u8]",
+             inner: %RustQ.Syn.Type.Path{
+               code: "u8",
+               name: "u8",
+               callable: nil,
+               segments: ["u8"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             }
+           },
+           lifetime: nil,
+           mutable: false
+         }},
+      {"Option", "cloned"} =>
+        {[:T],
+         %RustQ.Syn.Type.Option{
+           code: "Option < T >",
+           inner: %RustQ.Syn.Type.Path{
+             code: "T",
+             name: "T",
+             callable: nil,
+             segments: ["T"],
+             args: [],
+             assoc: %{},
+             generic_args: []
+           }
+         }},
+      {"Vec", "leak"} =>
+        {[:T, :A],
+         %RustQ.Syn.Type.Ref{
+           code: "& 'a mut [T]",
+           inner: %RustQ.Syn.Type.Slice{
+             code: "[T]",
+             inner: %RustQ.Syn.Type.Path{
+               code: "T",
+               name: "T",
+               callable: nil,
+               segments: ["T"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             }
+           },
+           lifetime: "'a",
+           mutable: true
+         }},
+      {"HashMap", "iter_mut"} =>
+        {[:K, :V, :S, :A],
+         %RustQ.Syn.Type.Path{
+           code: "IterMut < '_ , K , V >",
+           name: "IterMut",
+           callable: nil,
+           segments: ["IterMut"],
+           args: [
+             %RustQ.Syn.Type.Path{
+               code: "K",
+               name: "K",
+               callable: nil,
+               segments: ["K"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             },
+             %RustQ.Syn.Type.Path{
+               code: "V",
+               name: "V",
+               callable: nil,
+               segments: ["V"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             }
+           ],
+           assoc: %{},
+           generic_args: [
+             %RustQ.Syn.Type.GenericArgument{kind: :lifetime, name: nil, type: nil, source: "'_"},
+             %RustQ.Syn.Type.GenericArgument{
+               kind: :type,
+               name: nil,
+               type: %RustQ.Syn.Type.Path{
+                 code: "K",
+                 name: "K",
+                 callable: nil,
+                 segments: ["K"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               source: nil
+             },
+             %RustQ.Syn.Type.GenericArgument{
+               kind: :type,
+               name: nil,
+               type: %RustQ.Syn.Type.Path{
+                 code: "V",
+                 name: "V",
+                 callable: nil,
+                 segments: ["V"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               source: nil
+             }
+           ]
+         }},
+      {"Vec", "pop_if"} =>
+        {[:T, :A],
+         %RustQ.Syn.Type.Option{
+           code: "Option < T >",
+           inner: %RustQ.Syn.Type.Path{
+             code: "T",
+             name: "T",
+             callable: nil,
+             segments: ["T"],
+             args: [],
+             assoc: %{},
+             generic_args: []
+           }
+         }},
+      {"char", "is_ascii_whitespace"} =>
+        {[],
+         %RustQ.Syn.Type.Path{
+           code: "bool",
+           name: "bool",
+           callable: nil,
+           segments: ["bool"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"[T]", "is_sorted_by_key"} =>
+        {[:T],
+         %RustQ.Syn.Type.Path{
+           code: "bool",
+           name: "bool",
+           callable: nil,
+           segments: ["bool"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"[T]", "binary_search_by"} =>
+        {[:T],
+         %RustQ.Syn.Type.Result{
+           code: "Result < usize , usize >",
+           ok: %RustQ.Syn.Type.Path{
+             code: "usize",
+             name: "usize",
+             callable: nil,
+             segments: ["usize"],
+             args: [],
+             assoc: %{},
+             generic_args: []
+           },
+           error: %RustQ.Syn.Type.Path{
+             code: "usize",
+             name: "usize",
+             callable: nil,
+             segments: ["usize"],
+             args: [],
+             assoc: %{},
+             generic_args: []
+           }
+         }},
+      {"char", "is_numeric"} =>
+        {[],
+         %RustQ.Syn.Type.Path{
+           code: "bool",
+           name: "bool",
+           callable: nil,
+           segments: ["bool"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"[T]", "repeat"} =>
+        {[:T],
+         %RustQ.Syn.Type.Path{
+           code: "Vec < T >",
+           name: "Vec",
+           callable: nil,
+           segments: ["Vec"],
+           args: [
+             %RustQ.Syn.Type.Path{
+               code: "T",
+               name: "T",
+               callable: nil,
+               segments: ["T"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             }
+           ],
+           assoc: %{},
+           generic_args: [
+             %RustQ.Syn.Type.GenericArgument{
+               kind: :type,
+               name: nil,
+               type: %RustQ.Syn.Type.Path{
+                 code: "T",
+                 name: "T",
+                 callable: nil,
+                 segments: ["T"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               source: nil
+             }
+           ]
+         }},
+      {"char", "is_ascii_punctuation"} =>
+        {[],
+         %RustQ.Syn.Type.Path{
+           code: "bool",
+           name: "bool",
+           callable: nil,
+           segments: ["bool"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"[T]", "trim_ascii_start"} =>
+        {[],
+         %RustQ.Syn.Type.Ref{
+           code: "& [u8]",
+           inner: %RustQ.Syn.Type.Slice{
+             code: "[u8]",
+             inner: %RustQ.Syn.Type.Path{
+               code: "u8",
+               name: "u8",
+               callable: nil,
+               segments: ["u8"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             }
+           },
+           lifetime: nil,
+           mutable: false
+         }},
+      {"HashSet", "is_subset"} =>
+        {[:T, :S, :A],
+         %RustQ.Syn.Type.Path{
+           code: "bool",
+           name: "bool",
+           callable: nil,
+           segments: ["bool"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"str", "substr_range"} =>
+        {[],
+         %RustQ.Syn.Type.Option{
+           code: "Option < Range < usize > >",
+           inner: %RustQ.Syn.Type.Path{
+             code: "Range < usize >",
+             name: "Range",
+             callable: nil,
+             segments: ["Range"],
+             args: [
+               %RustQ.Syn.Type.Path{
+                 code: "usize",
+                 name: "usize",
+                 callable: nil,
+                 segments: ["usize"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               }
+             ],
+             assoc: %{},
+             generic_args: [
+               %RustQ.Syn.Type.GenericArgument{
+                 kind: :type,
+                 name: nil,
+                 type: %RustQ.Syn.Type.Path{
+                   code: "usize",
+                   name: "usize",
+                   callable: nil,
+                   segments: ["usize"],
+                   args: [],
+                   assoc: %{},
+                   generic_args: []
+                 },
+                 source: nil
+               }
+             ]
+           }
+         }},
+      {"Option", "as_slice"} =>
+        {[:T],
+         %RustQ.Syn.Type.Ref{
+           code: "& [T]",
+           inner: %RustQ.Syn.Type.Slice{
+             code: "[T]",
+             inner: %RustQ.Syn.Type.Path{
+               code: "T",
+               name: "T",
+               callable: nil,
+               segments: ["T"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             }
+           },
+           lifetime: nil,
+           mutable: false
+         }},
+      {"HashMap", "get"} =>
+        {[:K, :V, :S, :A],
+         %RustQ.Syn.Type.Option{
+           code: "Option < & V >",
+           inner: %RustQ.Syn.Type.Ref{
+             code: "& V",
+             inner: %RustQ.Syn.Type.Path{
+               code: "V",
+               name: "V",
+               callable: nil,
+               segments: ["V"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             },
+             lifetime: nil,
+             mutable: false
+           }
+         }},
+      {"[T]", "element_offset"} =>
+        {[:T],
+         %RustQ.Syn.Type.Option{
+           code: "Option < usize >",
+           inner: %RustQ.Syn.Type.Path{
+             code: "usize",
+             name: "usize",
+             callable: nil,
+             segments: ["usize"],
+             args: [],
+             assoc: %{},
+             generic_args: []
+           }
+         }},
+      {"str", "strip_prefix"} =>
+        {[],
+         %RustQ.Syn.Type.Option{
+           code: "Option < & str >",
+           inner: %RustQ.Syn.Type.Ref{
+             code: "& str",
+             inner: %RustQ.Syn.Type.Path{
+               code: "str",
+               name: "str",
+               callable: nil,
+               segments: ["str"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             },
+             lifetime: nil,
+             mutable: false
+           }
+         }},
+      {"HashSet", "iter"} =>
+        {[:T, :S, :A],
+         %RustQ.Syn.Type.Path{
+           code: "Iter < '_ , T >",
+           name: "Iter",
+           callable: nil,
+           segments: ["Iter"],
+           args: [
+             %RustQ.Syn.Type.Path{
+               code: "T",
+               name: "T",
+               callable: nil,
+               segments: ["T"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             }
+           ],
+           assoc: %{},
+           generic_args: [
+             %RustQ.Syn.Type.GenericArgument{kind: :lifetime, name: nil, type: nil, source: "'_"},
+             %RustQ.Syn.Type.GenericArgument{
+               kind: :type,
+               name: nil,
+               type: %RustQ.Syn.Type.Path{
+                 code: "T",
+                 name: "T",
+                 callable: nil,
+                 segments: ["T"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               source: nil
+             }
+           ]
+         }},
+      {"char", "encode_utf16"} =>
+        {[],
+         %RustQ.Syn.Type.Ref{
+           code: "& mut [u16]",
+           inner: %RustQ.Syn.Type.Slice{
+             code: "[u16]",
+             inner: %RustQ.Syn.Type.Path{
+               code: "u16",
+               name: "u16",
+               callable: nil,
+               segments: ["u16"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             }
+           },
+           lifetime: nil,
+           mutable: true
+         }},
+      {"HashSet", "contains"} =>
+        {[:T, :S, :A],
+         %RustQ.Syn.Type.Path{
+           code: "bool",
+           name: "bool",
+           callable: nil,
+           segments: ["bool"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"char", "to_uppercase"} =>
+        {[],
+         %RustQ.Syn.Type.Path{
+           code: "ToUppercase",
+           name: "ToUppercase",
+           callable: nil,
+           segments: ["ToUppercase"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"Option", "unwrap_or_else"} =>
+        {[:T],
+         %RustQ.Syn.Type.Path{
+           code: "T",
+           name: "T",
+           callable: nil,
+           segments: ["T"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"HashMap", "drain"} =>
+        {[:K, :V, :S, :A],
+         %RustQ.Syn.Type.Path{
+           code: "Drain < '_ , K , V , A >",
+           name: "Drain",
+           callable: nil,
+           segments: ["Drain"],
+           args: [
+             %RustQ.Syn.Type.Path{
+               code: "K",
+               name: "K",
+               callable: nil,
+               segments: ["K"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             },
+             %RustQ.Syn.Type.Path{
+               code: "V",
+               name: "V",
+               callable: nil,
+               segments: ["V"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             },
+             %RustQ.Syn.Type.Path{
+               code: "A",
+               name: "A",
+               callable: nil,
+               segments: ["A"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             }
+           ],
+           assoc: %{},
+           generic_args: [
+             %RustQ.Syn.Type.GenericArgument{kind: :lifetime, name: nil, type: nil, source: "'_"},
+             %RustQ.Syn.Type.GenericArgument{
+               kind: :type,
+               name: nil,
+               type: %RustQ.Syn.Type.Path{
+                 code: "K",
+                 name: "K",
+                 callable: nil,
+                 segments: ["K"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               source: nil
+             },
+             %RustQ.Syn.Type.GenericArgument{
+               kind: :type,
+               name: nil,
+               type: %RustQ.Syn.Type.Path{
+                 code: "V",
+                 name: "V",
+                 callable: nil,
+                 segments: ["V"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               source: nil
+             },
+             %RustQ.Syn.Type.GenericArgument{
+               kind: :type,
+               name: nil,
+               type: %RustQ.Syn.Type.Path{
+                 code: "A",
+                 name: "A",
+                 callable: nil,
+                 segments: ["A"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               source: nil
+             }
+           ]
+         }},
+      {"Option", "unwrap_or"} =>
+        {[:T],
+         %RustQ.Syn.Type.Path{
+           code: "T",
+           name: "T",
+           callable: nil,
+           segments: ["T"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"char", "is_ascii_digit"} =>
+        {[],
+         %RustQ.Syn.Type.Path{
+           code: "bool",
+           name: "bool",
+           callable: nil,
+           segments: ["bool"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"char", "is_alphabetic"} =>
+        {[],
+         %RustQ.Syn.Type.Path{
+           code: "bool",
+           name: "bool",
+           callable: nil,
+           segments: ["bool"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"str", "trim_end"} =>
+        {[],
+         %RustQ.Syn.Type.Ref{
+           code: "& str",
+           inner: %RustQ.Syn.Type.Path{
+             code: "str",
+             name: "str",
+             callable: nil,
+             segments: ["str"],
+             args: [],
+             assoc: %{},
+             generic_args: []
+           },
+           lifetime: nil,
+           mutable: false
+         }},
+      {"char", "is_whitespace"} =>
+        {[],
+         %RustQ.Syn.Type.Path{
+           code: "bool",
+           name: "bool",
+           callable: nil,
+           segments: ["bool"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"[T]", "len"} =>
+        {[:T],
+         %RustQ.Syn.Type.Path{
+           code: "usize",
+           name: "usize",
+           callable: nil,
+           segments: ["usize"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"str", "trim_start_matches"} =>
+        {[],
+         %RustQ.Syn.Type.Ref{
+           code: "& str",
+           inner: %RustQ.Syn.Type.Path{
+             code: "str",
+             name: "str",
+             callable: nil,
+             segments: ["str"],
+             args: [],
+             assoc: %{},
+             generic_args: []
+           },
+           lifetime: nil,
+           mutable: false
+         }},
+      {"HashMap", "iter"} =>
+        {[:K, :V, :S, :A],
+         %RustQ.Syn.Type.Path{
+           code: "Iter < '_ , K , V >",
+           name: "Iter",
+           callable: nil,
+           segments: ["Iter"],
+           args: [
+             %RustQ.Syn.Type.Path{
+               code: "K",
+               name: "K",
+               callable: nil,
+               segments: ["K"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             },
+             %RustQ.Syn.Type.Path{
+               code: "V",
+               name: "V",
+               callable: nil,
+               segments: ["V"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             }
+           ],
+           assoc: %{},
+           generic_args: [
+             %RustQ.Syn.Type.GenericArgument{kind: :lifetime, name: nil, type: nil, source: "'_"},
+             %RustQ.Syn.Type.GenericArgument{
+               kind: :type,
+               name: nil,
+               type: %RustQ.Syn.Type.Path{
+                 code: "K",
+                 name: "K",
+                 callable: nil,
+                 segments: ["K"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               source: nil
+             },
+             %RustQ.Syn.Type.GenericArgument{
+               kind: :type,
+               name: nil,
+               type: %RustQ.Syn.Type.Path{
+                 code: "V",
+                 name: "V",
+                 callable: nil,
+                 segments: ["V"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               source: nil
+             }
+           ]
+         }},
+      {"Vec", "spare_capacity_mut"} =>
+        {[:T, :A],
+         %RustQ.Syn.Type.Ref{
+           code: "& mut [MaybeUninit < T >]",
+           inner: %RustQ.Syn.Type.Slice{
+             code: "[MaybeUninit < T >]",
+             inner: %RustQ.Syn.Type.Path{
+               code: "MaybeUninit < T >",
+               name: "MaybeUninit",
+               callable: nil,
+               segments: ["MaybeUninit"],
+               args: [
+                 %RustQ.Syn.Type.Path{
+                   code: "T",
+                   name: "T",
+                   callable: nil,
+                   segments: ["T"],
+                   args: [],
+                   assoc: %{},
+                   generic_args: []
+                 }
+               ],
+               assoc: %{},
+               generic_args: [
+                 %RustQ.Syn.Type.GenericArgument{
+                   kind: :type,
+                   name: nil,
+                   type: %RustQ.Syn.Type.Path{
+                     code: "T",
+                     name: "T",
+                     callable: nil,
+                     segments: ["T"],
+                     args: [],
+                     assoc: %{},
+                     generic_args: []
+                   },
+                   source: nil
+                 }
+               ]
+             }
+           },
+           lifetime: nil,
+           mutable: true
+         }},
+      {"char", "is_ascii"} =>
+        {[],
+         %RustQ.Syn.Type.Path{
+           code: "bool",
+           name: "bool",
+           callable: nil,
+           segments: ["bool"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"[T]", "split_last"} =>
+        {[:T],
+         %RustQ.Syn.Type.Option{
+           code: "Option < (& T , & [T]) >",
+           inner: %RustQ.Syn.Type.Tuple{
+             code: "(& T , & [T])",
+             elems: [
+               %RustQ.Syn.Type.Ref{
+                 code: "& T",
+                 inner: %RustQ.Syn.Type.Path{
+                   code: "T",
+                   name: "T",
+                   callable: nil,
+                   segments: ["T"],
+                   args: [],
+                   assoc: %{},
+                   generic_args: []
+                 },
+                 lifetime: nil,
+                 mutable: false
+               },
+               %RustQ.Syn.Type.Ref{
+                 code: "& [T]",
+                 inner: %RustQ.Syn.Type.Slice{
+                   code: "[T]",
+                   inner: %RustQ.Syn.Type.Path{
+                     code: "T",
+                     name: "T",
+                     callable: nil,
+                     segments: ["T"],
+                     args: [],
+                     assoc: %{},
+                     generic_args: []
+                   }
+                 },
+                 lifetime: nil,
+                 mutable: false
+               }
+             ]
+           }
+         }},
+      {"String", "into_boxed_str"} =>
+        {[],
+         %RustQ.Syn.Type.Path{
+           code: "Box < str >",
+           name: "Box",
+           callable: nil,
+           segments: ["Box"],
+           args: [
+             %RustQ.Syn.Type.Path{
+               code: "str",
+               name: "str",
+               callable: nil,
+               segments: ["str"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             }
+           ],
+           assoc: %{},
+           generic_args: [
+             %RustQ.Syn.Type.GenericArgument{
+               kind: :type,
+               name: nil,
+               type: %RustQ.Syn.Type.Path{
+                 code: "str",
+                 name: "str",
+                 callable: nil,
+                 segments: ["str"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               source: nil
+             }
+           ]
+         }},
+      {"Vec", "push_mut"} =>
+        {[:T, :A],
+         %RustQ.Syn.Type.Ref{
+           code: "& mut T",
+           inner: %RustQ.Syn.Type.Path{
+             code: "T",
+             name: "T",
+             callable: nil,
+             segments: ["T"],
+             args: [],
+             assoc: %{},
+             generic_args: []
+           },
+           lifetime: nil,
+           mutable: true
+         }},
+      {"char", "is_control"} =>
+        {[],
+         %RustQ.Syn.Type.Path{
+           code: "bool",
+           name: "bool",
+           callable: nil,
+           segments: ["bool"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"[T]", "last_chunk_mut"} =>
+        {[:T],
+         %RustQ.Syn.Type.Option{
+           code: "Option < & mut [T ; N] >",
+           inner: %RustQ.Syn.Type.Ref{
+             code: "& mut [T ; N]",
+             inner: %RustQ.Syn.Type.Array{
+               code: "[T ; N]",
+               inner: %RustQ.Syn.Type.Path{
+                 code: "T",
+                 name: "T",
+                 callable: nil,
+                 segments: ["T"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               length: "N"
+             },
+             lifetime: nil,
+             mutable: true
+           }
+         }},
+      {"Vec", "into_boxed_slice"} =>
+        {[:T, :A],
+         %RustQ.Syn.Type.Path{
+           code: "Box < [T] , A >",
+           name: "Box",
+           callable: nil,
+           segments: ["Box"],
+           args: [
+             %RustQ.Syn.Type.Slice{
+               code: "[T]",
+               inner: %RustQ.Syn.Type.Path{
+                 code: "T",
+                 name: "T",
+                 callable: nil,
+                 segments: ["T"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               }
+             },
+             %RustQ.Syn.Type.Path{
+               code: "A",
+               name: "A",
+               callable: nil,
+               segments: ["A"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             }
+           ],
+           assoc: %{},
+           generic_args: [
+             %RustQ.Syn.Type.GenericArgument{
+               kind: :type,
+               name: nil,
+               type: %RustQ.Syn.Type.Slice{
+                 code: "[T]",
+                 inner: %RustQ.Syn.Type.Path{
+                   code: "T",
+                   name: "T",
+                   callable: nil,
+                   segments: ["T"],
+                   args: [],
+                   assoc: %{},
+                   generic_args: []
+                 }
+               },
+               source: nil
+             },
+             %RustQ.Syn.Type.GenericArgument{
+               kind: :type,
+               name: nil,
+               type: %RustQ.Syn.Type.Path{
+                 code: "A",
+                 name: "A",
+                 callable: nil,
+                 segments: ["A"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               source: nil
+             }
+           ]
+         }},
+      {"Option", "as_pin_ref"} =>
+        {[:T],
+         %RustQ.Syn.Type.Option{
+           code: "Option < Pin < & T > >",
+           inner: %RustQ.Syn.Type.Path{
+             code: "Pin < & T >",
+             name: "Pin",
+             callable: nil,
+             segments: ["Pin"],
+             args: [
+               %RustQ.Syn.Type.Ref{
+                 code: "& T",
+                 inner: %RustQ.Syn.Type.Path{
+                   code: "T",
+                   name: "T",
+                   callable: nil,
+                   segments: ["T"],
+                   args: [],
+                   assoc: %{},
+                   generic_args: []
+                 },
+                 lifetime: nil,
+                 mutable: false
+               }
+             ],
+             assoc: %{},
+             generic_args: [
+               %RustQ.Syn.Type.GenericArgument{
+                 kind: :type,
+                 name: nil,
+                 type: %RustQ.Syn.Type.Ref{
+                   code: "& T",
+                   inner: %RustQ.Syn.Type.Path{
+                     code: "T",
+                     name: "T",
+                     callable: nil,
+                     segments: ["T"],
+                     args: [],
+                     assoc: %{},
+                     generic_args: []
+                   },
+                   lifetime: nil,
+                   mutable: false
+                 },
+                 source: nil
+               }
+             ]
+           }
+         }},
+      {"str", "is_empty"} =>
+        {[],
+         %RustQ.Syn.Type.Path{
+           code: "bool",
+           name: "bool",
+           callable: nil,
+           segments: ["bool"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"Vec", "as_slice"} =>
+        {[:T, :A],
+         %RustQ.Syn.Type.Ref{
+           code: "& [T]",
+           inner: %RustQ.Syn.Type.Slice{
+             code: "[T]",
+             inner: %RustQ.Syn.Type.Path{
+               code: "T",
+               name: "T",
+               callable: nil,
+               segments: ["T"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             }
+           },
+           lifetime: nil,
+           mutable: false
+         }},
+      {"str", "is_char_boundary"} =>
+        {[],
+         %RustQ.Syn.Type.Path{
+           code: "bool",
+           name: "bool",
+           callable: nil,
+           segments: ["bool"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"HashSet", "len"} =>
+        {[:T, :S, :A],
+         %RustQ.Syn.Type.Path{
+           code: "usize",
+           name: "usize",
+           callable: nil,
+           segments: ["usize"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"String", "into_bytes"} =>
+        {[],
+         %RustQ.Syn.Type.Path{
+           code: "Vec < u8 >",
+           name: "Vec",
+           callable: nil,
+           segments: ["Vec"],
+           args: [
+             %RustQ.Syn.Type.Path{
+               code: "u8",
+               name: "u8",
+               callable: nil,
+               segments: ["u8"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             }
+           ],
+           assoc: %{},
+           generic_args: [
+             %RustQ.Syn.Type.GenericArgument{
+               kind: :type,
+               name: nil,
+               type: %RustQ.Syn.Type.Path{
+                 code: "u8",
+                 name: "u8",
+                 callable: nil,
+                 segments: ["u8"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               source: nil
+             }
+           ]
+         }},
+      {"str", "trim_right_matches"} =>
+        {[],
+         %RustQ.Syn.Type.Ref{
+           code: "& str",
+           inner: %RustQ.Syn.Type.Path{
+             code: "str",
+             name: "str",
+             callable: nil,
+             segments: ["str"],
+             args: [],
+             assoc: %{},
+             generic_args: []
+           },
+           lifetime: nil,
+           mutable: false
+         }},
+      {"[T]", "as_mut_ptr"} => {[:T], %RustQ.Syn.Type.Raw{code: "* mut T"}},
+      {"[T]", "as_chunks_unchecked"} =>
+        {[:T],
+         %RustQ.Syn.Type.Ref{
+           code: "& [[T ; N]]",
+           inner: %RustQ.Syn.Type.Slice{
+             code: "[[T ; N]]",
+             inner: %RustQ.Syn.Type.Array{
+               code: "[T ; N]",
+               inner: %RustQ.Syn.Type.Path{
+                 code: "T",
+                 name: "T",
+                 callable: nil,
+                 segments: ["T"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               length: "N"
+             }
+           },
+           lifetime: nil,
+           mutable: false
+         }},
+      {"[T]", "select_nth_unstable"} =>
+        {[:T],
+         %RustQ.Syn.Type.Tuple{
+           code: "(& mut [T] , & mut T , & mut [T])",
+           elems: [
+             %RustQ.Syn.Type.Ref{
+               code: "& mut [T]",
+               inner: %RustQ.Syn.Type.Slice{
+                 code: "[T]",
+                 inner: %RustQ.Syn.Type.Path{
+                   code: "T",
+                   name: "T",
+                   callable: nil,
+                   segments: ["T"],
+                   args: [],
+                   assoc: %{},
+                   generic_args: []
+                 }
+               },
+               lifetime: nil,
+               mutable: true
+             },
+             %RustQ.Syn.Type.Ref{
+               code: "& mut T",
+               inner: %RustQ.Syn.Type.Path{
+                 code: "T",
+                 name: "T",
+                 callable: nil,
+                 segments: ["T"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               lifetime: nil,
+               mutable: true
+             },
+             %RustQ.Syn.Type.Ref{
+               code: "& mut [T]",
+               inner: %RustQ.Syn.Type.Slice{
+                 code: "[T]",
+                 inner: %RustQ.Syn.Type.Path{
+                   code: "T",
+                   name: "T",
+                   callable: nil,
+                   segments: ["T"],
+                   args: [],
+                   assoc: %{},
+                   generic_args: []
+                 }
+               },
+               lifetime: nil,
+               mutable: true
+             }
+           ]
+         }},
+      {"[T]", "as_flattened_mut"} =>
+        {[:T],
+         %RustQ.Syn.Type.Ref{
+           code: "& mut [T]",
+           inner: %RustQ.Syn.Type.Slice{
+             code: "[T]",
+             inner: %RustQ.Syn.Type.Path{
+               code: "T",
+               name: "T",
+               callable: nil,
+               segments: ["T"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             }
+           },
+           lifetime: nil,
+           mutable: true
+         }},
+      {"HashSet", "get"} =>
+        {[:T, :S, :A],
+         %RustQ.Syn.Type.Option{
+           code: "Option < & T >",
+           inner: %RustQ.Syn.Type.Ref{
+             code: "& T",
+             inner: %RustQ.Syn.Type.Path{
+               code: "T",
+               name: "T",
+               callable: nil,
+               segments: ["T"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             },
+             lifetime: nil,
+             mutable: false
+           }
+         }},
+      {"[T]", "is_sorted_by"} =>
+        {[:T],
+         %RustQ.Syn.Type.Path{
+           code: "bool",
+           name: "bool",
+           callable: nil,
+           segments: ["bool"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"char", "to_ascii_uppercase"} =>
+        {[],
+         %RustQ.Syn.Type.Path{
+           code: "char",
+           name: "char",
+           callable: nil,
+           segments: ["char"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"HashMap", "entry"} =>
+        {[:K, :V, :S, :A],
+         %RustQ.Syn.Type.Path{
+           code: "Entry < '_ , K , V , A >",
+           name: "Entry",
+           callable: nil,
+           segments: ["Entry"],
+           args: [
+             %RustQ.Syn.Type.Path{
+               code: "K",
+               name: "K",
+               callable: nil,
+               segments: ["K"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             },
+             %RustQ.Syn.Type.Path{
+               code: "V",
+               name: "V",
+               callable: nil,
+               segments: ["V"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             },
+             %RustQ.Syn.Type.Path{
+               code: "A",
+               name: "A",
+               callable: nil,
+               segments: ["A"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             }
+           ],
+           assoc: %{},
+           generic_args: [
+             %RustQ.Syn.Type.GenericArgument{kind: :lifetime, name: nil, type: nil, source: "'_"},
+             %RustQ.Syn.Type.GenericArgument{
+               kind: :type,
+               name: nil,
+               type: %RustQ.Syn.Type.Path{
+                 code: "K",
+                 name: "K",
+                 callable: nil,
+                 segments: ["K"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               source: nil
+             },
+             %RustQ.Syn.Type.GenericArgument{
+               kind: :type,
+               name: nil,
+               type: %RustQ.Syn.Type.Path{
+                 code: "V",
+                 name: "V",
+                 callable: nil,
+                 segments: ["V"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               source: nil
+             },
+             %RustQ.Syn.Type.GenericArgument{
+               kind: :type,
+               name: nil,
+               type: %RustQ.Syn.Type.Path{
+                 code: "A",
+                 name: "A",
+                 callable: nil,
+                 segments: ["A"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               source: nil
+             }
+           ]
+         }},
+      {"[T]", "split_at_checked"} =>
+        {[:T],
+         %RustQ.Syn.Type.Option{
+           code: "Option < (& [T] , & [T]) >",
+           inner: %RustQ.Syn.Type.Tuple{
+             code: "(& [T] , & [T])",
+             elems: [
+               %RustQ.Syn.Type.Ref{
+                 code: "& [T]",
+                 inner: %RustQ.Syn.Type.Slice{
+                   code: "[T]",
+                   inner: %RustQ.Syn.Type.Path{
+                     code: "T",
+                     name: "T",
+                     callable: nil,
+                     segments: ["T"],
+                     args: [],
+                     assoc: %{},
+                     generic_args: []
+                   }
+                 },
+                 lifetime: nil,
+                 mutable: false
+               },
+               %RustQ.Syn.Type.Ref{
+                 code: "& [T]",
+                 inner: %RustQ.Syn.Type.Slice{
+                   code: "[T]",
+                   inner: %RustQ.Syn.Type.Path{
+                     code: "T",
+                     name: "T",
+                     callable: nil,
+                     segments: ["T"],
+                     args: [],
+                     assoc: %{},
+                     generic_args: []
+                   }
+                 },
+                 lifetime: nil,
+                 mutable: false
+               }
+             ]
+           }
+         }},
+      {"String", "into_raw_parts"} =>
+        {[],
+         %RustQ.Syn.Type.Tuple{
+           code: "(* mut u8 , usize , usize)",
+           elems: [
+             %RustQ.Syn.Type.Raw{code: "* mut u8"},
+             %RustQ.Syn.Type.Path{
+               code: "usize",
+               name: "usize",
+               callable: nil,
+               segments: ["usize"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             },
+             %RustQ.Syn.Type.Path{
+               code: "usize",
+               name: "usize",
+               callable: nil,
+               segments: ["usize"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             }
+           ]
+         }},
+      {"str", "to_ascii_lowercase"} =>
+        {[],
+         %RustQ.Syn.Type.Path{
+           code: "String",
+           name: "String",
+           callable: nil,
+           segments: ["String"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"Vec", "into_flattened"} =>
+        {[:A, :T],
+         %RustQ.Syn.Type.Path{
+           code: "Vec < T , A >",
+           name: "Vec",
+           callable: nil,
+           segments: ["Vec"],
+           args: [
+             %RustQ.Syn.Type.Path{
+               code: "T",
+               name: "T",
+               callable: nil,
+               segments: ["T"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             },
+             %RustQ.Syn.Type.Path{
+               code: "A",
+               name: "A",
+               callable: nil,
+               segments: ["A"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             }
+           ],
+           assoc: %{},
+           generic_args: [
+             %RustQ.Syn.Type.GenericArgument{
+               kind: :type,
+               name: nil,
+               type: %RustQ.Syn.Type.Path{
+                 code: "T",
+                 name: "T",
+                 callable: nil,
+                 segments: ["T"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               source: nil
+             },
+             %RustQ.Syn.Type.GenericArgument{
+               kind: :type,
+               name: nil,
+               type: %RustQ.Syn.Type.Path{
+                 code: "A",
+                 name: "A",
+                 callable: nil,
+                 segments: ["A"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               source: nil
+             }
+           ]
+         }},
+      {"HashMap", "remove"} =>
+        {[:K, :V, :S, :A],
+         %RustQ.Syn.Type.Option{
+           code: "Option < V >",
+           inner: %RustQ.Syn.Type.Path{
+             code: "V",
+             name: "V",
+             callable: nil,
+             segments: ["V"],
+             args: [],
+             assoc: %{},
+             generic_args: []
+           }
+         }},
+      {"[T]", "split_first"} =>
+        {[:T],
+         %RustQ.Syn.Type.Option{
+           code: "Option < (& T , & [T]) >",
+           inner: %RustQ.Syn.Type.Tuple{
+             code: "(& T , & [T])",
+             elems: [
+               %RustQ.Syn.Type.Ref{
+                 code: "& T",
+                 inner: %RustQ.Syn.Type.Path{
+                   code: "T",
+                   name: "T",
+                   callable: nil,
+                   segments: ["T"],
+                   args: [],
+                   assoc: %{},
+                   generic_args: []
+                 },
+                 lifetime: nil,
+                 mutable: false
+               },
+               %RustQ.Syn.Type.Ref{
+                 code: "& [T]",
+                 inner: %RustQ.Syn.Type.Slice{
+                   code: "[T]",
+                   inner: %RustQ.Syn.Type.Path{
+                     code: "T",
+                     name: "T",
+                     callable: nil,
+                     segments: ["T"],
+                     args: [],
+                     assoc: %{},
+                     generic_args: []
+                   }
+                 },
+                 lifetime: nil,
+                 mutable: false
+               }
+             ]
+           }
+         }},
+      {"str", "eq_ignore_ascii_case"} =>
+        {[],
+         %RustQ.Syn.Type.Path{
+           code: "bool",
+           name: "bool",
+           callable: nil,
+           segments: ["bool"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"HashSet", "union"} =>
+        {[:T, :S, :A],
+         %RustQ.Syn.Type.Path{
+           code: "Union < 'a , T , S , A >",
+           name: "Union",
+           callable: nil,
+           segments: ["Union"],
+           args: [
+             %RustQ.Syn.Type.Path{
+               code: "T",
+               name: "T",
+               callable: nil,
+               segments: ["T"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             },
+             %RustQ.Syn.Type.Path{
+               code: "S",
+               name: "S",
+               callable: nil,
+               segments: ["S"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             },
+             %RustQ.Syn.Type.Path{
+               code: "A",
+               name: "A",
+               callable: nil,
+               segments: ["A"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             }
+           ],
+           assoc: %{},
+           generic_args: [
+             %RustQ.Syn.Type.GenericArgument{kind: :lifetime, name: nil, type: nil, source: "'a"},
+             %RustQ.Syn.Type.GenericArgument{
+               kind: :type,
+               name: nil,
+               type: %RustQ.Syn.Type.Path{
+                 code: "T",
+                 name: "T",
+                 callable: nil,
+                 segments: ["T"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               source: nil
+             },
+             %RustQ.Syn.Type.GenericArgument{
+               kind: :type,
+               name: nil,
+               type: %RustQ.Syn.Type.Path{
+                 code: "S",
+                 name: "S",
+                 callable: nil,
+                 segments: ["S"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               source: nil
+             },
+             %RustQ.Syn.Type.GenericArgument{
+               kind: :type,
+               name: nil,
+               type: %RustQ.Syn.Type.Path{
+                 code: "A",
+                 name: "A",
+                 callable: nil,
+                 segments: ["A"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               source: nil
+             }
+           ]
+         }},
+      {"char", "is_alphanumeric"} =>
+        {[],
+         %RustQ.Syn.Type.Path{
+           code: "bool",
+           name: "bool",
+           callable: nil,
+           segments: ["bool"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"[T]", "to_ascii_uppercase"} =>
+        {[],
+         %RustQ.Syn.Type.Path{
+           code: "Vec < u8 >",
+           name: "Vec",
+           callable: nil,
+           segments: ["Vec"],
+           args: [
+             %RustQ.Syn.Type.Path{
+               code: "u8",
+               name: "u8",
+               callable: nil,
+               segments: ["u8"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             }
+           ],
+           assoc: %{},
+           generic_args: [
+             %RustQ.Syn.Type.GenericArgument{
+               kind: :type,
+               name: nil,
+               type: %RustQ.Syn.Type.Path{
+                 code: "u8",
+                 name: "u8",
+                 callable: nil,
+                 segments: ["u8"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               source: nil
+             }
+           ]
+         }},
+      {"[T]", "as_mut_array"} =>
+        {[:T],
+         %RustQ.Syn.Type.Option{
+           code: "Option < & mut [T ; N] >",
+           inner: %RustQ.Syn.Type.Ref{
+             code: "& mut [T ; N]",
+             inner: %RustQ.Syn.Type.Array{
+               code: "[T ; N]",
+               inner: %RustQ.Syn.Type.Path{
+                 code: "T",
+                 name: "T",
+                 callable: nil,
+                 segments: ["T"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               length: "N"
+             },
+             lifetime: nil,
+             mutable: true
+           }
+         }},
+      {"Option", "replace"} =>
+        {[:T],
+         %RustQ.Syn.Type.Option{
+           code: "Option < T >",
+           inner: %RustQ.Syn.Type.Path{
+             code: "T",
+             name: "T",
+             callable: nil,
+             segments: ["T"],
+             args: [],
+             assoc: %{},
+             generic_args: []
+           }
+         }},
+      {"str", "trim_matches"} =>
+        {[],
+         %RustQ.Syn.Type.Ref{
+           code: "& str",
+           inner: %RustQ.Syn.Type.Path{
+             code: "str",
+             name: "str",
+             callable: nil,
+             segments: ["str"],
+             args: [],
+             assoc: %{},
+             generic_args: []
+           },
+           lifetime: nil,
+           mutable: false
+         }},
+      {"HashMap", "len"} =>
+        {[:K, :V, :S, :A],
+         %RustQ.Syn.Type.Path{
+           code: "usize",
+           name: "usize",
+           callable: nil,
+           segments: ["usize"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"[T]", "split_off_last"} =>
+        {[:T],
+         %RustQ.Syn.Type.Option{
+           code: "Option < & 'a T >",
+           inner: %RustQ.Syn.Type.Ref{
+             code: "& 'a T",
+             inner: %RustQ.Syn.Type.Path{
+               code: "T",
+               name: "T",
+               callable: nil,
+               segments: ["T"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             },
+             lifetime: "'a",
+             mutable: false
+           }
+         }},
+      {"str", "split_once"} =>
+        {[],
+         %RustQ.Syn.Type.Option{
+           code: "Option < (& '_ str , & '_ str) >",
+           inner: %RustQ.Syn.Type.Tuple{
+             code: "(& '_ str , & '_ str)",
+             elems: [
+               %RustQ.Syn.Type.Ref{
+                 code: "& '_ str",
+                 inner: %RustQ.Syn.Type.Path{
+                   code: "str",
+                   name: "str",
+                   callable: nil,
+                   segments: ["str"],
+                   args: [],
+                   assoc: %{},
+                   generic_args: []
+                 },
+                 lifetime: "'_",
+                 mutable: false
+               },
+               %RustQ.Syn.Type.Ref{
+                 code: "& '_ str",
+                 inner: %RustQ.Syn.Type.Path{
+                   code: "str",
+                   name: "str",
+                   callable: nil,
+                   segments: ["str"],
+                   args: [],
+                   assoc: %{},
+                   generic_args: []
+                 },
+                 lifetime: "'_",
+                 mutable: false
+               }
+             ]
+           }
+         }},
+      {"HashMap", "insert"} =>
+        {[:K, :V, :S, :A],
+         %RustQ.Syn.Type.Option{
+           code: "Option < V >",
+           inner: %RustQ.Syn.Type.Path{
+             code: "V",
+             name: "V",
+             callable: nil,
+             segments: ["V"],
+             args: [],
+             assoc: %{},
+             generic_args: []
+           }
+         }},
+      {"str", "bytes"} =>
+        {[],
+         %RustQ.Syn.Type.Path{
+           code: "Bytes < '_ >",
+           name: "Bytes",
+           callable: nil,
+           segments: ["Bytes"],
+           args: [],
+           assoc: %{},
+           generic_args: [
+             %RustQ.Syn.Type.GenericArgument{kind: :lifetime, name: nil, type: nil, source: "'_"}
+           ]
+         }},
+      {"Option", "or"} =>
+        {[:T],
+         %RustQ.Syn.Type.Option{
+           code: "Option < T >",
+           inner: %RustQ.Syn.Type.Path{
+             code: "T",
+             name: "T",
+             callable: nil,
+             segments: ["T"],
+             args: [],
+             assoc: %{},
+             generic_args: []
+           }
+         }},
+      {"Vec", "try_reserve_exact"} =>
+        {[:T, :A],
+         %RustQ.Syn.Type.Result{
+           code: "Result < () , TryReserveError >",
+           ok: %RustQ.Syn.Type.Tuple{code: "()", elems: []},
+           error: %RustQ.Syn.Type.Path{
+             code: "TryReserveError",
+             name: "TryReserveError",
+             callable: nil,
+             segments: ["TryReserveError"],
+             args: [],
+             assoc: %{},
+             generic_args: []
+           }
+         }},
+      {"HashSet", "is_superset"} =>
+        {[:T, :S, :A],
+         %RustQ.Syn.Type.Path{
+           code: "bool",
+           name: "bool",
+           callable: nil,
+           segments: ["bool"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"String", "split_off"} =>
+        {[],
+         %RustQ.Syn.Type.Path{
+           code: "String",
+           name: "String",
+           callable: nil,
+           segments: ["String"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"Option", "insert"} =>
+        {[:T],
+         %RustQ.Syn.Type.Ref{
+           code: "& mut T",
+           inner: %RustQ.Syn.Type.Path{
+             code: "T",
+             name: "T",
+             callable: nil,
+             segments: ["T"],
+             args: [],
+             assoc: %{},
+             generic_args: []
+           },
+           lifetime: nil,
+           mutable: true
+         }},
+      {"char", "is_ascii_hexdigit"} =>
+        {[],
+         %RustQ.Syn.Type.Path{
+           code: "bool",
+           name: "bool",
+           callable: nil,
+           segments: ["bool"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"[T]", "write_clone_of_slice"} =>
+        {[:T],
+         %RustQ.Syn.Type.Ref{
+           code: "& mut [T]",
+           inner: %RustQ.Syn.Type.Slice{
+             code: "[T]",
+             inner: %RustQ.Syn.Type.Path{
+               code: "T",
+               name: "T",
+               callable: nil,
+               segments: ["T"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             }
+           },
+           lifetime: nil,
+           mutable: true
+         }},
+      {"String", "as_bytes"} =>
+        {[],
+         %RustQ.Syn.Type.Ref{
+           code: "& [u8]",
+           inner: %RustQ.Syn.Type.Slice{
+             code: "[u8]",
+             inner: %RustQ.Syn.Type.Path{
+               code: "u8",
+               name: "u8",
+               callable: nil,
+               segments: ["u8"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             }
+           },
+           lifetime: nil,
+           mutable: false
+         }},
+      {"[T]", "as_array"} =>
+        {[:T],
+         %RustQ.Syn.Type.Option{
+           code: "Option < & [T ; N] >",
+           inner: %RustQ.Syn.Type.Ref{
+             code: "& [T ; N]",
+             inner: %RustQ.Syn.Type.Array{
+               code: "[T ; N]",
+               inner: %RustQ.Syn.Type.Path{
+                 code: "T",
+                 name: "T",
+                 callable: nil,
+                 segments: ["T"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               length: "N"
+             },
+             lifetime: nil,
+             mutable: false
+           }
+         }},
+      {"Option", "as_deref_mut"} =>
+        {[:T],
+         %RustQ.Syn.Type.Option{
+           code: "Option < & mut T :: Target >",
+           inner: %RustQ.Syn.Type.Ref{
+             code: "& mut T :: Target",
+             inner: %RustQ.Syn.Type.Path{
+               code: "T :: Target",
+               name: "Target",
+               callable: nil,
+               segments: ["T", "Target"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             },
+             lifetime: nil,
+             mutable: true
+           }
+         }},
+      {"Option", "as_pin_mut"} =>
+        {[:T],
+         %RustQ.Syn.Type.Option{
+           code: "Option < Pin < & mut T > >",
+           inner: %RustQ.Syn.Type.Path{
+             code: "Pin < & mut T >",
+             name: "Pin",
+             callable: nil,
+             segments: ["Pin"],
+             args: [
+               %RustQ.Syn.Type.Ref{
+                 code: "& mut T",
+                 inner: %RustQ.Syn.Type.Path{
+                   code: "T",
+                   name: "T",
+                   callable: nil,
+                   segments: ["T"],
+                   args: [],
+                   assoc: %{},
+                   generic_args: []
+                 },
+                 lifetime: nil,
+                 mutable: true
+               }
+             ],
+             assoc: %{},
+             generic_args: [
+               %RustQ.Syn.Type.GenericArgument{
+                 kind: :type,
+                 name: nil,
+                 type: %RustQ.Syn.Type.Ref{
+                   code: "& mut T",
+                   inner: %RustQ.Syn.Type.Path{
+                     code: "T",
+                     name: "T",
+                     callable: nil,
+                     segments: ["T"],
+                     args: [],
+                     assoc: %{},
+                     generic_args: []
+                   },
+                   lifetime: nil,
+                   mutable: true
+                 },
+                 source: nil
+               }
+             ]
+           }
+         }},
+      {"str", "floor_char_boundary"} =>
+        {[],
+         %RustQ.Syn.Type.Path{
+           code: "usize",
+           name: "usize",
+           callable: nil,
+           segments: ["usize"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"char", "is_ascii_graphic"} =>
+        {[],
+         %RustQ.Syn.Type.Path{
+           code: "bool",
+           name: "bool",
+           callable: nil,
+           segments: ["bool"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"[T]", "utf8_chunks"} =>
+        {[],
+         %RustQ.Syn.Type.Path{
+           code: "Utf8Chunks < '_ >",
+           name: "Utf8Chunks",
+           callable: nil,
+           segments: ["Utf8Chunks"],
+           args: [],
+           assoc: %{},
+           generic_args: [
+             %RustQ.Syn.Type.GenericArgument{kind: :lifetime, name: nil, type: nil, source: "'_"}
+           ]
+         }},
+      {"Option", "unzip"} =>
+        {[:T, :U],
+         %RustQ.Syn.Type.Tuple{
+           code: "(Option < T > , Option < U >)",
+           elems: [
+             %RustQ.Syn.Type.Option{
+               code: "Option < T >",
+               inner: %RustQ.Syn.Type.Path{
+                 code: "T",
+                 name: "T",
+                 callable: nil,
+                 segments: ["T"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               }
+             },
+             %RustQ.Syn.Type.Option{
+               code: "Option < U >",
+               inner: %RustQ.Syn.Type.Path{
+                 code: "U",
+                 name: "U",
+                 callable: nil,
+                 segments: ["U"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               }
+             }
+           ]
+         }},
+      {"str", "lines_any"} =>
+        {[],
+         %RustQ.Syn.Type.Path{
+           code: "LinesAny < '_ >",
+           name: "LinesAny",
+           callable: nil,
+           segments: ["LinesAny"],
+           args: [],
+           assoc: %{},
+           generic_args: [
+             %RustQ.Syn.Type.GenericArgument{kind: :lifetime, name: nil, type: nil, source: "'_"}
+           ]
+         }},
+      {"[T]", "iter"} =>
+        {[:T],
+         %RustQ.Syn.Type.Path{
+           code: "Iter < '_ , T >",
+           name: "Iter",
+           callable: nil,
+           segments: ["Iter"],
+           args: [
+             %RustQ.Syn.Type.Path{
+               code: "T",
+               name: "T",
+               callable: nil,
+               segments: ["T"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             }
+           ],
+           assoc: %{},
+           generic_args: [
+             %RustQ.Syn.Type.GenericArgument{kind: :lifetime, name: nil, type: nil, source: "'_"},
+             %RustQ.Syn.Type.GenericArgument{
+               kind: :type,
+               name: nil,
+               type: %RustQ.Syn.Type.Path{
+                 code: "T",
+                 name: "T",
+                 callable: nil,
+                 segments: ["T"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               source: nil
+             }
+           ]
+         }},
+      {"Vec", "insert_mut"} =>
+        {[:T, :A],
+         %RustQ.Syn.Type.Ref{
+           code: "& mut T",
+           inner: %RustQ.Syn.Type.Path{
+             code: "T",
+             name: "T",
+             callable: nil,
+             segments: ["T"],
+             args: [],
+             assoc: %{},
+             generic_args: []
+           },
+           lifetime: nil,
+           mutable: true
+         }},
+      {"[T]", "select_nth_unstable_by_key"} =>
+        {[:T],
+         %RustQ.Syn.Type.Tuple{
+           code: "(& mut [T] , & mut T , & mut [T])",
+           elems: [
+             %RustQ.Syn.Type.Ref{
+               code: "& mut [T]",
+               inner: %RustQ.Syn.Type.Slice{
+                 code: "[T]",
+                 inner: %RustQ.Syn.Type.Path{
+                   code: "T",
+                   name: "T",
+                   callable: nil,
+                   segments: ["T"],
+                   args: [],
+                   assoc: %{},
+                   generic_args: []
+                 }
+               },
+               lifetime: nil,
+               mutable: true
+             },
+             %RustQ.Syn.Type.Ref{
+               code: "& mut T",
+               inner: %RustQ.Syn.Type.Path{
+                 code: "T",
+                 name: "T",
+                 callable: nil,
+                 segments: ["T"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               lifetime: nil,
+               mutable: true
+             },
+             %RustQ.Syn.Type.Ref{
+               code: "& mut [T]",
+               inner: %RustQ.Syn.Type.Slice{
+                 code: "[T]",
+                 inner: %RustQ.Syn.Type.Path{
+                   code: "T",
+                   name: "T",
+                   callable: nil,
+                   segments: ["T"],
+                   args: [],
+                   assoc: %{},
+                   generic_args: []
+                 }
+               },
+               lifetime: nil,
+               mutable: true
+             }
+           ]
+         }},
+      {"String", "leak"} =>
+        {[],
+         %RustQ.Syn.Type.Ref{
+           code: "& 'a mut str",
+           inner: %RustQ.Syn.Type.Path{
+             code: "str",
+             name: "str",
+             callable: nil,
+             segments: ["str"],
+             args: [],
+             assoc: %{},
+             generic_args: []
+           },
+           lifetime: "'a",
+           mutable: true
+         }},
+      {"Option", "unwrap_or_default"} =>
+        {[:T],
+         %RustQ.Syn.Type.Path{
+           code: "T",
+           name: "T",
+           callable: nil,
+           segments: ["T"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"Vec", "len"} =>
+        {[:T, :A],
+         %RustQ.Syn.Type.Path{
+           code: "usize",
+           name: "usize",
+           callable: nil,
+           segments: ["usize"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"HashSet", "try_reserve"} =>
+        {[:T, :S, :A],
+         %RustQ.Syn.Type.Result{
+           code: "Result < () , TryReserveError >",
+           ok: %RustQ.Syn.Type.Tuple{code: "()", elems: []},
+           error: %RustQ.Syn.Type.Path{
+             code: "TryReserveError",
+             name: "TryReserveError",
+             callable: nil,
+             segments: ["TryReserveError"],
+             args: [],
+             assoc: %{},
+             generic_args: []
+           }
+         }},
+      {"HashMap", "remove_entry"} =>
+        {[:K, :V, :S, :A],
+         %RustQ.Syn.Type.Option{
+           code: "Option < (K , V) >",
+           inner: %RustQ.Syn.Type.Tuple{
+             code: "(K , V)",
+             elems: [
+               %RustQ.Syn.Type.Path{
+                 code: "K",
+                 name: "K",
+                 callable: nil,
+                 segments: ["K"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               %RustQ.Syn.Type.Path{
+                 code: "V",
+                 name: "V",
+                 callable: nil,
+                 segments: ["V"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               }
+             ]
+           }
+         }},
+      {"Option", "iter"} =>
+        {[:T],
+         %RustQ.Syn.Type.Path{
+           code: "Iter < '_ , T >",
+           name: "Iter",
+           callable: nil,
+           segments: ["Iter"],
+           args: [
+             %RustQ.Syn.Type.Path{
+               code: "T",
+               name: "T",
+               callable: nil,
+               segments: ["T"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             }
+           ],
+           assoc: %{},
+           generic_args: [
+             %RustQ.Syn.Type.GenericArgument{kind: :lifetime, name: nil, type: nil, source: "'_"},
+             %RustQ.Syn.Type.GenericArgument{
+               kind: :type,
+               name: nil,
+               type: %RustQ.Syn.Type.Path{
+                 code: "T",
+                 name: "T",
+                 callable: nil,
+                 segments: ["T"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               source: nil
+             }
+           ]
+         }},
+      {"char", "is_ascii_uppercase"} =>
+        {[],
+         %RustQ.Syn.Type.Path{
+           code: "bool",
+           name: "bool",
+           callable: nil,
+           segments: ["bool"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"str", "encode_utf16"} =>
+        {[],
+         %RustQ.Syn.Type.Path{
+           code: "EncodeUtf16 < '_ >",
+           name: "EncodeUtf16",
+           callable: nil,
+           segments: ["EncodeUtf16"],
+           args: [],
+           assoc: %{},
+           generic_args: [
+             %RustQ.Syn.Type.GenericArgument{kind: :lifetime, name: nil, type: nil, source: "'_"}
+           ]
+         }},
+      {"char", "escape_default"} =>
+        {[],
+         %RustQ.Syn.Type.Path{
+           code: "EscapeDefault",
+           name: "EscapeDefault",
+           callable: nil,
+           segments: ["EscapeDefault"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"[T]", "rchunks_exact"} =>
+        {[:T],
+         %RustQ.Syn.Type.Path{
+           code: "RChunksExact < '_ , T >",
+           name: "RChunksExact",
+           callable: nil,
+           segments: ["RChunksExact"],
+           args: [
+             %RustQ.Syn.Type.Path{
+               code: "T",
+               name: "T",
+               callable: nil,
+               segments: ["T"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             }
+           ],
+           assoc: %{},
+           generic_args: [
+             %RustQ.Syn.Type.GenericArgument{kind: :lifetime, name: nil, type: nil, source: "'_"},
+             %RustQ.Syn.Type.GenericArgument{
+               kind: :type,
+               name: nil,
+               type: %RustQ.Syn.Type.Path{
+                 code: "T",
+                 name: "T",
+                 callable: nil,
+                 segments: ["T"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               source: nil
+             }
+           ]
+         }},
+      {"str", "trim_ascii"} =>
+        {[],
+         %RustQ.Syn.Type.Ref{
+           code: "& str",
+           inner: %RustQ.Syn.Type.Path{
+             code: "str",
+             name: "str",
+             callable: nil,
+             segments: ["str"],
+             args: [],
+             assoc: %{},
+             generic_args: []
+           },
+           lifetime: nil,
+           mutable: false
+         }},
+      {"HashMap", "values"} =>
+        {[:K, :V, :S, :A],
+         %RustQ.Syn.Type.Path{
+           code: "Values < '_ , K , V >",
+           name: "Values",
+           callable: nil,
+           segments: ["Values"],
+           args: [
+             %RustQ.Syn.Type.Path{
+               code: "K",
+               name: "K",
+               callable: nil,
+               segments: ["K"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             },
+             %RustQ.Syn.Type.Path{
+               code: "V",
+               name: "V",
+               callable: nil,
+               segments: ["V"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             }
+           ],
+           assoc: %{},
+           generic_args: [
+             %RustQ.Syn.Type.GenericArgument{kind: :lifetime, name: nil, type: nil, source: "'_"},
+             %RustQ.Syn.Type.GenericArgument{
+               kind: :type,
+               name: nil,
+               type: %RustQ.Syn.Type.Path{
+                 code: "K",
+                 name: "K",
+                 callable: nil,
+                 segments: ["K"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               source: nil
+             },
+             %RustQ.Syn.Type.GenericArgument{
+               kind: :type,
+               name: nil,
+               type: %RustQ.Syn.Type.Path{
+                 code: "V",
+                 name: "V",
+                 callable: nil,
+                 segments: ["V"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               source: nil
+             }
+           ]
+         }},
+      {"str", "as_ptr"} => {[], %RustQ.Syn.Type.Raw{code: "* const u8"}},
+      {"char", "to_lowercase"} =>
+        {[],
+         %RustQ.Syn.Type.Path{
+           code: "ToLowercase",
+           name: "ToLowercase",
+           callable: nil,
+           segments: ["ToLowercase"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"[T]", "split_at_unchecked"} =>
+        {[:T],
+         %RustQ.Syn.Type.Tuple{
+           code: "(& [T] , & [T])",
+           elems: [
+             %RustQ.Syn.Type.Ref{
+               code: "& [T]",
+               inner: %RustQ.Syn.Type.Slice{
+                 code: "[T]",
+                 inner: %RustQ.Syn.Type.Path{
+                   code: "T",
+                   name: "T",
+                   callable: nil,
+                   segments: ["T"],
+                   args: [],
+                   assoc: %{},
+                   generic_args: []
+                 }
+               },
+               lifetime: nil,
+               mutable: false
+             },
+             %RustQ.Syn.Type.Ref{
+               code: "& [T]",
+               inner: %RustQ.Syn.Type.Slice{
+                 code: "[T]",
+                 inner: %RustQ.Syn.Type.Path{
+                   code: "T",
+                   name: "T",
+                   callable: nil,
+                   segments: ["T"],
+                   args: [],
+                   assoc: %{},
+                   generic_args: []
+                 }
+               },
+               lifetime: nil,
+               mutable: false
+             }
+           ]
+         }},
+      {"[T]", "chunks_exact_mut"} =>
+        {[:T],
+         %RustQ.Syn.Type.Path{
+           code: "ChunksExactMut < '_ , T >",
+           name: "ChunksExactMut",
+           callable: nil,
+           segments: ["ChunksExactMut"],
+           args: [
+             %RustQ.Syn.Type.Path{
+               code: "T",
+               name: "T",
+               callable: nil,
+               segments: ["T"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             }
+           ],
+           assoc: %{},
+           generic_args: [
+             %RustQ.Syn.Type.GenericArgument{kind: :lifetime, name: nil, type: nil, source: "'_"},
+             %RustQ.Syn.Type.GenericArgument{
+               kind: :type,
+               name: nil,
+               type: %RustQ.Syn.Type.Path{
+                 code: "T",
+                 name: "T",
+                 callable: nil,
+                 segments: ["T"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               source: nil
+             }
+           ]
+         }},
+      {"Option", "as_deref"} =>
+        {[:T],
+         %RustQ.Syn.Type.Option{
+           code: "Option < & T :: Target >",
+           inner: %RustQ.Syn.Type.Ref{
+             code: "& T :: Target",
+             inner: %RustQ.Syn.Type.Path{
+               code: "T :: Target",
+               name: "Target",
+               callable: nil,
+               segments: ["T", "Target"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             },
+             lifetime: nil,
+             mutable: false
+           }
+         }},
+      {"String", "try_reserve"} =>
+        {[],
+         %RustQ.Syn.Type.Result{
+           code: "Result < () , TryReserveError >",
+           ok: %RustQ.Syn.Type.Tuple{code: "()", elems: []},
+           error: %RustQ.Syn.Type.Path{
+             code: "TryReserveError",
+             name: "TryReserveError",
+             callable: nil,
+             segments: ["TryReserveError"],
+             args: [],
+             assoc: %{},
+             generic_args: []
+           }
+         }},
+      {"HashMap", "get_disjoint_mut"} =>
+        {[:K, :V, :S, :A],
+         %RustQ.Syn.Type.Array{
+           code: "[Option < & '_ mut V > ; N]",
+           inner: %RustQ.Syn.Type.Option{
+             code: "Option < & '_ mut V >",
+             inner: %RustQ.Syn.Type.Ref{
+               code: "& '_ mut V",
+               inner: %RustQ.Syn.Type.Path{
+                 code: "V",
+                 name: "V",
+                 callable: nil,
+                 segments: ["V"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               lifetime: "'_",
+               mutable: true
+             }
+           },
+           length: "N"
+         }},
+      {"str", "rsplit_once"} =>
+        {[],
+         %RustQ.Syn.Type.Option{
+           code: "Option < (& '_ str , & '_ str) >",
+           inner: %RustQ.Syn.Type.Tuple{
+             code: "(& '_ str , & '_ str)",
+             elems: [
+               %RustQ.Syn.Type.Ref{
+                 code: "& '_ str",
+                 inner: %RustQ.Syn.Type.Path{
+                   code: "str",
+                   name: "str",
+                   callable: nil,
+                   segments: ["str"],
+                   args: [],
+                   assoc: %{},
+                   generic_args: []
+                 },
+                 lifetime: "'_",
+                 mutable: false
+               },
+               %RustQ.Syn.Type.Ref{
+                 code: "& '_ str",
+                 inner: %RustQ.Syn.Type.Path{
+                   code: "str",
+                   name: "str",
+                   callable: nil,
+                   segments: ["str"],
+                   args: [],
+                   assoc: %{},
+                   generic_args: []
+                 },
+                 lifetime: "'_",
+                 mutable: false
+               }
+             ]
+           }
+         }},
+      {"str", "starts_with"} =>
+        {[],
+         %RustQ.Syn.Type.Path{
+           code: "bool",
+           name: "bool",
+           callable: nil,
+           segments: ["bool"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"HashSet", "drain"} =>
+        {[:T, :S, :A],
+         %RustQ.Syn.Type.Path{
+           code: "Drain < '_ , T , A >",
+           name: "Drain",
+           callable: nil,
+           segments: ["Drain"],
+           args: [
+             %RustQ.Syn.Type.Path{
+               code: "T",
+               name: "T",
+               callable: nil,
+               segments: ["T"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             },
+             %RustQ.Syn.Type.Path{
+               code: "A",
+               name: "A",
+               callable: nil,
+               segments: ["A"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             }
+           ],
+           assoc: %{},
+           generic_args: [
+             %RustQ.Syn.Type.GenericArgument{kind: :lifetime, name: nil, type: nil, source: "'_"},
+             %RustQ.Syn.Type.GenericArgument{
+               kind: :type,
+               name: nil,
+               type: %RustQ.Syn.Type.Path{
+                 code: "T",
+                 name: "T",
+                 callable: nil,
+                 segments: ["T"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               source: nil
+             },
+             %RustQ.Syn.Type.GenericArgument{
+               kind: :type,
+               name: nil,
+               type: %RustQ.Syn.Type.Path{
+                 code: "A",
+                 name: "A",
+                 callable: nil,
+                 segments: ["A"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               source: nil
+             }
+           ]
+         }},
+      {"str", "into_string"} =>
+        {[],
+         %RustQ.Syn.Type.Path{
+           code: "String",
+           name: "String",
+           callable: nil,
+           segments: ["String"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"str", "escape_default"} =>
+        {[],
+         %RustQ.Syn.Type.Path{
+           code: "EscapeDefault < '_ >",
+           name: "EscapeDefault",
+           callable: nil,
+           segments: ["EscapeDefault"],
+           args: [],
+           assoc: %{},
+           generic_args: [
+             %RustQ.Syn.Type.GenericArgument{kind: :lifetime, name: nil, type: nil, source: "'_"}
+           ]
+         }},
+      {"[T]", "first_chunk"} =>
+        {[:T],
+         %RustQ.Syn.Type.Option{
+           code: "Option < & [T ; N] >",
+           inner: %RustQ.Syn.Type.Ref{
+             code: "& [T ; N]",
+             inner: %RustQ.Syn.Type.Array{
+               code: "[T ; N]",
+               inner: %RustQ.Syn.Type.Path{
+                 code: "T",
+                 name: "T",
+                 callable: nil,
+                 segments: ["T"],
+                 args: [],
+                 assoc: %{},
+                 generic_args: []
+               },
+               length: "N"
+             },
+             lifetime: nil,
+             mutable: false
+           }
+         }},
+      {"char", "is_ascii_alphabetic"} =>
+        {[],
+         %RustQ.Syn.Type.Path{
+           code: "bool",
+           name: "bool",
+           callable: nil,
+           segments: ["bool"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"String", "capacity"} =>
+        {[],
+         %RustQ.Syn.Type.Path{
+           code: "usize",
+           name: "usize",
+           callable: nil,
+           segments: ["usize"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"[T]", "as_rchunks_mut"} =>
+        {[:T],
+         %RustQ.Syn.Type.Tuple{
+           code: "(& mut [T] , & mut [[T ; N]])",
+           elems: [
+             %RustQ.Syn.Type.Ref{
+               code: "& mut [T]",
+               inner: %RustQ.Syn.Type.Slice{
+                 code: "[T]",
+                 inner: %RustQ.Syn.Type.Path{
+                   code: "T",
+                   name: "T",
+                   callable: nil,
+                   segments: ["T"],
+                   args: [],
+                   assoc: %{},
+                   generic_args: []
+                 }
+               },
+               lifetime: nil,
+               mutable: true
+             },
+             %RustQ.Syn.Type.Ref{
+               code: "& mut [[T ; N]]",
+               inner: %RustQ.Syn.Type.Slice{
+                 code: "[[T ; N]]",
+                 inner: %RustQ.Syn.Type.Array{
+                   code: "[T ; N]",
+                   inner: %RustQ.Syn.Type.Path{
+                     code: "T",
+                     name: "T",
+                     callable: nil,
+                     segments: ["T"],
+                     args: [],
+                     assoc: %{},
+                     generic_args: []
+                   },
+                   length: "N"
+                 }
+               },
+               lifetime: nil,
+               mutable: true
+             }
+           ]
+         }},
+      {"str", "rfind"} =>
+        {[],
+         %RustQ.Syn.Type.Option{
+           code: "Option < usize >",
+           inner: %RustQ.Syn.Type.Path{
+             code: "usize",
+             name: "usize",
+             callable: nil,
+             segments: ["usize"],
+             args: [],
+             assoc: %{},
+             generic_args: []
+           }
+         }},
+      {"[T]", "eq_ignore_ascii_case"} =>
+        {[],
+         %RustQ.Syn.Type.Path{
+           code: "bool",
+           name: "bool",
+           callable: nil,
+           segments: ["bool"],
+           args: [],
+           assoc: %{},
+           generic_args: []
+         }},
+      {"[T]", "split_off_first"} =>
+        {[:T],
+         %RustQ.Syn.Type.Option{
+           code: "Option < & 'a T >",
+           inner: %RustQ.Syn.Type.Ref{
+             code: "& 'a T",
+             inner: %RustQ.Syn.Type.Path{
+               code: "T",
+               name: "T",
+               callable: nil,
+               segments: ["T"],
+               args: [],
+               assoc: %{},
+               generic_args: []
+             },
+             lifetime: "'a",
+             mutable: false
+           }
+         }}
     }
 end

@@ -205,6 +205,51 @@ defmodule RustQ.Meta.Type do
     type(:tuple, %AST.TypeTuple{items: Enum.map(elements, & &1.ast)}, %{elements: elements})
   end
 
+  @doc """
+  `type` with each type parameter `bindings` names replaced by its binding, as `Option<&T>`
+  with `T` bound to `String` is `Option<&String>`. A parameter bound to nil, such as a `Vec`'s
+  allocator, is unknown, and so is a type naming one, or naming a parameter where it cannot be
+  replaced.
+  """
+  @spec substitute(t(), %{optional(atom()) => t() | nil}) :: t() | nil
+  def substitute(%__MODULE__{ast: %AST.TypePath{parts: [name], generics: []}} = type, bindings),
+    do: Map.get(bindings, name, type)
+
+  def substitute(
+        %__MODULE__{kind: kind, ast: ast, meta: %{inner: %__MODULE__{} = inner}},
+        bindings
+      )
+      when kind in [:ref, :mut_ref, :option, :vec, :slice] and is_map_key(ast, :inner) do
+    with %__MODULE__{} = inner <- substitute(inner, bindings) do
+      type(kind, %{ast | inner: inner.ast}, %{inner: inner})
+    end
+  end
+
+  def substitute(%__MODULE__{kind: :tuple, meta: %{elements: elements}}, bindings) do
+    elements = Enum.map(elements, &substitute(&1, bindings))
+    if Enum.all?(elements, & &1), do: tuple_type(elements)
+  end
+
+  def substitute(%__MODULE__{kind: :result, meta: %{ok: ok, error: error}}, bindings) do
+    with %__MODULE__{} = ok <- substitute(ok, bindings),
+         %__MODULE__{} = error <- substitute(error, bindings) do
+      type(:result, %AST.TypeResult{ok: ok.ast, error: error.ast}, %{ok: ok, error: error})
+    end
+  end
+
+  def substitute(%__MODULE__{ast: ast} = type, bindings),
+    do: if(names_any?(ast, Map.keys(bindings)), do: nil, else: type)
+
+  defp names_any?(%AST.TypePath{parts: [name], generics: []}, names), do: name in names
+
+  defp names_any?(%_{} = ast, names),
+    do: ast |> Map.from_struct() |> Map.values() |> names_any?(names)
+
+  defp names_any?(values, names) when is_list(values),
+    do: Enum.any?(values, &names_any?(&1, names))
+
+  defp names_any?(_value, _names), do: false
+
   @doc "Constructs `Vec<T>` type metadata."
   @spec vec(t()) :: t()
   def vec(%__MODULE__{} = inner) do

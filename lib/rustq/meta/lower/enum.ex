@@ -39,14 +39,21 @@ defmodule RustQ.Meta.Lower.Enum do
   # A stage's items are counted as they come; a list knows its length.
   defp lower_call(%Call{function: :count, args: [collection]}, %Context{} = context) do
     case stage(collection) do
-      {:ok, stage} -> {:ok, stage |> continued(context) |> A.method(:count) |> cast_i64()}
-      :error -> {:ok, collection |> lower_collection(context) |> A.method(:len) |> cast_i64()}
+      {:ok, stage} ->
+        {:ok, stage |> continued(context) |> A.method(:count) |> integer_count(context)}
+
+      :error ->
+        {:ok, collection |> lower_collection(context) |> A.method(:len) |> integer_count(context)}
     end
   end
 
   defp lower_call(%Call{function: :count, args: [collection, predicate]}, %Context{} = context) do
     iterator = iterate(collection, :question, context)
-    {:ok, iterator |> lower_filter(predicate, false, collection, context, :count) |> cast_i64()}
+
+    {:ok,
+     iterator
+     |> lower_filter(predicate, false, collection, context, :count)
+     |> integer_count(context)}
   end
 
   defp lower_call(%Call{function: :empty?, args: [collection]}, %Context{} = context),
@@ -301,12 +308,7 @@ defmodule RustQ.Meta.Lower.Enum do
   defp lower_call(%Call{function: :at, args: [enumerable, index | default]} = call, context) do
     case nonnegative_count(index, context) do
       {:ok, index} ->
-        found =
-          lowered(enumerable, context)
-          |> A.method(:get, [index])
-          |> Collection.read_out(
-            collection_inner(type_of(enumerable, context)) || %Type{kind: :type}
-          )
+        found = item_at(enumerable, index, context)
 
         case default do
           [] -> {:ok, found}
@@ -408,6 +410,22 @@ defmodule RustQ.Meta.Lower.Enum do
   end
 
   defp lower_call(%Call{}, %Context{}), do: :unsupported
+
+  # A stage's item is the iterator's `nth`, with no list collected to index into.
+  defp item_at(enumerable, index, context) do
+    case stage(enumerable) do
+      {:ok, stage} ->
+        stage |> continued(context) |> A.method(:nth, [index])
+
+      :error ->
+        enumerable
+        |> lowered(context)
+        |> A.method(:get, [index])
+        |> Collection.read_out(
+          collection_inner(type_of(enumerable, context)) || %Type{kind: :type}
+        )
+    end
+  end
 
   @impl true
   def synth(%Call{function: :sum, args: [collection]}, %TypeContext{} = context),
@@ -690,14 +708,16 @@ defmodule RustQ.Meta.Lower.Enum do
          context,
          terminal
        ) do
-    name = closure_arg(argument)
+    pattern = closure_arg(argument)
     condition = closure_body(body, nil, context)
     condition = if negate?, do: A.not_(condition), else: condition
 
     argument =
       if Collection.copy?(collection_inner(type_of(collection, context))),
-        do: %AST.PatRef{pattern: %AST.PatVar{name: name}},
-        else: name
+        do: %AST.PatRef{
+          pattern: if(is_atom(pattern), do: %AST.PatVar{name: pattern}, else: pattern)
+        },
+        else: pattern
 
     closure = A.closure([argument], condition)
 
@@ -927,9 +947,6 @@ defmodule RustQ.Meta.Lower.Enum do
   end
 
   defp collect(receiver, %Context{}), do: A.method(receiver, :collect)
-
-  defp cast_i64(expression),
-    do: A.cast(expression, A.type(:i64))
 
   defp continuation(body) do
     Macro.prewalk(body, fn

@@ -63,8 +63,8 @@ defmodule RustQ.Meta.Lower.EnumTest do
       end
     end
 
-    @spec greet(R.ref(String.t())) :: R.unit()
-    defrust(greet(_name), do: nil)
+    @spec greet(R.ref(String.t())) :: R.usize()
+    defrust(greet(name), do: name.len())
   end
 
   defmodule Queries do

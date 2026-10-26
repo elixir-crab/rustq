@@ -1,9 +1,10 @@
 defmodule RustQ.Meta.Lower.MapSet do
   @moduledoc """
   Lowers `MapSet` functions on a `HashSet` or `BTreeSet` for `RustQ.Meta.Lower.Stdlib`, and
-  types such calls: `new/0` (`new/1,2` are comprehensions; see `RustQ.Meta.Desugar`), `put`, `delete`, `member?`, `union`, `difference`, `intersection`,
-  `subset?`, `disjoint?`, `size`, and `to_list`. An update takes the set only at its last use;
-  see `RustQ.Meta.Lower.Collection`.
+  types such calls: `new/0`, `new/1` of listed items (other `new/1,2` calls are
+  comprehensions; see `RustQ.Meta.Desugar`), `put`, `delete`, `member?`, `union`, `difference`,
+  `intersection`, `subset?`, `disjoint?`, `size`, and `to_list`. An update takes the set only
+  at its last use; see `RustQ.Meta.Lower.Collection`.
   """
 
   use RustQ.Meta.Lower.Stdlib.Lowering
@@ -12,8 +13,16 @@ defmodule RustQ.Meta.Lower.MapSet do
   alias RustQ.Meta.Type
 
   @impl true
+  # A new set where a reference to one is expected is borrowed.
+  def lower(%Call{function: :new, args: []}, %Context{expected: %Type{kind: :ref}}),
+    do: {:ok, A.ref(A.path_call([:HashSet, :new]))}
+
   def lower(%Call{function: :new, args: []}, %Context{}),
     do: {:ok, A.path_call([:HashSet, :new])}
+
+  # A set of listed items is built from an array of them.
+  def lower(%Call{function: :new, args: [items]}, %Context{} = context) when is_list(items),
+    do: {:ok, A.path_call([:HashSet, :from], [A.array(Enum.map(items, &lowered(&1, context)))])}
 
   def lower(%Call{args: [set | _]} = call, %Context{} = context) do
     case Collection.keyed_of(set, context) do
@@ -85,7 +94,7 @@ defmodule RustQ.Meta.Lower.MapSet do
   end
 
   defp lower_set(%Call{function: :size, args: [set]}, _item, context) do
-    {:ok, A.cast(A.method(lowered(set, context), :len), A.type(:i64))}
+    {:ok, set |> lowered(context) |> A.method(:len) |> integer_count(context)}
   end
 
   defp lower_set(%Call{function: :to_list, args: [set]}, item, context) do

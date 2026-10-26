@@ -28,6 +28,17 @@ defmodule RustQ.Meta.Lower.Collection do
 
   def keyed(%Type{kind: :alias, meta: %{target: %Type{} = target}}), do: keyed(target)
 
+  def keyed(%Type{
+        ast: %AST.TypePath{parts: parts},
+        meta: %{generics: [%Type{} = key, %Type{} = value]}
+      })
+      when parts in [[:HashMap], [:BTreeMap]],
+      do: {:map, key, value}
+
+  def keyed(%Type{ast: %AST.TypePath{parts: parts}, meta: %{generics: [%Type{} = item]}})
+      when parts in [[:HashSet], [:BTreeSet]],
+      do: {:set, item}
+
   def keyed(%Type{ast: %AST.TypePath{parts: parts, generics: [key, value]}}) do
     if List.last(parts) in @maps, do: {:map, Type.ast_type(key), Type.ast_type(value)}
   end
@@ -80,16 +91,55 @@ defmodule RustQ.Meta.Lower.Collection do
   @spec owned(Macro.t(), Context.t()) :: AST.expr()
   def owned(collection, %Context{} = context) do
     lowered = lowered(collection, context)
+    type = type_of(collection, context)
 
-    if in_use?(collection, context),
-      do: A.method(lowered, :clone),
-      else: lowered
+    cond do
+      borrowed?(type) -> A.method(lowered, :clone)
+      in_use?(collection, context) and not copy?(type) -> A.method(lowered, :clone)
+      true -> lowered
+    end
   end
 
-  @doc "A key or item passed by reference, borrowed unless it already is one."
+  # A value behind a reference is never owned: taking it copies what it refers to.
+  defp borrowed?(%Type{kind: kind}) when kind in [:ref, :mut_ref, :slice], do: true
+  defp borrowed?(_type), do: false
+
+  @doc """
+  A key or item passed by reference, borrowed unless it already is one, as a string literal
+  is.
+  """
   @spec borrowed(Macro.t(), Type.t(), Context.t()) :: AST.expr()
-  def borrowed(expression, %Type{} = type, %Context{} = context),
-    do: lowered(expression, Type.ref(type), context)
+  def borrowed(expression, %Type{}, %Context{} = context) when is_binary(expression),
+    do: lowered(expression, context)
+
+  def borrowed(expression, %Type{} = type, %Context{} = context) do
+    case type_of(expression, context) do
+      nil -> A.ref(lowered(expression, context))
+      _known -> lowered(expression, Type.ref(type), context)
+    end
+  end
+
+  @doc """
+  `expression` iterated with `method`; what an iterator collects into a list is iterated as
+  the iterator it is.
+  """
+  @spec iterated(AST.expr(), atom()) :: AST.expr()
+  def iterated(expression, method) do
+    if collected?(expression), do: expression.receiver, else: A.method(expression, method)
+  end
+
+  @doc """
+  Whether an expression collects an iterator into a list, or into whatever is needed, not a map
+  or set, which keeps one item per key.
+  """
+  @spec collected?(AST.expr()) :: boolean()
+  def collected?(%AST.MethodCall{method: :collect, generics: []}), do: true
+  def collected?(%AST.MethodCall{method: :collect, generics: [%AST.TypeVec{}]}), do: true
+
+  def collected?(%AST.MethodCall{method: :collect, generics: [%AST.TypePath{parts: [:Vec]}]}),
+    do: true
+
+  def collected?(_expression), do: false
 
   @doc "A value read out of a collection: copied when that costs nothing, otherwise cloned."
   @spec read_out(AST.expr(), Type.t()) :: AST.expr()
@@ -104,6 +154,7 @@ defmodule RustQ.Meta.Lower.Collection do
   """
   @spec copy?(Type.t() | nil) :: boolean()
   def copy?(%Type{kind: kind}) when kind in [:ref], do: true
+  def copy?(%Type{kind: :alias, meta: %{target: %Type{} = target}}), do: copy?(target)
 
   def copy?(%Type{} = type) do
     case Type.category(type) do

@@ -56,6 +56,9 @@ defmodule RustQ.Meta.Lower.EnumTest do
     @spec nonzero(R.ref(String.t())) :: R.option(R.usize())
     defrust(nonzero(name), do: if(name.is_empty(), do: nil, else: some(name.len())))
 
+    @spec copies(R.vec(R.ref(String.t()))) :: R.vec(String.t())
+    defrust(copies(names), do: Enum.map(names, fn name -> name.clone() end))
+
     @spec greet_all(R.slice(String.t())) :: R.unit()
     defrust greet_all(names) do
       for name <- names do
@@ -213,6 +216,10 @@ defmodule RustQ.Meta.Lower.EnumTest do
     assert rust_source!(Lists, :checked) =~ "unseen(&name, &HashSet::new())"
   end
 
+  test "cloning each item of a list of references is cloned()" do
+    assert rust_source!(Lists, :copies) =~ "names.into_iter().cloned().collect"
+  end
+
   test "a loop over a slice reads each item by reference" do
     assert rust_source!(Lists, :greet_all) =~ "greet(name);"
   end
@@ -220,7 +227,7 @@ defmodule RustQ.Meta.Lower.EnumTest do
   test "a generator over one value matches it beside the item" do
     source = rust_source!(Lists, :by_length)
 
-    assert source =~ ".map(|name| (name, nonzero(name)))"
+    assert source =~ ".map(|name| (nonzero(name), name))"
     refute source =~ "vec!["
   end
 

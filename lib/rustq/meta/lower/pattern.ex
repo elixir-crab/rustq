@@ -68,29 +68,11 @@ defmodule RustQ.Meta.Lower.Pattern do
   @doc "The variables a pattern binds, as one variable or a tuple of them."
   # The variables a pattern binds, as one variable or a tuple of them.
   def pattern_binder(pattern) do
-    case pattern_variables(pattern) do
+    case ElixirPattern.variables(pattern) do
       [] -> quote(do: {})
       [variable] -> variable
       variables -> {:{}, [], variables}
     end
-  end
-
-  defp pattern_variables(pattern) do
-    {_pattern, variables} =
-      Macro.prewalk(pattern, [], fn
-        {:^, _meta, _args}, variables ->
-          {:pinned, variables}
-
-        {name, meta, context} = variable, variables when is_atom(name) and is_atom(context) ->
-          if name |> Atom.to_string() |> String.starts_with?("_"),
-            do: {variable, variables},
-            else: {variable, [{name, meta, context} | variables]}
-
-        other, variables ->
-          {other, variables}
-      end)
-
-    variables |> Enum.reverse() |> Enum.uniq_by(fn {name, _meta, context} -> {name, context} end)
   end
 
   @doc "The type a `case` scrutinee has, as its clauses' patterns reveal it."
@@ -242,9 +224,37 @@ defmodule RustQ.Meta.Lower.Pattern do
     end
   end
 
+  # A pattern on a reference to an option binds a reference to what it holds, as Rust's
+  # default binding mode does.
+  def context_with_match_pattern(
+        pattern,
+        %Type{kind: :ref, meta: %{inner: %Type{kind: :option} = option}},
+        %Context{} = context
+      ),
+      do: context_with_match_pattern(pattern, Type.option(Type.ref(Type.inner(option))), context)
+
+  # A tuple pattern on a reference to a tuple binds references to its elements, as Rust's
+  # default binding mode does.
+  def context_with_match_pattern(pattern, %Type{kind: :ref} = type, %Context{} = context)
+      when is_tuple(pattern) and (tuple_size(pattern) == 2 or elem(pattern, 0) == :{}) do
+    case Type.ref_inner(type) do
+      %Type{kind: :tuple, meta: %{elements: types}} = tuple ->
+        refs = Enum.map(types, &Type.ref/1)
+
+        context_with_match_pattern(
+          pattern,
+          %{tuple | meta: %{tuple.meta | elements: refs}},
+          context
+        )
+
+      _other ->
+        context_with_match_pattern(pattern, nil, context)
+    end
+  end
+
   # A pattern of unknown type still shadows the names it binds; they lose their old types.
   def context_with_match_pattern(pattern, _type, %Context{} = context) do
-    names = pattern |> pattern_variables() |> Enum.map(&elem(&1, 0))
+    names = pattern |> ElixirPattern.variables() |> Enum.map(&elem(&1, 0))
     %{context | vars: Map.drop(context.vars, names)}
   end
 
@@ -275,11 +285,12 @@ defmodule RustQ.Meta.Lower.Pattern do
   defp context_with_list_pattern(pattern, %Type{} = type, %Context{} = context) do
     {elements, rest} = split_list_pattern(pattern)
     inner = list_item_type(type)
-    inner = if inner && type.kind == :slice, do: Type.ref(inner), else: inner
+    # A list is matched as a slice, so its items bind by reference.
+    item = if inner && type.kind in [:slice, :vec], do: Type.ref(inner), else: inner
 
     context =
       Enum.reduce(elements, context, fn element, acc ->
-        context_with_match_pattern(element, inner, acc)
+        context_with_match_pattern(element, item, acc)
       end)
 
     if rest,
@@ -421,9 +432,9 @@ defmodule RustQ.Meta.Lower.Pattern do
   def lower_match_pattern(pattern, %Type{kind: :slice} = type) when is_list(pattern),
     do: lower_list_pattern(pattern, type)
 
-  # A list pattern on a value of unknown type matches it as a slice.
-  def lower_match_pattern(pattern, nil)
-      when is_list(pattern) and pattern != [] and not is_tuple(hd(pattern)),
+  # A list pattern on a value of unknown type matches it as a slice; a keyword list does not.
+  def lower_match_pattern([head | _tail] = pattern, nil)
+      when not (is_tuple(head) and tuple_size(head) == 2 and is_atom(elem(head, 0))),
       do: lower_list_pattern(pattern, nil)
 
   def lower_match_pattern([_head | _tail] = pattern, %Type{kind: :vec} = type),

@@ -46,10 +46,7 @@ defmodule RustQ.Meta.Lower.Map do
     lookup =
       A.method(lowered(map, context), :get, [Collection.borrowed(key, key_type, context)])
 
-    {:ok,
-     lookup
-     |> Collection.read_out(value_type)
-     |> A.method(:unwrap_or, [lowered(default, value_type, context)])}
+    {:ok, lookup |> Collection.read_out(value_type) |> or_default(default, value_type, context)}
   end
 
   # A missing key raises in Elixir; indexing panics, which Rustler raises.
@@ -106,7 +103,8 @@ defmodule RustQ.Meta.Lower.Map do
      )}
   end
 
-  # `update/4` gives a present value to `fun` and stores `default` otherwise, unchanged.
+  # `update/4` gives a present value to `fun` and stores `default` otherwise, unchanged. Each
+  # is its own arm, so both may take what they use.
   defp lower_keyed(
          %Call{function: :update, args: [map, key, default, fun]},
          key_type,
@@ -114,25 +112,27 @@ defmodule RustQ.Meta.Lower.Map do
          context
        ) do
     key_name = A.var(:rustq_key)
-    value_name = A.var(:rustq_value)
+    {present, updated} = update_arm(fun, value_type, context)
+
+    stored = lowered(default, value_type, context)
 
     {:ok,
      Collection.updated(
        map,
        fn map ->
-         updated =
-           map
-           |> A.method(:remove, [A.ref(key_name)])
-           |> A.method(:map, [update_function(fun, value_type, context)])
-           |> A.method(:unwrap_or, [lowered(default, value_type, context)])
+         value =
+           A.match_expr(A.method(map, :remove, [A.ref(key_name)]), [
+             %AST.Arm{pattern: %AST.PatSome{pattern: present}, body: [A.return_stmt(updated)]},
+             %AST.Arm{pattern: %AST.PatNone{}, body: [A.return_stmt(stored)]}
+           ])
 
          [
            %AST.Let{
              pattern: %AST.PatVar{name: :rustq_key},
              expr: lowered(key, key_type, context)
            },
-           %AST.Let{pattern: %AST.PatVar{name: :rustq_value}, expr: updated},
-           A.stmt(A.method(map, :insert, [key_name, value_name]))
+           %AST.Let{pattern: %AST.PatVar{name: :rustq_value}, expr: value},
+           A.stmt(A.method(map, :insert, [key_name, A.var(:rustq_value)]))
          ]
        end,
        context
@@ -162,18 +162,34 @@ defmodule RustQ.Meta.Lower.Map do
 
   defp lower_keyed(%Call{}, _key_type, _value_type, _context), do: :unsupported
 
-  defp update_function({:fn, _, [{:->, _, [[argument], body]}]}, value_type, context),
-    do: closure([{:__rustq_typed_arg__, [], [argument, value_type]}], body, context)
+  # An empty collection is the value's default, as clippy prefers.
+  defp or_default(option, [], _value_type, _context), do: A.method(option, :unwrap_or_default)
 
-  defp update_function({:&, _, [{:/, _, [function, 1]}]}, _value_type, context),
-    do: capture(function, context)
+  defp or_default(option, {:%{}, _, []}, _value_type, _context),
+    do: A.method(option, :unwrap_or_default)
 
-  defp update_function(other, _value_type, _context) do
+  defp or_default(option, default, value_type, context),
+    do: A.method(option, :unwrap_or, [lowered(default, value_type, context)])
+
+  # The present value's pattern, and `fun`'s result for it: a function's body with its argument
+  # bound to the value, or a captured function called with it.
+  defp update_arm({:fn, _, [{:->, _, [[{name, _, ast_context}], body]}]}, value_type, context)
+       when is_atom(name) and is_atom(ast_context) do
+    bound = %{context | env: %{context.env | vars: Map.put(context.env.vars, name, value_type)}}
+    {%AST.PatVar{name: name}, lowered(body, value_type, bound)}
+  end
+
+  defp update_arm({:&, _, [{:/, _, [function, 1]}]}, _value_type, context) do
+    %AST.Path{} = path = capture(function, context)
+    {%AST.PatVar{name: :rustq_present}, %AST.PathCall{path: path, args: [A.var(:rustq_present)]}}
+  end
+
+  defp update_arm(other, _value_type, _context) do
     Diagnostic.lower(
       :unsupported_map_update_function,
       other,
       "unsupported Map.update function in defrust",
-      suggestion: "Use a one-argument anonymous function or a named one-argument capture."
+      suggestion: "Use a one-argument anonymous function with a named argument, or a capture."
     )
   end
 

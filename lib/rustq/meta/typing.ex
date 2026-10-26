@@ -149,6 +149,17 @@ defmodule RustQ.Meta.Typing do
     end
   end
 
+  # `RustQ.Meta.Desugar`'s iteration of a list is the list, and enumerating a list pairs each
+  # item with its index.
+  def synth({:__rustq_items__, _meta, [list]}, %Env{} = env), do: synth(list, env)
+
+  def synth({:|>, _meta, [list, {:enumerate, _, []}]}, %Env{} = env) do
+    with %Type{} = list <- synth(list, env),
+         %Type{} = item <- Type.vec_inner(list) || slice_item(list) do
+      Type.vec(Type.tuple([RustQ.Spec.type(quote(do: RustQ.Type.usize())), item]))
+    end
+  end
+
   def synth({:|>, _meta, [left, right]}, %Env{} = env) do
     case Call.pipe_remote(left, right) do
       {:ok, call} -> synth(call, env)
@@ -163,6 +174,35 @@ defmodule RustQ.Meta.Typing do
   def synth({:{}, _meta, [first | _rest] = elements}, %Env{} = env) when not is_atom(first),
     do: synth_tuple(elements, env)
 
+  # Indexing a map reads a value, and indexing a list an item.
+  def synth({{:., _, [Access, :get]}, _meta, [collection, _key]}, %Env{} = env) do
+    with %Type{} = type <- synth(collection, env) do
+      case Collection.keyed(type) do
+        {:map, _key, value} -> declared(value, env)
+        _list -> Type.vec_inner(Type.ref_inner(type) || type) || Type.slice_inner(type)
+      end
+    end
+  end
+
+  # A branching expression has the type of its first branch whose type is known, as `nil` and
+  # `[]` have none; a `case` branch reads what its pattern binds from the subject.
+  def synth({:case, _meta, [subject, [do: clauses]]}, %Env{} = env) when is_list(clauses) do
+    subject_type = synth(subject, env)
+
+    Enum.find_value(clauses, fn {:->, _, [[pattern], body]} ->
+      synth(body, bind_pattern(unguarded(pattern), subject_type, env))
+    end)
+  end
+
+  def synth({:if, _meta, [_condition, branches]}, %Env{} = env) when is_list(branches),
+    do: Enum.find_value([:do, :else], &synth(Keyword.get(branches, &1), env))
+
+  def synth({:cond, _meta, [[do: clauses]]}, %Env{} = env) when is_list(clauses),
+    do: Enum.find_value(clauses, fn {:->, _, [_condition, body]} -> synth(body, env) end)
+
+  def synth({:__block__, _meta, [_ | _] = expressions}, %Env{} = env),
+    do: synth(List.last(expressions), env)
+
   # A list literal whose items all have one known type is a list of that type.
   def synth([first | rest], %Env{} = env) do
     with %Type{} = item <- synth(first, env),
@@ -175,14 +215,13 @@ defmodule RustQ.Meta.Typing do
 
   # A comprehension collects its body's values into a list, or into the map or set `into:`
   # names, as `RustQ.Meta.Desugar` writes `Map.new/1,2` and `MapSet.new/1,2`.
-  def synth({:for, _meta, [{:<-, _, [pattern, collection]} | rest]}, %Env{} = env) do
-    {_qualifiers, options} = Enum.split_while(rest, &(not Keyword.keyword?(&1) or &1 == []))
+  def synth({:for, _meta, [{:<-, _, _generator} | _rest] = args}, %Env{} = env) do
+    {qualifiers, options} = Enum.split_while(args, &(not Keyword.keyword?(&1) or &1 == []))
     options = Enum.concat(options)
 
-    with %Type{} = list <- synth(collection, env),
-         %Type{} = item <- Type.vec_inner(list) || slice_item(list),
+    with %Env{} = bound <- Enum.reduce_while(qualifiers, env, &bind_generator/2),
          {:ok, body} <- Keyword.fetch(options, :do),
-         %Type{} = value <- synth(body, bind_pattern(pattern, item, env)) do
+         %Type{} = value <- synth(body, bound) do
       collected(Keyword.get(options, :into), value)
     else
       _unknown -> nil
@@ -217,6 +256,14 @@ defmodule RustQ.Meta.Typing do
        when is_atom(name) and is_atom(context),
        do: %{env | vars: Map.put(env.vars, name, item)}
 
+  # `{:some, value}` and `{:ok, value}` bind what the option or result holds.
+  defp bind_pattern({:some, value}, %Type{kind: :option} = item, %Env{} = env),
+    do: bind_inner(value, item, env)
+
+  defp bind_pattern({:ok, value}, %Type{kind: kind} = item, %Env{} = env)
+       when kind in [:result, :nif_result],
+       do: bind_inner(value, item, env)
+
   defp bind_pattern(
          {left, right},
          %Type{kind: :tuple, meta: %{elements: [left_type, right_type]}},
@@ -228,6 +275,53 @@ defmodule RustQ.Meta.Typing do
          |> then(&bind_pattern(right, right_type, &1))
 
   defp bind_pattern(_pattern, _item, %Env{} = env), do: env
+
+  # A type named in Rust as one of the module's aliases is that alias, as `Table` read out of
+  # a map of tables.
+  defp declared(%Type{ast: %AST.TypePath{parts: [name], generics: []}} = type, %Env{} = env) do
+    rust_name = to_string(name)
+
+    Enum.find_value(env.type_aliases, type, fn {_key, alias} ->
+      if alias.rust == rust_name, do: alias
+    end)
+  end
+
+  defp declared(type, _env), do: type
+
+  defp unguarded({:when, _, [pattern, _guard]}), do: pattern
+  defp unguarded(pattern), do: pattern
+
+  defp bind_inner(pattern, %Type{} = wrapper, %Env{} = env) do
+    case Type.inner(wrapper) do
+      %Type{} = inner -> bind_pattern(pattern, inner, env)
+      nil -> env
+    end
+  end
+
+  # Each generator binds its pattern to the items of its collection, in the variables the
+  # earlier ones bound; filters bind nothing.
+  defp bind_generator({:<-, _, [pattern, collection]}, %Env{} = env) do
+    with %Type{} = list <- synth(collection, env),
+         %Type{} = item <- Type.vec_inner(list) || slice_item(list) || keyed_item(list) do
+      {:cont, bind_pattern(pattern, item, env)}
+    else
+      _unknown -> {:halt, nil}
+    end
+  end
+
+  defp bind_generator(_filter, %Env{} = env), do: {:cont, env}
+
+  # A map yields its keys and values, and a set its items, copied where that costs nothing and
+  # borrowed otherwise, as `RustQ.Meta.Lower.Comprehension` iterates them.
+  defp keyed_item(type) do
+    case Collection.keyed(type) do
+      {:map, key, value} -> Type.tuple([lent(key), lent(value)])
+      {:set, item} -> lent(item)
+      nil -> nil
+    end
+  end
+
+  defp lent(type), do: if(Collection.copy?(type), do: type, else: Type.ref(type))
 
   defp collected(into, %Type{} = value) do
     case {Collection.keyed(constructed(into)), value} do
@@ -327,20 +421,20 @@ defmodule RustQ.Meta.Typing do
   def infer_downstream_let_types(expressions, %Env{} = env, callbacks) when is_map(callbacks) do
     callbacks = Map.merge(default_inference_callbacks(), callbacks)
     inferred = Inference.infer_downstream_let_types(expressions, env.vars, callbacks)
-    rhs_types = non_propagating_let_rhs_types(expressions, env)
+    all_rhs_types = let_rhs_types(expressions, env)
+    rhs_types = Map.reject(all_rhs_types, fn {_name, type} -> Type.propagates?(type) end)
 
+    # A binding takes its right-hand side's type over what its uses suggest, unless it is an
+    # option or result those uses unwrap.
     inferred_types =
       Map.new(inferred, fn {name, type} ->
-        {name, inferred_binding_type(type, Map.get(rhs_types, name))}
+        {name, inferred_binding_type(type, Map.get(all_rhs_types, name))}
       end)
 
     # An option or result nothing downstream unwraps stays one, unless the binding's type is
     # already known.
     wrapped_types =
-      expressions
-      |> Enum.flat_map(&let_rhs_type(&1, env))
-      |> Map.new()
-      |> Map.filter(fn {name, type} ->
+      Map.filter(all_rhs_types, fn {name, type} ->
         Type.propagates?(type) and not Map.has_key?(env.vars, name)
       end)
 
@@ -739,22 +833,36 @@ defmodule RustQ.Meta.Typing do
     end
   end
 
-  defp inferred_binding_type(%Type{} = inferred, %Type{} = rhs) do
-    if propagated_rhs_for_inferred_binding?(rhs, inferred), do: inferred, else: rhs
+  # Elixir's integer, as a count is, takes the integer type its use needs, as a literal does.
+  defp inferred_binding_type(%Type{} = inferred, %Type{kind: :i64} = rhs) do
+    if Type.category(inferred) == :integer,
+      do: inferred,
+      else: rhs_unless_propagated(inferred, rhs)
   end
 
+  defp inferred_binding_type(%Type{} = inferred, %Type{} = rhs),
+    do: rhs_unless_propagated(inferred, rhs)
+
   defp inferred_binding_type(inferred, _rhs), do: inferred
+
+  defp rhs_unless_propagated(inferred, rhs) do
+    if propagated_rhs_for_inferred_binding?(rhs, inferred), do: inferred, else: rhs
+  end
 
   defp propagated_rhs_for_inferred_binding?(%Type{} = rhs, %Type{} = inferred) do
     Type.propagates?(rhs) and
       (not Type.propagates?(inferred) or Type.compatible_with_expected?(Type.inner(rhs), inferred))
   end
 
-  defp non_propagating_let_rhs_types(expressions, %Env{} = env) do
-    expressions
-    |> Enum.flat_map(&let_rhs_type(&1, env))
-    |> Map.new()
-    |> Map.reject(fn {_name, type} -> Type.propagates?(type) end)
+  # Each binding's type, in order, so a later right-hand side reads the earlier bindings.
+  defp let_rhs_types(expressions, %Env{} = env) do
+    {types, _env} =
+      Enum.reduce(expressions, {%{}, env}, fn expression, {types, env} ->
+        bound = Map.new(let_rhs_type(expression, env))
+        {Map.merge(types, bound), %{env | vars: Map.merge(env.vars, bound)}}
+      end)
+
+    types
   end
 
   defp let_rhs_type({:=, _meta, [{name, _pattern_meta, context}, expression]}, %Env{} = env)
@@ -765,7 +873,27 @@ defmodule RustQ.Meta.Typing do
     end
   end
 
+  # A tuple of variables binds each to its element's type; a fallible right-hand side binds
+  # what it gives on success, as it propagates its error.
+  defp let_rhs_type({:=, _meta, [pattern, expression]}, %Env{} = env) do
+    with [_ | _] = names <- Pattern.tuple_elements(pattern),
+         %Type{kind: :tuple, meta: %{elements: elements}} <-
+           expression |> synth(env) |> success_type(),
+         true <- length(names) == length(elements) do
+      for {{name, _meta, context}, %Type{} = type} <- Enum.zip(names, elements),
+          is_atom(name) and is_atom(context) and name != :_,
+          do: {name, type}
+    else
+      _other -> []
+    end
+  end
+
   defp let_rhs_type(_expression, _env), do: []
+
+  defp success_type(%Type{} = type),
+    do: if(Type.propagates?(type), do: Type.inner(type), else: type)
+
+  defp success_type(type), do: type
 
   defp coercion(%Type{} = actual, %Type{} = expected) do
     direct_coercion(actual, expected) ||
@@ -827,6 +955,8 @@ defmodule RustQ.Meta.Typing do
   end
 
   defp copy_deref_compatible?(_actual, _expected), do: false
+
+  defp copy?(%Type{kind: :alias, meta: %{target: %Type{} = target}}), do: copy?(target)
 
   defp copy?(%Type{} = type) do
     case Type.category(Type.expected_value(type)) do

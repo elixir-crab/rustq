@@ -7,6 +7,7 @@ defmodule RustQ.Meta.Lower.Kernel do
   use RustQ.Meta.Lower.Stdlib.Lowering
 
   alias RustQ.Diagnostic
+  alias RustQ.Meta.Lower.Collection
   alias RustQ.Meta.Type
   alias RustQ.Spec
 
@@ -30,8 +31,9 @@ defmodule RustQ.Meta.Lower.Kernel do
   @comparison_functions [:==, :!=, :<, :<=, :>, :>=, :and, :or, :not, :is_nil]
 
   @impl true
-  def lower(%Call{function: function} = call, %Context{} = context) when function in [:.., :in],
-    do: RustQ.Meta.Lower.Range.lower(call, context)
+  def lower(%Call{function: function} = call, %Context{} = context)
+      when function in [:.., :..//, :in],
+      do: RustQ.Meta.Lower.Range.lower(call, context)
 
   def lower(%Call{function: :/, args: [left, right]} = call, %Context{} = context) do
     if integer_type?(type_of(left, context)) or integer_type?(type_of(right, context)) do
@@ -44,17 +46,40 @@ defmodule RustQ.Meta.Lower.Kernel do
     end
   end
 
+  # Comparing a collection or string with an empty one asks whether it is empty.
+  def lower(%Call{function: function, args: [collection, empty]}, %Context{} = context)
+      when function in [:==, :!=] and empty in [[], ""],
+      do: {:ok, emptiness(function, collection, context)}
+
+  def lower(%Call{function: function, args: [collection, {:%{}, _, []}]}, %Context{} = context)
+      when function in [:==, :!=],
+      do: {:ok, emptiness(function, collection, context)}
+
+  # Comparing an option with `nil` asks whether it holds a value, which needs no equality on
+  # what it holds.
+  def lower(%Call{function: function, args: [option, nil]}, %Context{} = context)
+      when function in [:==, :!=] do
+    method = if function == :==, do: :is_none, else: :is_some
+    {:ok, A.method(lowered(option, context), method)}
+  end
+
   # Comparing two options or results compares the wrappers; neither side propagates.
   def lower(%Call{function: function, args: [left, right]}, %Context{} = context)
       when function in [:==, :!=] do
-    lower_operand =
-      if wrapper_comparison?(left, right, context),
-        do: &lowered(&1, context),
-        else: &operand(&1, context)
-
-    {:ok,
-     A.binary(lower_operand.(left), Map.fetch!(@binary_ops, function), lower_operand.(right))}
+    if wrapper_comparison?(left, right, context),
+      do:
+        {:ok,
+         A.binary(
+           lowered(left, context),
+           Map.fetch!(@binary_ops, function),
+           lowered(right, context)
+         )},
+      else: {:ok, compared(function, left, right, context)}
   end
+
+  def lower(%Call{function: function, args: [left, right]}, %Context{} = context)
+      when function in @comparison_functions and is_map_key(@binary_ops, function),
+      do: {:ok, compared(function, left, right, context)}
 
   def lower(%Call{function: function, args: [left, right]}, %Context{} = context)
       when is_map_key(@binary_ops, function) do
@@ -91,11 +116,16 @@ defmodule RustQ.Meta.Lower.Kernel do
       do: {:ok, value |> lowered(context) |> A.method(:len) |> integer_count(context)}
 
   def lower(%Call{function: :map_size, args: [map]} = call, %Context{} = context) do
-    case struct_fields(shape_type(type_of(map, context))) do
-      fields when is_list(fields) ->
-        evaluated_constant(map, length(fields), context)
+    type = shape_type(type_of(map, context))
 
-      _unknown ->
+    cond do
+      match?({:map, _key, _value}, Collection.keyed(type)) ->
+        {:ok, map |> lowered(context) |> A.method(:len) |> integer_count(context)}
+
+      is_list(struct_fields(type)) ->
+        evaluated_constant(map, length(struct_fields(type)), context)
+
+      true ->
         unsupported_semantics!(call, "map_size/1 requires a statically typed map or struct")
     end
   end
@@ -150,7 +180,7 @@ defmodule RustQ.Meta.Lower.Kernel do
 
   @impl true
   def synth(%Call{function: function} = call, %TypeContext{} = context)
-      when function in [:.., :in],
+      when function in [:.., :..//, :in],
       do: RustQ.Meta.Lower.Range.synth(call, context)
 
   def synth(%Call{function: function}, %TypeContext{}) when function in @comparison_functions,
@@ -202,6 +232,45 @@ defmodule RustQ.Meta.Lower.Kernel do
       message,
       suggestion: "Use an explicit Rust adapter when Elixir and Rust semantics differ."
     )
+  end
+
+  # Elixir's integer, as a count is, compares in the Rust integer type of the other side.
+  # A boolean operator takes booleans, and a comparison values of one type: a borrowed copy
+  # operand is read where the other is not borrowed or the operator is boolean, and an atom
+  # or integer literal takes the other operand's type.
+  defp compared(function, left, right, context) do
+    {left_type, right_type} = {type_of(left, context), type_of(right, context)}
+    logical? = function in [:and, :or]
+
+    A.binary(
+      compared_operand(left, left_type, right_type, logical?, context),
+      Map.fetch!(@binary_ops, function),
+      compared_operand(right, right_type, left_type, logical?, context)
+    )
+  end
+
+  defp compared_operand(operand, %Type{kind: :i64}, %Type{kind: kind} = other, _logical?, context)
+       when kind in [:u8, :u16, :u32, :u64, :usize, :i8, :i16, :i32, :isize],
+       do: lowered(operand, other, context)
+
+  defp compared_operand(operand, _type, %Type{} = other, false, context)
+       when is_atom(operand) and operand not in [nil, true, false],
+       do: lowered(operand, other, context)
+
+  defp compared_operand(operand, %Type{kind: :ref} = type, other, logical?, context) do
+    if Collection.copy?(Type.ref_inner(type)) and (logical? or not borrowed?(other)),
+      do: A.deref(lowered(operand, context)),
+      else: operand(operand, context)
+  end
+
+  defp compared_operand(operand, _type, _other, _logical?, context), do: operand(operand, context)
+
+  defp borrowed?(%Type{kind: kind}), do: kind in [:ref, :mut_ref]
+  defp borrowed?(_type), do: false
+
+  defp emptiness(function, collection, context) do
+    is_empty = collection |> lowered(context) |> A.method(:is_empty)
+    if function == :==, do: is_empty, else: A.not_(is_empty)
   end
 
   defp wrapper_comparison?(left, right, %Context{} = context) do

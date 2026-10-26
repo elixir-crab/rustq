@@ -6,6 +6,7 @@ defmodule RustQ.Meta.Lower.Range do
   use RustQ.Meta.Lower.Stdlib.Lowering
 
   alias RustQ.Diagnostic
+  alias RustQ.Meta.Type
   alias RustQ.Spec
 
   @impl true
@@ -22,20 +23,47 @@ defmodule RustQ.Meta.Lower.Range do
         :unsupported_stdlib_semantics,
         call.source,
         "generated Rust ranges currently require ascending integer literal bounds",
-        suggestion: "Use an explicit Rust adapter for dynamic or descending ranges."
+        suggestion: "Count up with an explicit step, as `first..last//1`, for dynamic bounds."
       )
     end
   end
 
-  def lower(%Call{function: :in, args: [value, collection]}, %Context{} = context) do
-    receiver =
-      case lowered(collection, context) do
-        %AST.Range{} = range -> A.block_expr([A.return_stmt(range)])
-        expression -> expression
-      end
+  # With a positive step, a range counts up and is empty when it ends below its start, as
+  # Rust's `start..=stop` is, so its bounds need not be literals; a fallible bound propagates
+  # its error.
+  def lower(%Call{function: :..//, args: [start, stop, step]} = call, %Context{} = context) do
+    if is_integer(step) and step > 0 do
+      range = %AST.Range{
+        start: operand(start, context),
+        stop: operand(stop, context),
+        inclusive: true
+      }
 
-    {:ok, A.method(receiver, :contains, [A.ref(lowered(value, context))])}
+      {:ok, if(step == 1, do: range, else: A.method(range, :step_by, [A.lit(step)]))}
+    else
+      Diagnostic.lower(
+        :unsupported_stdlib_semantics,
+        call.source,
+        "generated Rust ranges with a step require a positive integer literal step",
+        suggestion: "Count up with a positive step, as `first..last//1`."
+      )
+    end
   end
+
+  # Membership in a literal list asks an array, which allocates nothing; a string is looked
+  # up among string literals as the `&str` they are.
+  def lower(%Call{function: :in, args: [value, items]}, %Context{} = context)
+      when is_list(items) do
+    item =
+      if Enum.all?(items, &is_binary/1) and string?(type_of(value, context)),
+        do: A.method(lowered(value, context), :as_str),
+        else: lowered(value, context)
+
+    {:ok, A.method(A.array(Enum.map(items, &lowered(&1, context))), :contains, [A.ref(item)])}
+  end
+
+  def lower(%Call{function: :in, args: [value, collection]}, %Context{} = context),
+    do: {:ok, A.method(lowered(collection, context), :contains, [A.ref(lowered(value, context))])}
 
   def lower(%Call{}, %Context{}), do: :unsupported
 
@@ -50,4 +78,7 @@ defmodule RustQ.Meta.Lower.Range do
        do: true
 
   defp ascending_literal_range?(_start, _stop), do: false
+
+  defp string?(%Type{} = type), do: Type.category(type) == :string
+  defp string?(_type), do: false
 end

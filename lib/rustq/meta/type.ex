@@ -632,6 +632,9 @@ defmodule RustQ.Meta.Type do
     })
   end
 
+  # A `Vec` read from Rust is a list, as one a spec names is.
+  defp from_syn_path_parts(["Vec"], _name, [item], _assoc, _generic_args), do: vec(item)
+
   defp from_syn_path_parts(parts, name, args, assoc, generic_args) do
     ast = %AST.TypePath{
       parts: Enum.map(parts, &Identifier.atom!/1),
@@ -1233,8 +1236,11 @@ defmodule RustQ.Meta.Type do
     type(:vec, %AST.TypeVec{inner: inner.ast}, %{inner: inner})
   end
 
+  # The parsed type arguments are kept, so a map's key and value keep what their specs say.
   defp parse_external_type({:__aliases__, _, parts}, :t, args, aliases) do
-    type(:type, external_type_path(parts, args, aliases), external_type_meta(parts, :t, args))
+    generics = for arg <- args, not lifetime_marker?(arg), do: parse(arg, aliases)
+    meta = Map.put(external_type_meta(parts, :t, args), :generics, generics)
+    type(:type, external_type_path(parts, args, aliases), meta)
   end
 
   defp parse_external_type({:__aliases__, _, parts}, function, args, aliases) do
@@ -1391,6 +1397,9 @@ defmodule RustQ.Meta.Type do
 
   defp external_type_generics(arg, aliases), do: [parse(arg, aliases).ast]
 
+  defp lifetime_marker?({{:., _, [module, :lifetime]}, _, [_name]}), do: type_module?(module)
+  defp lifetime_marker?(_arg), do: false
+
   defp rust_module_part(part) when is_atom(part),
     do: Identifier.atom!(Macro.underscore(Atom.to_string(part)))
 
@@ -1398,6 +1407,13 @@ defmodule RustQ.Meta.Type do
 
   @doc "Type metadata for a RustQ AST type."
   @spec ast_type(AST.type()) :: t()
+  def ast_type(%AST.TypePath{parts: [:Vec], generics: [item]}), do: vec(ast_type(item))
+  def ast_type(%AST.TypeVec{inner: item}), do: vec(ast_type(item))
+
+  def ast_type(%AST.TypeRef{inner: inner, mutable: false} = ast),
+    do: %{ref(ast_type(inner)) | ast: ast}
+
+  def ast_type(%AST.TypeTuple{items: [_ | _] = items}), do: tuple(Enum.map(items, &ast_type/1))
   def ast_type(ast), do: type(ast_type_kind(ast), ast)
 
   defp ast_type_kind(%AST.TypeNifResult{}), do: :nif_result

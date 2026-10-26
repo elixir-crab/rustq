@@ -14,6 +14,12 @@ defmodule RustQ.Meta.Lower.MapTest do
     @spec found(R.ref(%{String.t() => integer()}), R.ref(String.t())) :: R.option(integer())
     defrust(found(scores, name), do: Map.get(scores, name))
 
+    @spec unnamed(R.ref(%{String.t() => integer()})) :: integer()
+    defrust(unnamed(scores), do: Map.get(scores, "", 0))
+
+    @spec any_score(R.ref(%{String.t() => integer()})) :: R.option(integer())
+    defrust(any_score(scores), do: scores |> Map.values() |> List.first())
+
     @spec known?(R.ref(%{String.t() => integer()}), R.ref(String.t())) :: R.bool()
     defrust(known?(scores, name), do: Map.has_key?(scores, name))
 
@@ -57,12 +63,20 @@ defmodule RustQ.Meta.Lower.MapTest do
     assert rust_source!(Scores, :known?) =~ "scores.contains_key(name)"
   end
 
+  test "takes the first value from the iterator over values" do
+    assert rust_source!(Scores, :any_score) =~ "scores.values().copied().next()"
+  end
+
+  test "looks a string literal key up as the reference it is" do
+    assert rust_source!(Scores, :unnamed) =~ ~s|scores.get("").copied().unwrap_or(0)|
+  end
+
   test "update/4 gives a present value to the function and stores the default otherwise" do
     source = rust_source!(Scores, :bump)
 
-    assert source =~ ".remove(&rustq_key)"
-    assert source =~ ".map(|count| count + 1)"
-    assert source =~ ".unwrap_or(1)"
+    assert source =~ "match rustq_updated.remove(&rustq_key) {"
+    assert source =~ "Some(count) => count + 1,"
+    assert source =~ "None => 1,"
   end
 
   test "an update takes the map at its last use and copies it otherwise" do

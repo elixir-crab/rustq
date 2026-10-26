@@ -22,6 +22,7 @@ defmodule RustQ.Meta.Core.Call do
     :rem,
     :in,
     :..,
+    :..//,
     :abs,
     :min,
     :max,

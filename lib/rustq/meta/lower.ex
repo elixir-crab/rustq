@@ -700,6 +700,55 @@ defmodule RustQ.Meta.Lower do
        when is_list(fields),
        do: lower_struct_update(base, fields, context)
 
+  # A map literal where a reference to a map is expected builds the map and borrows it.
+  defp lower_expected_expr_context(
+         {:%{}, _, entries} = map,
+         %Type{kind: :ref, meta: %{inner: %Type{} = inner}},
+         %Context{} = context
+       )
+       when is_list(entries) do
+    case Collection.keyed(inner) do
+      {:map, _key, _value} -> A.ref(lower_expected_expr_context(map, inner, context))
+      _other -> lower_expr(map, context)
+    end
+  end
+
+  # A map literal where a map's alias is expected builds the map it names.
+  defp lower_expected_expr_context(
+         {:%{}, _, entries} = map,
+         %Type{kind: :alias, meta: %{target: %Type{ast: %AST.TypePath{parts: parts}} = target}},
+         %Context{} = context
+       )
+       when is_list(entries) and parts in [[:HashMap], [:BTreeMap]],
+       do: lower_expected_expr_context(map, target, context)
+
+  # A map literal where a map is expected builds one: `%{}` is `HashMap::new()`, and
+  # `%{key => value}` is `HashMap::from([(key, value)])`.
+  defp lower_expected_expr_context(
+         {:%{}, _, entries},
+         %Type{ast: %AST.TypePath{parts: parts, generics: [_key, _value]}} = expected_type,
+         %Context{} = context
+       )
+       when is_list(entries) and parts in [[:HashMap], [:BTreeMap]] do
+    case entries do
+      [] ->
+        A.path_call(parts ++ [:new])
+
+      entries ->
+        {:map, key, value} = Collection.keyed(expected_type)
+
+        pairs =
+          Enum.map(entries, fn {entry_key, entry_value} ->
+            A.tuple([
+              lower_expr(entry_key, key, context),
+              lower_expr(entry_value, value, context)
+            ])
+          end)
+
+        A.path_call(parts ++ [:from], [A.array(pairs)])
+    end
+  end
+
   defp lower_expected_expr_context(
          {:%{}, _, fields},
          %Type{kind: :struct, ast: %AST.TypePath{parts: parts}} = expected_type,
@@ -801,11 +850,14 @@ defmodule RustQ.Meta.Lower do
     if slice_type?(expected_type), do: A.ref(array), else: array
   end
 
+  # A list literal where a slice is expected is a borrowed array, which allocates nothing.
   defp lower_expected_expr_context(values, %Type{} = expected_type, %Context{} = context)
        when is_list(values) do
-    vec = A.vec(lower_expected_collection_values(values, expected_type, context))
+    values = lower_expected_collection_values(values, expected_type, context)
 
-    if slice_type?(expected_type), do: A.ref(vec), else: vec
+    if slice_type?(expected_type),
+      do: A.ref(%AST.ArrayLiteral{values: values}),
+      else: A.vec(values)
   end
 
   defp lower_expected_expr_context(
@@ -849,6 +901,34 @@ defmodule RustQ.Meta.Lower do
          %Context{} = context
        ),
        do: lower_pipe(left, right, expected_type, context)
+
+  # Arithmetic where an integer is expected computes in that integer, as its operands do.
+  defp lower_expected_expr_context(
+         {operator, _, [left, right]},
+         %Type{kind: kind} = expected_type,
+         %Context{} = context
+       )
+       when operator in [:+, :-, :*] and
+              kind in [:i8, :i16, :i32, :i64, :isize, :u8, :u16, :u32, :u64, :usize] do
+    A.binary(
+      lower_expected_operand(left, expected_type, context),
+      operator_op(operator),
+      lower_expected_operand(right, expected_type, context)
+    )
+  end
+
+  # A count is a `usize` where one is expected, not Elixir's integer.
+  defp lower_expected_expr_context(
+         {function, _, [_value] = args} = call,
+         %Type{} = expected_type,
+         context
+       )
+       when function in [:length, :byte_size, :map_size] do
+    case BindingIndex.get(context.callables, nil, function, length(args)) do
+      %RustQ.Binding.Callable{} -> lower_local_or_macro_call(function, args, context)
+      nil -> Stdlib.lower!(call, stdlib_context(context, expected_type))
+    end
+  end
 
   defp lower_expected_expr_context(
          {{:., _, [receiver = {:__aliases__, _, [module]}, function]}, _, args} = call,
@@ -941,9 +1021,16 @@ defmodule RustQ.Meta.Lower do
 
   defp lower_expected_collection_values(values, expected_type, context) do
     case collection_item_type(expected_type) do
-      %Type{} = item_type -> Enum.map(values, &lower_expr(&1, item_type, context))
+      %Type{} = item_type -> Enum.map(values, &lower_list_item(&1, item_type, context))
       nil -> Enum.map(values, &lower_array_value(&1, context))
     end
+  end
+
+  # A value put in a new list while still in use, or still in its collection, is copied in.
+  defp lower_list_item(value, %Type{} = item_type, context) do
+    if in_use?(value, context) and not Collection.copy?(item_type),
+      do: A.method(lower_expr(value, item_type, context), :clone),
+      else: lower_expr(value, item_type, context)
   end
 
   @doc "The item type of a list a comprehension builds."
@@ -1075,7 +1162,7 @@ defmodule RustQ.Meta.Lower do
     do: %{lower_closure_args(args, body, context) | move: true}
 
   defp lower_expr_context({:fn, _, [{:->, _, [args, body]}]}, %Context{} = context),
-    do: lower_closure_args(args, body, context)
+    do: args |> lower_closure_args(body, context) |> eta_reduced()
 
   defp lower_expr_context(
          {{:., _, [receiver = {:__aliases__, _, [module]}, function]}, _, args} = call,
@@ -1116,6 +1203,9 @@ defmodule RustQ.Meta.Lower do
   defp lower_expr_context({:%{}, _, [{:|, _, [base, fields]}]}, %Context{} = context)
        when is_list(fields),
        do: lower_struct_update(base, fields, context)
+
+  # An empty map whose type is left to Rust is a `HashMap` that later uses type.
+  defp lower_expr_context({:%{}, _, []}, %Context{}), do: A.path_call([:HashMap, :new])
 
   defp lower_expr_context(
          {:__rustq_typed__, _, [expression, %Type{} = type]},
@@ -1160,13 +1250,16 @@ defmodule RustQ.Meta.Lower do
     do: A.index(lower_expr(receiver, context), lower_expr(index, context))
 
   # `container[key]` indexes; a map is indexed by a reference to its key.
+  # A map is indexed by a borrowed key.
   defp lower_expr_context({{:., _, [Access, :get]}, _, [receiver, key]}, %Context{} = context) do
-    index = lower_expr(key, context)
+    receiver_type =
+      infer_expr_type(receiver, context.vars) || Typing.synth(receiver, typing_env(context))
 
     index =
-      if map_type?(infer_expr_type(receiver, context.vars)),
-        do: A.ref(index),
-        else: index
+      case Collection.keyed(receiver_type) do
+        {:map, _key, _value} -> borrowed_key(key, context)
+        _list -> lower_expr(key, RustQ.Spec.type(quote(do: RustQ.Type.usize())), context)
+      end
 
     A.index(lower_expr(receiver, context), index)
   end
@@ -1182,6 +1275,7 @@ defmodule RustQ.Meta.Lower do
   defp lower_expr_context({function, _, args} = call, %Context{} = context)
        when function in [
               :..,
+              :..//,
               :in,
               :==,
               :!=,
@@ -1518,12 +1612,19 @@ defmodule RustQ.Meta.Lower do
     end
   end
 
+  # An option field reached through a reference is matched by reference, as what it holds
+  # cannot be moved out.
   defp case_scrutinee(expression, %Type{} = expression_type, clauses, %Context{} = context) do
-    if propagate_case_scrutinee?(expression_type, clauses) do
-      inner = Type.inner(expression_type)
-      {inner, lower_checked_expr(expression, inner, context)}
-    else
-      {expression_type, lower_expr(expression, context)}
+    cond do
+      propagate_case_scrutinee?(expression_type, clauses) ->
+        inner = Type.inner(expression_type)
+        {inner, lower_checked_expr(expression, inner, context)}
+
+      lent_field?(expression, expression_type, context) ->
+        {Type.ref(expression_type), A.ref(lower_expr(expression, context))}
+
+      true ->
+        {expression_type, lower_expr(expression, context)}
     end
   end
 
@@ -1601,8 +1702,14 @@ defmodule RustQ.Meta.Lower do
     end
   end
 
-  defp lower_condition(condition, %Context{} = context),
-    do: lower_binary_operand(condition, context)
+  # A condition is a boolean; a borrowed one is read.
+  defp lower_condition(condition, %Context{} = context) do
+    case infer_expr_type(condition, context.vars) ||
+           Typing.synth(condition, typing_env(context)) do
+      %Type{kind: :ref} -> A.deref(lower_expr(condition, context))
+      _owned -> lower_binary_operand(condition, context)
+    end
+  end
 
   defp lower_with(clauses, %Context{} = context, expected_type \\ nil) do
     {matches, body_opts} = Enum.split_while(clauses, &match?({:<-, _, _}, &1))
@@ -1864,6 +1971,19 @@ defmodule RustQ.Meta.Lower do
     end
   end
 
+  # An option field holding what cannot be copied, reached through a reference.
+  defp lent_field?(expression, %Type{kind: :option} = type, %Context{} = context) do
+    case root_variable_node(expression) do
+      {name, _meta, _context} ->
+        behind_reference?(expression, name, context) and not Collection.copy?(Type.inner(type))
+
+      nil ->
+        false
+    end
+  end
+
+  defp lent_field?(_expression, _type, _context), do: false
+
   defp behind_reference?({name, _, ast_context}, name, _context) when is_atom(ast_context),
     do: false
 
@@ -1956,10 +2076,9 @@ defmodule RustQ.Meta.Lower do
         receiver_type =
           infer_expr_type(receiver, context.vars) || Typing.synth(receiver, typing_env(context))
 
-        %AST.MethodCall{
-          receiver: lower_dot_receiver(receiver, :into_iter, context),
-          method: borrowed_iteration(:into_iter, [], receiver_type)
-        }
+        receiver
+        |> lower_dot_receiver(:into_iter, context)
+        |> Collection.iterated(borrowed_iteration(:into_iter, [], receiver_type))
 
       true ->
         %AST.MethodCall{
@@ -1977,6 +2096,13 @@ defmodule RustQ.Meta.Lower do
          %Context{} = context
        ),
        do: A.try(lower_expr(receiver, context))
+
+  defp lower_dot_receiver(receiver, :clone, %Context{} = context) do
+    receiver_type =
+      infer_expr_type(receiver, context.vars) || Typing.synth(receiver, typing_env(context))
+
+    lower_method_receiver(receiver, receiver_type, :clone, context)
+  end
 
   defp lower_dot_receiver(receiver, _method, %Context{} = context),
     do: lower_expr(receiver, context)
@@ -2038,6 +2164,14 @@ defmodule RustQ.Meta.Lower do
 
   # A fallible receiver of a method its result lacks, as `decoder.read_bool().encode(env)`,
   # propagates its error first, as a fallible operand does.
+  # Cloning a reference to a reference clones what it refers to, the value Elixir means.
+  defp lower_method_receiver(receiver, %Type{kind: :ref} = receiver_type, :clone, context) do
+    case Type.ref_inner(receiver_type) do
+      %Type{kind: :ref} -> A.deref(lower_expr(receiver, context))
+      _value -> lower_expr(receiver, context)
+    end
+  end
+
   defp lower_method_receiver(receiver, receiver_type, function, %Context{} = context) do
     if fallible_receiver?(receiver_type, function, context),
       do: A.try(lower_expr(receiver, context)),
@@ -2338,6 +2472,40 @@ defmodule RustQ.Meta.Lower do
     )
   end
 
+  # A closure that only calls a function with its argument is that function, as clippy prefers:
+  # `|item| Wrapped(item)` is `Wrapped`.
+  defp eta_reduced(%AST.Closure{
+         args: [name],
+         body: %AST.PathCall{path: path, args: [%AST.Var{name: name}], generics: []},
+         move: false
+       })
+       when is_atom(name),
+       do: path
+
+  defp eta_reduced(%AST.Closure{
+         args: [name],
+         body: %AST.LocalCall{name: function, args: [%AST.Var{name: name}]},
+         move: false
+       })
+       when is_atom(name),
+       do: A.path([function])
+
+  defp eta_reduced(closure), do: closure
+
+  # A map's key is read by reference; one already a reference is passed as it is.
+  defp borrowed_key(key, %Context{} = context) do
+    case infer_expr_type(key, context.vars) || Typing.synth(key, typing_env(context)) do
+      %Type{kind: kind} when kind in [:ref, :mut_ref, :slice] -> lower_expr(key, context)
+      _owned -> A.ref(lower_expr(key, context))
+    end
+  end
+
+  defp lower_expected_operand(expression, %Type{} = expected_type, %Context{} = context) do
+    if fallible_expression?(expression, context) and propagation_allowed?(context.return_type),
+      do: A.try(lower_expr(expression, context)),
+      else: lower_expr(expression, expected_type, context)
+  end
+
   defp lower_binary_op(left, op, right, %Context{} = context) do
     A.binary(lower_binary_operand(left, context), op, lower_binary_operand(right, context))
   end
@@ -2349,6 +2517,18 @@ defmodule RustQ.Meta.Lower do
   # A collection is in use unless this is its value's last use; see `RustQ.Meta.Ownership`. A
   # field reached through a reference is never taken, since the reference does not own it.
   def in_use?(collection, %Context{} = context) do
+    indexed_place?(collection) or root_in_use?(collection, context)
+  end
+
+  # What indexing reaches stays in its collection, so it is never taken.
+  defp indexed_place?({{:., _, [Access, :get]}, _, [_collection, _key]}), do: true
+
+  defp indexed_place?({{:., _, [receiver, _field]}, meta, []}),
+    do: meta[:no_parens] == true and indexed_place?(receiver)
+
+  defp indexed_place?(_expression), do: false
+
+  defp root_in_use?(collection, %Context{} = context) do
     case root_variable_node(collection) do
       {name, _meta, _context} = variable ->
         behind_reference?(collection, name, context) or
@@ -2471,14 +2651,6 @@ defmodule RustQ.Meta.Lower do
     Enum.map(statements, &lower_statement(&1, %{context | position: :statement})) ++
       [A.return_stmt(lower_expr(final, %{context | position: :return}))]
   end
-
-  defp map_type?(%Type{kind: kind} = type) when kind in [:ref, :mut_ref],
-    do: map_type?(Type.ref_inner(type))
-
-  defp map_type?(%Type{rust: rust}) when is_binary(rust),
-    do: String.starts_with?(rust, ["HashMap<", "BTreeMap<"])
-
-  defp map_type?(_type), do: false
 
   @doc "A captured named function, as the Rust path of that function."
   def lower_function_capture({name, _, capture_context}, %Context{})

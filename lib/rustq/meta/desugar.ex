@@ -7,13 +7,19 @@ defmodule RustQ.Meta.Desugar do
       comprehension collecting into it;
     * `Enum.group_by/2,3` is a map filled by a loop, and `Enum.uniq/1` and `Enum.uniq_by/2`
       keep the items a set has not seen;
-    * a generator over `Enum.with_index(list)` enumerates the list in place.
+    * a generator over `Enum.with_index(list)` enumerates the list in place;
+    * `left ++ right` is `Enum.concat(left, right)`;
+    * an interpolated string is `format!` of its parts;
+    * a `for ... reduce:` over several generators or filters reduces the comprehension of the
+      variables they bind.
 
   Where a rewrite needs what only lowering knows, it leaves an internal form for lowering to
   resolve: `__rustq_items__(list)` iterates a list as its ownership allows, and
   `__rustq_owned__(item, list)` is an item of `list`, copied where that costs nothing and
   cloned otherwise.
   """
+
+  alias RustQ.Meta.Pattern
 
   @doc "Rewrites `body`'s standard-library calls that are other Rusty-Elixir."
   @spec desugar(Macro.t()) :: Macro.t()
@@ -32,8 +38,19 @@ defmodule RustQ.Meta.Desugar do
     end)
   end
 
-  def apply_function({:fn, _, [{:->, _, [[pattern], body]}]}, value),
-    do: quote(do: case(unquote(value), do: (unquote(pattern) -> unquote(body))))
+  # A pattern that cannot fail, as a tuple of variables, binds the value; another matches it.
+  def apply_function({:fn, _, [{:->, _, [[pattern], body]}]}, value) do
+    if binding?(pattern),
+      do:
+        quote(
+          do:
+            (
+              unquote(pattern) = unquote(value)
+              unquote(body)
+            )
+        ),
+      else: quote(do: case(unquote(value), do: (unquote(pattern) -> unquote(body))))
+  end
 
   def apply_function({:&, _, [{:/, _, [{{:., _, _} = remote, _, _}, 1]}]}, value),
     do: {remote, [], [value]}
@@ -50,11 +67,21 @@ defmodule RustQ.Meta.Desugar do
     )
   end
 
+  defp binding?({name, _, ast_context}) when is_atom(name) and is_atom(ast_context), do: true
+  defp binding?({left, right}), do: binding?(left) and binding?(right)
+  defp binding?({:{}, _, elements}), do: Enum.all?(elements, &binding?/1)
+  defp binding?(_pattern), do: false
+
   # Names a rewrite introduces, which shadow nothing a body writes.
   defp fresh(name), do: Macro.var(:"rustq_#{name}", __MODULE__)
 
   defp rewrite({{:., _, [{:__aliases__, _, [:Map]}, :new]}, _, [enumerable | transform]}),
     do: comprehension(enumerable, transform, quote(do: HashMap.new()))
+
+  # A set of listed items is built from them as they are; see `RustQ.Meta.Lower.MapSet`.
+  defp rewrite({{:., _, [{:__aliases__, _, [:MapSet]}, :new]}, _, [items]} = call)
+       when is_list(items),
+       do: call
 
   defp rewrite({{:., _, [{:__aliases__, _, [:MapSet]}, :new]}, _, [enumerable | transform]}),
     do: comprehension(enumerable, transform, quote(do: HashSet.new()))
@@ -113,8 +140,69 @@ defmodule RustQ.Meta.Desugar do
     end
   end
 
-  defp rewrite({:for, meta, args}), do: {:for, meta, Enum.map(args, &indexed_generator/1)}
+  defp rewrite({:++, _, [left, right]}), do: quote(do: Enum.concat(unquote(left), unquote(right)))
+
+  defp rewrite({:<<>>, _, parts} = binary) do
+    if Enum.all?(parts, &(is_binary(&1) or interpolated(&1) != nil)) do
+      format = Enum.map_join(parts, &format_part/1)
+      {:format!, [], [format | for(part <- parts, not is_binary(part), do: interpolated(part))]}
+    else
+      binary
+    end
+  end
+
+  defp rewrite({:for, meta, args}) do
+    {qualifiers, options} = Enum.split_while(args, &(not Keyword.keyword?(&1) or &1 == []))
+    options = Enum.concat(options)
+
+    if Keyword.has_key?(options, :reduce) and match?([_, _ | _], qualifiers),
+      do: reduced(qualifiers, options),
+      else: {:for, meta, Enum.map(args, &indexed_generator/1)}
+  end
+
   defp rewrite(ast), do: ast
+
+  defp reduced(qualifiers, options) do
+    clauses = Keyword.fetch!(options, :do)
+
+    item =
+      case bound_variables(qualifiers, clauses) do
+        [variable] -> variable
+        variables -> {:{}, [], variables}
+      end
+
+    items = {:for, [], qualifiers ++ [[do: item]]}
+
+    quote(
+      do:
+        Enum.reduce(
+          unquote(items),
+          unquote(Keyword.fetch!(options, :reduce)),
+          unquote(reducer(item, clauses))
+        )
+    )
+  end
+
+  # The variables the generators bind that the clauses use, in order.
+  defp bound_variables(qualifiers, clauses) do
+    used = clauses |> Pattern.variables() |> MapSet.new(&variable_key/1)
+
+    qualifiers
+    |> Enum.flat_map(&generator_variables/1)
+    |> Enum.uniq_by(&variable_key/1)
+    |> Enum.filter(&MapSet.member?(used, variable_key(&1)))
+  end
+
+  defp generator_variables({:<-, _, [pattern, _collection]}), do: Pattern.variables(pattern)
+  defp generator_variables(_filter), do: []
+
+  defp variable_key({name, _meta, context}), do: {name, context}
+
+  defp reducer(item, [{:->, _, [[accumulator], body]}]),
+    do: quote(do: fn unquote(item), unquote(accumulator) -> unquote(body) end)
+
+  defp reducer(item, clauses),
+    do: quote(do: fn unquote(item), rustq_acc -> case(rustq_acc, do: unquote(clauses)) end)
 
   # `{item, index} <- Enum.with_index(list)` enumerates the list, binding `{index, item}`,
   # rather than collecting the pairs first.
@@ -153,6 +241,16 @@ defmodule RustQ.Meta.Desugar do
           do: unquote(apply_function(transform, item))
     end
   end
+
+  defp interpolated({:"::", _, [{{:., _, [Kernel, :to_string]}, _, [value]}, {:binary, _, _}]}),
+    do: value
+
+  defp interpolated(_part), do: nil
+
+  defp format_part(text) when is_binary(text),
+    do: text |> String.replace("{", "{{") |> String.replace("}", "}}")
+
+  defp format_part(_interpolation), do: "{}"
 
   # The collection an empty collectable names, or nil for one with items.
   defp empty_collection({:%{}, _, []}), do: quote(do: HashMap.new())

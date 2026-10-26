@@ -769,6 +769,7 @@ defmodule RustQ.Meta.AST do
       :=,
       :!,
       :..,
+      :..//,
       :!=,
       :!==,
       :%,

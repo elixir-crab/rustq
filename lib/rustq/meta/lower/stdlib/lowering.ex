@@ -148,9 +148,17 @@ defmodule RustQ.Meta.Lower.Stdlib.Lowering do
      ])}
   end
 
-  @doc "A Rust count as Elixir's integer, an `i64`, unless the call is expected to produce a `usize`."
+  @doc """
+  A Rust count as Elixir's integer, an `i64`, unless the call is expected to produce a `usize`
+  or another integer type.
+  """
   @spec integer_count(AST.expr(), Context.t()) :: AST.expr()
   def integer_count(count, %Context{expected: %Type{kind: :usize}}), do: count
+
+  def integer_count(count, %Context{expected: %Type{kind: kind}})
+      when kind in [:u8, :u16, :u32, :u64, :i8, :i16, :i32, :isize],
+      do: A.cast(count, A.type(kind))
+
   def integer_count(count, %Context{}), do: A.cast(count, A.type(:i64))
 
   @doc "`count` as a `usize`, when it is a literal or unsigned count that cannot be negative."

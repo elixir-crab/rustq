@@ -8,6 +8,272 @@ defmodule RustQ.Meta.Lower.StdlibTest do
   alias RustQ.Meta.Typing
   alias RustQ.Rust.AST
 
+  import RustQ.Test, only: [rust_source!: 2]
+
+  defmodule Collections do
+    @moduledoc "Elixir's collection functions on Rust's collections, through a reference."
+
+    use RustQ.Meta
+
+    alias RustQ.Type, as: R
+
+    @type state :: %{
+            required(:keys) => R.vec(String.t()),
+            required(:index) => HashMap.t(R.u32(), R.usize())
+          }
+
+    @spec sizes(R.ref(state()), R.ref(MapSet.t(R.u32()))) :: R.usize()
+    defrust(sizes(state, seen),
+      do: length(state.keys) + map_size(state.index) + MapSet.size(seen)
+    )
+
+    @spec empty(R.ref(state())) :: R.bool()
+    defrust(empty(state), do: Enum.empty?(state.keys) or state.index == %{})
+
+    @spec named(R.ref(String.t())) :: R.bool()
+    defrust(named(name), do: name != "")
+
+    @spec fresh() :: state()
+    defrust(fresh(), do: %{keys: [], index: %{}})
+
+    @spec counted(R.u32()) :: HashMap.t(R.u32(), R.usize())
+    defrust(counted(id), do: %{id => 1})
+
+    @spec ids(R.ref(state())) :: R.vec(R.u32())
+    defrust(ids(state), do: for({id, _at} <- state.index, do: id))
+
+    @spec numbers(R.mut_ref(R.vec(R.u32())), R.u32()) :: R.unit()
+    defrust numbers(values, count) do
+      for number <- 1..count//1 do
+        values.push(number)
+      end
+    end
+
+    @spec tag(R.ref(String.t())) :: R.option(R.u32())
+    defrust(tag(name), do: if(name.is_empty(), do: nil, else: some(name.len() |> cast(R.u32()))))
+
+    @spec firsts(R.slice(String.t())) :: R.vec(R.usize())
+    defrust firsts(names) do
+      first =
+        for {name, index} <- names |> Enum.with_index() |> Enum.reverse(),
+            {:some, tag} <- [tag(name)],
+            into: %{},
+            do: {tag, index}
+
+      for name <- names, {:some, tag} <- [tag(name)], do: first[tag]
+    end
+
+    @spec regrouped(R.vec(String.t())) :: R.vec(String.t())
+    defrust regrouped(names) do
+      {long, short} = Enum.split_with(names, fn name -> name.len() > 3 end)
+      short ++ copies(long ++ long)
+    end
+
+    @spec copies(R.slice(String.t())) :: R.vec(String.t())
+    defrust(copies(names), do: Enum.map(names, fn name -> name.clone() end))
+
+    @spec grown(R.vec(R.u32()), R.u32()) :: R.vec(R.u32())
+    defrust grown(values, count) do
+      values = values ++ [count]
+      values
+    end
+
+    @typep paths :: HashMap.t(R.u32(), R.vec(R.usize()))
+    @typep tables :: HashMap.t(R.vec(R.usize()), paths())
+
+    @spec indexed(R.slice(R.u32())) :: paths()
+    defrust indexed(keys) do
+      keys
+      |> Enum.with_index()
+      |> Enum.reduce(%{}, fn {key, index}, table ->
+        Map.update(table, key, [index], fn found -> found ++ [index] end)
+      end)
+    end
+
+    @spec single(R.vec(R.u32())) :: R.result(R.u32(), R.usize())
+    defrust single(keys) do
+      found = Enum.reduce(keys, [], fn key, found -> kept(key, found) end)
+
+      case found do
+        [key] -> {:ok, key}
+        found -> {:error, length(found)}
+      end
+    end
+
+    @spec kept(R.u32(), R.vec(R.u32())) :: R.vec(R.u32())
+    defrust(kept(key, found), do: found ++ [key])
+
+    @spec first_value(R.slice(R.u32()), R.slice(R.usize())) :: R.u32()
+    defrust first_value(values, path) do
+      case path do
+        [index | _rest] -> values[index]
+        [] -> 0
+      end
+    end
+
+    @spec lookup(R.ref(tables()), R.slice(R.usize()), R.u32()) :: R.vec(R.usize())
+    defrust(lookup(tables, at, key), do: Map.get(tables[at], key, []))
+
+    @spec widened(R.ref(MapSet.t(R.u32())), R.vec(R.u32())) :: MapSet.t(R.u32())
+    defrust(widened(seen, keys), do: MapSet.union(seen, MapSet.new(keys)))
+
+    @spec bumped(R.vec(R.u32()), R.usize()) :: R.vec(R.u32())
+    defrust(bumped(values, index), do: List.replace_at(values, index, values[index] + 1))
+
+    @spec sorted_pairs(R.vec({R.u32(), R.u32()})) :: R.vec({R.u32(), R.u32()})
+    defrust(sorted_pairs(pairs), do: Enum.sort(pairs))
+
+    @spec counted_len(R.mut_ref(R.vec(R.usize()))) :: R.usize()
+    defrust counted_len(values) do
+      position = length(values)
+      values.push(position)
+      position
+    end
+
+    @spec sized(R.ref(paths())) :: R.usize()
+    defrust(sized(paths), do: map_size(paths))
+
+    @spec empty_size() :: R.usize()
+    defrust(empty_size(), do: sized(%{}))
+
+    @spec wrapped(R.vec(R.u32())) :: R.vec(R.option(R.u32()))
+    defrust(wrapped(values), do: Enum.map(values, fn value -> some(value) end))
+
+    @spec joined(R.vec(R.u32()), R.vec(R.u32())) :: R.vec(R.u32())
+    defrust(joined(left, right), do: left ++ right)
+  end
+
+  defmodule Readings do
+    @moduledoc "Operators on values a pattern borrows."
+
+    use RustQ.Meta
+
+    alias RustQ.Type, as: R
+
+    @typep kind :: :number | :flag
+    @typep reading :: R.enum(number: [R.f64()], flag: [R.bool()])
+
+    @spec kind(R.ref(reading())) :: kind()
+    defrust kind(reading) do
+      case reading do
+        {:number, _number} -> :number
+        {:flag, _flag} -> :flag
+      end
+    end
+
+    @spec weight(R.ref(reading())) :: R.u32()
+    defrust weight(reading) do
+      case reading do
+        {:number, number} -> if number == 0.0, do: 0, else: 2
+        {:flag, flag} -> if flag, do: 1, else: 0
+      end
+    end
+
+    @spec both(R.ref(reading()), R.ref(reading())) :: R.bool()
+    defrust both(left, right) do
+      case {left, right} do
+        {{:flag, a}, {:flag, b}} -> a and b
+        _ -> kind(left) == :number
+      end
+    end
+
+    @spec held?(R.option(R.u32())) :: R.bool()
+    defrust(held?(value), do: value != nil)
+
+    @spec counted(R.ref(MapSet.t(R.u32()))) :: R.u32()
+    defrust(counted(seen), do: depth(MapSet.size(seen)))
+
+    @spec depth(R.u32()) :: R.u32()
+    defrust(depth(count), do: count + 1)
+
+    @spec negative?(String.t()) :: R.bool()
+    defrust(negative?(word), do: String.downcase(String.trim(word)) in ["false", "no", "off"])
+  end
+
+  test "counts and emptiness of lists, maps, and sets are Rust's" do
+    assert rust_source!(Collections, :sizes) =~
+             "state.keys.len() + state.index.len() + seen.len()"
+
+    assert rust_source!(Collections, :empty) =~
+             "state.keys.is_empty() || state.index.is_empty()"
+
+    assert rust_source!(Collections, :named) =~ "!name.is_empty()"
+  end
+
+  test "empty and literal maps build where a map is expected" do
+    assert rust_source!(Collections, :fresh) =~ "index: HashMap::new()"
+    assert rust_source!(Collections, :counted) =~ "HashMap::from([(id, 1)])"
+  end
+
+  test "a map behind a reference is iterated by reference, copying copy keys" do
+    assert rust_source!(Collections, :ids) =~
+             "state.index.iter().map(|(key, value)| (*key, *value))"
+  end
+
+  test "a range with a step counts up between dynamic bounds" do
+    assert rust_source!(Collections, :numbers) =~ "for number in 1..=count {"
+  end
+
+  test "a map a comprehension builds is indexed by a borrowed key" do
+    source = rust_source!(Collections, :firsts)
+
+    assert source =~ ".rev()\n        .map("
+    refute source =~ ".collect()\n        .into_iter()"
+    assert source =~ "first[&tag]"
+  end
+
+  test "a list split or joined for a slice is borrowed" do
+    source = rust_source!(Collections, :regrouped)
+
+    assert source =~ ".chain(long.iter().cloned())"
+    assert source =~ ".collect::<Vec<String>>(),"
+  end
+
+  test "a reduction grows the accumulator it builds in place" do
+    source = rust_source!(Collections, :indexed)
+
+    assert source =~ "HashMap::new(),"
+    assert source =~ "Some(found) => {"
+    assert source =~ "rustq_updated.push(index);"
+  end
+
+  test "a reduction's list is matched as a slice, and a slice index is copied" do
+    assert rust_source!(Collections, :single) =~ "match found.as_slice() {"
+    assert rust_source!(Collections, :single) =~ "[key] => Ok(*key),"
+    assert rust_source!(Collections, :first_value) =~ "values[*index]"
+  end
+
+  test "a map read out of a map of maps is typed by its alias" do
+    assert rust_source!(Collections, :lookup) =~
+             "tables[at].get(&key).cloned().unwrap_or_default()"
+  end
+
+  test "a set behind a reference is copied, never updated in place" do
+    assert rust_source!(Collections, :widened) =~ "seen.clone()"
+  end
+
+  test "replace_at computes the item, then sets it in place unless the index is past the end" do
+    source = rust_source!(Collections, :bumped)
+
+    assert source =~ "let rustq_item = values[index] + 1;"
+    assert source =~ "if let Some(rustq_slot) = rustq_updated.get_mut(index) {"
+    assert source =~ "*rustq_slot = rustq_item;"
+  end
+
+  test "lists of tuples sort as Elixir sorts them, and a count is the integer its use needs" do
+    assert rust_source!(Collections, :sorted_pairs) =~ "rustq_updated.sort();"
+    assert rust_source!(Collections, :counted_len) =~ "let position = values.len();"
+  end
+
+  test "an empty map passed for a reference to one is borrowed" do
+    assert rust_source!(Collections, :empty_size) =~ "sized(&HashMap::new())"
+  end
+
+  test "++ concatenates lists" do
+    assert rust_source!(Collections, :joined) =~ "rustq_updated.extend(right);"
+    assert rust_source!(Collections, :grown) =~ "values.push(count);"
+  end
+
   test "normalizes remote stdlib calls and local Kernel forms" do
     assert {:ok, %Call{module: Enum, function: :count, args: [_values]}} =
              Call.normalize(quote(do: Enum.count(values)))
@@ -94,6 +360,26 @@ defmodule RustQ.Meta.Lower.StdlibTest do
     assert_raise Diagnostic.Error, ~r/typed Map lowering requires/, fn ->
       Lower.quoted_body(quote(do: Map.has_key?(value, :x)), nil)
     end
+  end
+
+  test "operators read borrowed copy values, and atoms take the enum compared with" do
+    assert rust_source!(Readings, :weight) =~ "*number == 0.0"
+    assert rust_source!(Readings, :weight) =~ "if *flag {"
+    assert rust_source!(Readings, :both) =~ "*a && *b"
+    assert rust_source!(Readings, :both) =~ "kind(left) == Kind::Number"
+  end
+
+  test "comparing an option with nil asks whether it holds a value" do
+    assert rust_source!(Readings, :held?) =~ "value.is_some()"
+  end
+
+  test "a count takes the integer type expected of it" do
+    assert rust_source!(Readings, :counted) =~ "depth(seen.len() as u32)"
+  end
+
+  test "membership among literals asks an array, and strings change case in place" do
+    assert rust_source!(Readings, :negative?) =~
+             ~s|["false", "no", "off"].contains(&word.trim().to_lowercase().as_str())|
   end
 
   test "rejects descending ranges instead of silently changing Elixir semantics" do

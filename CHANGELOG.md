@@ -1,5 +1,102 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `map_size` of a `HashMap`, `MapSet.size`, and `length` are Rust's `len()`,
+  a `usize` where one is expected; so is arithmetic on them there.
+- `Enum.empty?/1` and comparing with `[]` or `%{}` are `is_empty()`.
+- `%{}` and `%{key => value}` build a `HashMap` or `BTreeMap` where one is
+  expected.
+- A generator over a map or set behind a reference iterates it by reference,
+  copying copy keys and values and borrowing the rest.
+- `first..last//step` with a positive literal step counts up between dynamic
+  bounds, as Rust's `first..=last` does.
+- `Enum.sort/1` sorts booleans, strings, and tuples as well as integers.
+- A generator over a map or set is typed, map and set specs keep their key and
+  value types, and an Elixir integer bound with `=` takes the integer type its
+  later uses need.
+- `%{}` where a reference to a map is expected builds one and borrows it, and a
+  map key of unknown type is borrowed.
+- A closure that only calls a function with its argument is that function.
+- An interpolated string is `format!` of its parts, and a `for ... reduce:`
+  over several generators or filters reduces the comprehension of the
+  variables its clauses use.
+- `MapSet.new()` where a reference to a set is expected is borrowed, a
+  fallible list concatenated propagates its error, and cloning a reference to
+  a reference clones the value.
+- `List.replace_at/3` computes the new item, then sets it in place, leaving the
+  list as it is for an index past its end.
+- `left ++ right` concatenates lists, growing `left` in place at its last use:
+  `list ++ [item]` pushes, and `list ++ other` extends.
+- A comprehension's type follows all its generators, `{:some, value}` and
+  `{:ok, value}` patterns included, and a tuple bound with `=` types each
+  variable.
+- A `Vec` read from Rust source is a list, as one a spec names is.
+- A `case`, `if`, `cond`, or block has the type of its first branch whose type
+  is known, and a block's bindings are typed in order.
+- `Enum.map(list, fn item -> item.clone() end)` is `cloned()` over a list of
+  references, and the list itself otherwise.
+- `Enum.reduce/3` builds its accumulator as the expected type, `%{}` and `[]`
+  included, and has the reducer's type when its initial value has none.
+- Indexing a map or list, and the module's own aliases named inside other
+  types, are typed; a `Vec`, reference, or tuple rebuilt from Rust syntax keeps
+  its kind; an alias of a copy type is copied.
+- Copy items a slice lends are copied out for any use, a tuple pattern on a
+  reference binds references to its elements, Elixir's integer compares in
+  the Rust integer type of the other side, and a function argument that
+  cannot fail to match is bound with `=` rather than matched.
+- A variable put into a new list or pushed while still in use is copied, and
+  `Map.get/3` with an empty default is `unwrap_or_default()`.
+- `String.downcase/1` and `String.upcase/1` lower to `to_lowercase()` and
+  `to_uppercase()`, and membership among literals, as `word in ["no", "off"]`,
+  asks an array, looking a `String` up as a `&str`.
+- A comprehension over a list of tuples still in use iterates it by
+  reference, copying copy elements rather than cloning every item.
+- `MapSet.new/1` of listed items is `HashSet::from([...])`, and a list literal
+  where a slice is expected is a borrowed array, as `&[]`.
+- A `for ... reduce:` whose one clause binds the accumulator to a variable
+  names the accumulator after it, typed, rather than matching it each turn.
+- Comparing an option with `nil` is `is_some()` or `is_none()`.
+
+### Fixed
+
+- What indexing reaches is never taken from its collection; it is copied.
+- Taking a value behind a reference copies it, so an update to a borrowed set
+  never changes the set it was given.
+- A list matched against a list pattern binds its items by reference, and a
+  slice index read from one is copied.
+- `Map.update/4` matches the present value, so the function and the default
+  may each take what they use.
+- A map is indexed by a borrowed key.
+- Collecting into a slice argument collects a `Vec` and borrows it.
+- `Enum.concat/2` and `Enum.zip/2` take a list only at its last use, and copy
+  from one the other side borrows.
+- An iterator collected into a list and iterated again is iterated as it is.
+- A generator over one value computes it before the item moves into the pair.
+- A string literal key is looked up as the `&str` it is, and comparing a string
+  with `""` asks whether it is empty.
+- Operators read borrowed copy values a pattern binds: a comparison derefs the
+  borrowed side, `and`/`or` and `if` take booleans, and an atom compared with
+  an enum is that enum's variant.
+- A count passed where a `u32` or another integer is expected is cast to it.
+- `List.first/1` and `List.last/1` on an iterator collected into a list take
+  from the iterator.
+- A nested generator over a list an earlier item holds iterates it by
+  reference instead of moving it out of a borrow, and a generator over a slice
+  types its items as references.
+- A `for ... reduce:` types the items it binds, so a borrowed copy item is read
+  where it is stored.
+- An option field reached through a reference is matched by reference, binding
+  a reference to what it holds.
+- A binding keeps the option or result type its right-hand side gives rather
+  than what a later use suggests, and a tuple destructured from a fallible call
+  types its elements.
+- An empty map whose type is left to Rust is `HashMap::new()`.
+- A range bound that can fail propagates its error, and a range a method is
+  called on is parenthesized, as `(1..=count).into_iter()`.
+
 ## 1.0.0-rc.19 - 2026-10-26
 
 ### Added

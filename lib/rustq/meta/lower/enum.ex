@@ -56,13 +56,16 @@ defmodule RustQ.Meta.Lower.Enum do
      |> integer_count(context)}
   end
 
-  defp lower_call(%Call{function: :empty?, args: [collection]}, %Context{} = context),
-    do:
-      {:ok,
-       collection
-       |> iterate(:question, context)
-       |> A.method(:next)
-       |> A.method(:is_none)}
+  # A collection is asked directly; a stage, whether it yields anything.
+  defp lower_call(%Call{function: :empty?, args: [collection]}, %Context{} = context) do
+    case stage(collection) do
+      {:ok, stage} ->
+        {:ok, stage |> continued(context) |> A.method(:next) |> A.method(:is_none)}
+
+      :error ->
+        {:ok, collection |> lower_collection(context) |> A.method(:is_empty)}
+    end
+  end
 
   defp lower_call(%Call{function: :member?, args: [collection, value]}, %Context{} = context),
     do:
@@ -95,23 +98,28 @@ defmodule RustQ.Meta.Lower.Enum do
        |> A.method(:flatten)
        |> A.method(:collect)}
 
-  defp lower_call(%Call{function: :concat, args: [left, right]}, %Context{} = context),
-    do:
+  # A list taken whole grows in place: `list ++ [item]` pushes the item, and `list ++ other`
+  # extends the list with the other's items.
+  defp lower_call(%Call{function: :concat, args: [left, right]}, %Context{} = context) do
+    if owned_list?(left, context) do
+      grown = Collection.updated(left, &appended(&1, right, left, context), context)
+      {:ok, if(match?(%Type{kind: :slice}, context.expected), do: A.ref(grown), else: grown)}
+    else
       {:ok,
        left
-       |> lowered(context)
-       |> A.method(:into_iter)
-       |> A.method(:chain, [lowered(right, context)])
-       |> A.method(:collect)}
+       |> iterate(:keeps_items, context)
+       |> A.method(:chain, [iterable(right, left, context)])
+       |> collect(context)}
+    end
+  end
 
   defp lower_call(%Call{function: :zip, args: [left, right]}, %Context{} = context),
     do:
       {:ok,
        left
-       |> lowered(context)
-       |> A.method(:into_iter)
-       |> A.method(:zip, [lowered(right, context)])
-       |> A.method(:collect)}
+       |> iterate(:keeps_items, context)
+       |> A.method(:zip, [iterable(right, left, context)])
+       |> collect(context)}
 
   defp lower_call(%Call{function: :unzip, args: [collection]}, %Context{} = context),
     do:
@@ -129,27 +137,17 @@ defmodule RustQ.Meta.Lower.Enum do
        |> A.method(:rev)
        |> A.method(:collect)}
 
+  # Rust orders integers, booleans, strings, and tuples of them as Elixir does.
   defp lower_call(%Call{function: :sort, args: [collection]} = call, %Context{} = context) do
-    case collection_inner(type_of(collection, context)) do
-      %Type{} = inner
-      when inner.kind in [:i8, :i16, :i32, :i64, :isize, :u8, :u16, :u32, :u64, :usize] ->
-        name = :rustq_sorted_values
-        variable = A.var(name)
-
-        {:ok,
-         A.block_expr([
-           %AST.Let{pattern: %AST.PatVar{name: name}, expr: lowered(collection, context)},
-           A.stmt(A.method(variable, :sort)),
-           A.return_stmt(variable)
-         ])}
-
-      _type ->
-        Diagnostic.lower(
-          :unsupported_enum_sort_semantics,
-          call.source,
-          "Enum.sort/1 currently requires a statically typed integer collection",
-          suggestion: "Use an explicit comparator adapter for other ordering semantics."
-        )
+    if ordered?(collection_inner(type_of(collection, context))) do
+      {:ok, Collection.updated(collection, &[A.stmt(A.method(&1, :sort))], context)}
+    else
+      Diagnostic.lower(
+        :unsupported_enum_sort_semantics,
+        call.source,
+        "Enum.sort/1 requires a list of integers, booleans, strings, or tuples of them",
+        suggestion: "Sort by a key with Enum.sort_by/2 for other ordering semantics."
+      )
     end
   end
 
@@ -431,11 +429,12 @@ defmodule RustQ.Meta.Lower.Enum do
   def synth(%Call{function: :sum, args: [collection]}, %TypeContext{} = context),
     do: collection |> type_of(context) |> collection_inner_result()
 
+  # A reduction has its initial value's type, or, for an empty literal, the reducer's.
   def synth(
-        %Call{function: :reduce, args: [_collection, initial, _reducer]},
+        %Call{function: :reduce, args: [_collection, initial, reducer]},
         %TypeContext{} = context
       ),
-      do: type_result(type_of(initial, context))
+      do: type_result(type_of(initial, context) || reducer_type(reducer, context))
 
   def synth(%Call{function: operation}, %TypeContext{}) when operation in [:any?, :all?],
     do: {:ok, Spec.type(quote(do: boolean()))}
@@ -596,6 +595,26 @@ defmodule RustQ.Meta.Lower.Enum do
 
   def synth(%Call{}, %TypeContext{}), do: :unsupported
 
+  # Cloning each item copies the list's items: what references point to is cloned with
+  # `cloned()`, as clippy prefers to a map, and owned items are already their own copies.
+  defp lower_map(
+         collection,
+         {:fn, _,
+          [
+            {:->, _,
+             [[{name, _, ast_context}], {{:., _, [{name, _, ast_context}, :clone]}, _, []}]}
+          ]},
+         context
+       )
+       when is_atom(name) and is_atom(ast_context) do
+    iterator = iterate(collection, :keeps_items, context)
+
+    case collection_inner(type_of(collection, context)) do
+      %Type{kind: :ref} -> iterator |> A.method(:cloned) |> collect(context)
+      _owned -> collect(iterator, context)
+    end
+  end
+
   defp lower_map(collection, {:fn, _, [{:->, _, [args, body]}]}, context) do
     mapped_type = collection_inner(context.expected)
     iteration = iteration(collection, :maps_items, context)
@@ -638,11 +657,23 @@ defmodule RustQ.Meta.Lower.Enum do
        ) do
     iteration = iteration(collection, :maps_items, context)
     [item] = typed_items([item], collection, iteration, context)
-    closure = closure([accumulator, item], body, context)
+
+    # The accumulator is what the reduction returns, where that is known.
+    {initial, closure} =
+      case context.expected do
+        %Type{} = acc_type ->
+          accumulator = {:__rustq_typed_arg__, [], [accumulator, acc_type]}
+
+          {lowered(initial, acc_type, context),
+           closure([accumulator, item], body, acc_type, context)}
+
+        nil ->
+          {lowered(initial, context), closure([accumulator, item], body, context)}
+      end
 
     collection
     |> iterate_as(iteration, context)
-    |> A.method(:fold, [lowered(initial, context), closure])
+    |> A.method(:fold, [initial, closure])
   end
 
   defp lower_reduce(_collection, _initial, other, _context) do
@@ -774,6 +805,11 @@ defmodule RustQ.Meta.Lower.Enum do
 
   defp mapper_type(_mapper, _inner, _context), do: nil
 
+  defp reducer_type({:fn, _, [{:->, _, [[_item, _accumulator], body]}]}, context),
+    do: type_of(body, context)
+
+  defp reducer_type(_reducer, _context), do: nil
+
   defp collection_inner(%Type{} = type), do: Type.vec_inner(type) || Type.slice_inner(type)
   defp collection_inner(_type), do: nil
 
@@ -878,9 +914,11 @@ defmodule RustQ.Meta.Lower.Enum do
 
     case iteration do
       :owned ->
-        if borrowed_collection?(type_of(collection, context)),
-          do: A.method(receiver, :iter),
-          else: A.method(receiver, :into_iter)
+        cond do
+          borrowed_collection?(type_of(collection, context)) -> A.method(receiver, :iter)
+          Collection.collected?(receiver) -> receiver.receiver
+          true -> A.method(receiver, :into_iter)
+        end
 
       :borrowed ->
         A.method(receiver, :iter)
@@ -908,6 +946,15 @@ defmodule RustQ.Meta.Lower.Enum do
     do: list_iteration(collection, type, use, context)
 
   defp iteration(%Type{} = type, _collection, :keeps_items, _context), do: lent_iteration(type)
+
+  # Copy items lent by a slice are copied out for any use, as `iter().copied()`.
+  defp iteration(%Type{} = type, _collection, _use, _context) do
+    case Type.slice_inner(type) || collection_inner(type) do
+      %Type{} = inner -> if Collection.copy?(inner), do: :copied, else: :owned
+      nil -> :owned
+    end
+  end
+
   defp iteration(_type, _collection, _use, _context), do: :owned
 
   defp list_iteration(collection, type, use, context) do
@@ -946,7 +993,60 @@ defmodule RustQ.Meta.Lower.Enum do
     %AST.MethodCall{receiver: receiver, method: :collect, args: [], generics: [type]}
   end
 
+  # Where a slice is expected, the items collect into a list it borrows.
+  defp collect(receiver, %Context{expected: %Type{kind: :slice} = expected}) do
+    vec = expected |> Type.slice_inner() |> Type.vec()
+    A.ref(%AST.MethodCall{receiver: receiver, method: :collect, args: [], generics: [vec.ast]})
+  end
+
   defp collect(receiver, %Context{}), do: A.method(receiver, :collect)
+
+  # What `chain` and `zip` take: any iterable, so a list taken whole is passed as it is. The
+  # list the iterator before it borrows is still borrowed, so it is copied from too; a list a
+  # fallible call gives propagates its error first.
+  defp iterable(collection, before, context) do
+    iterator =
+      cond do
+        same_root?(collection, before) -> iterate_as(collection, :cloned, context)
+        fallible?(collection, context) -> collection |> operand(context) |> A.method(:into_iter)
+        true -> iterate(collection, :keeps_items, context)
+      end
+
+    case iterator do
+      %AST.MethodCall{method: :into_iter, receiver: list, args: []} -> list
+      iterator -> iterator
+    end
+  end
+
+  defp owned_list?(list, context) do
+    match?(%Type{kind: :vec}, type_of(list, context)) and
+      iteration(list, :keeps_items, context) == :owned
+  end
+
+  defp appended(list, items, _before, context) when is_list(items),
+    do: Enum.map(items, &A.stmt(A.method(list, :push, [Collection.owned(&1, context)])))
+
+  defp appended(list, other, before, context),
+    do: [A.stmt(A.method(list, :extend, [iterable(other, before, context)]))]
+
+  defp ordered?(%Type{kind: :alias, meta: %{target: %Type{} = target}}), do: ordered?(target)
+
+  defp ordered?(%Type{} = type) do
+    case Type.category(type) do
+      category when category in [:integer, :boolean, :string] -> true
+      {:tuple, elements} -> Enum.all?(elements, &ordered?/1)
+      _other -> false
+    end
+  end
+
+  defp ordered?(nil), do: false
+
+  defp fallible?(collection, context),
+    do:
+      match?(%Type{kind: kind} when kind in [:result, :nif_result], type_of(collection, context))
+
+  defp same_root?({name, _, context}, {name, _, context}) when is_atom(context), do: true
+  defp same_root?(_collection, _before), do: false
 
   defp continuation(body) do
     Macro.prewalk(body, fn

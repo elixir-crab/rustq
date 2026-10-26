@@ -69,6 +69,12 @@ defmodule RustQ.Meta.Lower.StdlibTest do
     @spec copies(R.slice(String.t())) :: R.vec(String.t())
     defrust(copies(names), do: Enum.map(names, fn name -> name.clone() end))
 
+    @spec grown(R.vec(R.u32()), R.u32()) :: R.vec(R.u32())
+    defrust grown(values, count) do
+      values = values ++ [count]
+      values
+    end
+
     @spec joined(R.vec(R.u32()), R.vec(R.u32())) :: R.vec(R.u32())
     defrust(joined(left, right), do: left ++ right)
   end
@@ -111,8 +117,8 @@ defmodule RustQ.Meta.Lower.StdlibTest do
   end
 
   test "++ concatenates lists" do
-    assert rust_source!(Collections, :joined) =~
-             "left.into_iter().chain(right).collect::<Vec<u32>>()"
+    assert rust_source!(Collections, :joined) =~ "rustq_updated.extend(right);"
+    assert rust_source!(Collections, :grown) =~ "values.push(count);"
   end
 
   test "normalizes remote stdlib calls and local Kernel forms" do

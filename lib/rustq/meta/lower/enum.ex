@@ -98,13 +98,19 @@ defmodule RustQ.Meta.Lower.Enum do
        |> A.method(:flatten)
        |> A.method(:collect)}
 
-  defp lower_call(%Call{function: :concat, args: [left, right]}, %Context{} = context),
-    do:
+  # A list taken whole grows in place: `list ++ [item]` pushes the item, and `list ++ other`
+  # extends the list with the other's items.
+  defp lower_call(%Call{function: :concat, args: [left, right]}, %Context{} = context) do
+    if owned_list?(left, context) do
+      {:ok, Collection.updated(left, &appended(&1, right, left, context), context)}
+    else
       {:ok,
        left
        |> iterate(:keeps_items, context)
        |> A.method(:chain, [iterable(right, left, context)])
        |> collect(context)}
+    end
+  end
 
   defp lower_call(%Call{function: :zip, args: [left, right]}, %Context{} = context),
     do:
@@ -988,6 +994,17 @@ defmodule RustQ.Meta.Lower.Enum do
       iterator -> iterator
     end
   end
+
+  defp owned_list?(list, context),
+    do:
+      match?(%Type{kind: :vec}, type_of(list, context)) and
+        iteration(list, :keeps_items, context) == :owned
+
+  defp appended(list, items, _before, context) when is_list(items),
+    do: Enum.map(items, &A.stmt(A.method(list, :push, [lowered(&1, context)])))
+
+  defp appended(list, other, before, context),
+    do: [A.stmt(A.method(list, :extend, [iterable(other, before, context)]))]
 
   defp same_root?({name, _, context}, {name, _, context}) when is_atom(context), do: true
   defp same_root?(_collection, _before), do: false

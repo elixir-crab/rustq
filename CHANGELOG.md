@@ -13,7 +13,8 @@
   copying copy keys and values and borrowing the rest.
 - `first..last//step` with a positive literal step counts up between dynamic
   bounds, as Rust's `first..=last` does.
-- `left ++ right` concatenates lists.
+- `left ++ right` concatenates lists, growing `left` in place at its last use:
+  `list ++ [item]` pushes, and `list ++ other` extends.
 - A comprehension's type follows all its generators, `{:some, value}` and
   `{:ok, value}` patterns included, and a tuple bound with `=` types each
   variable.
@@ -25,6 +26,8 @@
 
 ### Fixed
 
+- `Map.update/4` matches the present value, so the function and the default
+  may each take what they use.
 - A map is indexed by a borrowed key.
 - Collecting into a slice argument collects a `Vec` and borrows it.
 - `Enum.concat/2` and `Enum.zip/2` take a list only at its last use, and copy

@@ -60,9 +60,9 @@ defmodule RustQ.Meta.Lower.MapTest do
   test "update/4 gives a present value to the function and stores the default otherwise" do
     source = rust_source!(Scores, :bump)
 
-    assert source =~ ".remove(&rustq_key)"
-    assert source =~ ".map(|count| count + 1)"
-    assert source =~ ".unwrap_or(1)"
+    assert source =~ "match rustq_updated.remove(&rustq_key) {"
+    assert source =~ "Some(count) => count + 1,"
+    assert source =~ "None => 1,"
   end
 
   test "an update takes the map at its last use and copies it otherwise" do

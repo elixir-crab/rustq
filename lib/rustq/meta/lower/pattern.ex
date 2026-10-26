@@ -242,6 +242,25 @@ defmodule RustQ.Meta.Lower.Pattern do
     end
   end
 
+  # A tuple pattern on a reference to a tuple binds references to its elements, as Rust's
+  # default binding mode does.
+  def context_with_match_pattern(pattern, %Type{kind: :ref} = type, %Context{} = context)
+      when is_tuple(pattern) and (tuple_size(pattern) == 2 or elem(pattern, 0) == :{}) do
+    case Type.ref_inner(type) do
+      %Type{kind: :tuple, meta: %{elements: types}} = tuple ->
+        refs = Enum.map(types, &Type.ref/1)
+
+        context_with_match_pattern(
+          pattern,
+          %{tuple | meta: %{tuple.meta | elements: refs}},
+          context
+        )
+
+      _other ->
+        context_with_match_pattern(pattern, nil, context)
+    end
+  end
+
   # A pattern of unknown type still shadows the names it binds; they lose their old types.
   def context_with_match_pattern(pattern, _type, %Context{} = context) do
     names = pattern |> pattern_variables() |> Enum.map(&elem(&1, 0))

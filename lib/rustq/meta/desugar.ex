@@ -33,8 +33,19 @@ defmodule RustQ.Meta.Desugar do
     end)
   end
 
-  def apply_function({:fn, _, [{:->, _, [[pattern], body]}]}, value),
-    do: quote(do: case(unquote(value), do: (unquote(pattern) -> unquote(body))))
+  # A pattern that cannot fail, as a tuple of variables, binds the value; another matches it.
+  def apply_function({:fn, _, [{:->, _, [[pattern], body]}]}, value) do
+    if binding?(pattern),
+      do:
+        quote(
+          do:
+            (
+              unquote(pattern) = unquote(value)
+              unquote(body)
+            )
+        ),
+      else: quote(do: case(unquote(value), do: (unquote(pattern) -> unquote(body))))
+  end
 
   def apply_function({:&, _, [{:/, _, [{{:., _, _} = remote, _, _}, 1]}]}, value),
     do: {remote, [], [value]}
@@ -50,6 +61,11 @@ defmodule RustQ.Meta.Desugar do
       suggestion: "Use a one-argument anonymous function or a named one-argument capture."
     )
   end
+
+  defp binding?({name, _, ast_context}) when is_atom(name) and is_atom(ast_context), do: true
+  defp binding?({left, right}), do: binding?(left) and binding?(right)
+  defp binding?({:{}, _, elements}), do: Enum.all?(elements, &binding?/1)
+  defp binding?(_pattern), do: false
 
   # Names a rewrite introduces, which shadow nothing a body writes.
   defp fresh(name), do: Macro.var(:"rustq_#{name}", __MODULE__)

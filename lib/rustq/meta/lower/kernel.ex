@@ -58,14 +58,20 @@ defmodule RustQ.Meta.Lower.Kernel do
   # Comparing two options or results compares the wrappers; neither side propagates.
   def lower(%Call{function: function, args: [left, right]}, %Context{} = context)
       when function in [:==, :!=] do
-    lower_operand =
-      if wrapper_comparison?(left, right, context),
-        do: &lowered(&1, context),
-        else: &operand(&1, context)
-
-    {:ok,
-     A.binary(lower_operand.(left), Map.fetch!(@binary_ops, function), lower_operand.(right))}
+    if wrapper_comparison?(left, right, context),
+      do:
+        {:ok,
+         A.binary(
+           lowered(left, context),
+           Map.fetch!(@binary_ops, function),
+           lowered(right, context)
+         )},
+      else: {:ok, compared(function, left, right, context)}
   end
+
+  def lower(%Call{function: function, args: [left, right]}, %Context{} = context)
+      when function in @comparison_functions and is_map_key(@binary_ops, function),
+      do: {:ok, compared(function, left, right, context)}
 
   def lower(%Call{function: function, args: [left, right]}, %Context{} = context)
       when is_map_key(@binary_ops, function) do
@@ -219,6 +225,23 @@ defmodule RustQ.Meta.Lower.Kernel do
       suggestion: "Use an explicit Rust adapter when Elixir and Rust semantics differ."
     )
   end
+
+  # Elixir's integer, as a count is, compares in the Rust integer type of the other side.
+  defp compared(function, left, right, context) do
+    {left_type, right_type} = {type_of(left, context), type_of(right, context)}
+
+    A.binary(
+      compared_operand(left, left_type, right_type, context),
+      Map.fetch!(@binary_ops, function),
+      compared_operand(right, right_type, left_type, context)
+    )
+  end
+
+  defp compared_operand(operand, %Type{kind: :i64}, %Type{kind: kind} = other, context)
+       when kind in [:u8, :u16, :u32, :u64, :usize, :i8, :i16, :i32, :isize],
+       do: lowered(operand, other, context)
+
+  defp compared_operand(operand, _type, _other, context), do: operand(operand, context)
 
   defp emptiness(function, collection, context) do
     is_empty = collection |> lowered(context) |> A.method(:is_empty)

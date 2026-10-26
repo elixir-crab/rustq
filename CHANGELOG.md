@@ -28,6 +28,10 @@
 - Indexing a map or list, and the module's own aliases named inside other
   types, are typed; a `Vec`, reference, or tuple rebuilt from Rust syntax keeps
   its kind; an alias of a copy type is copied.
+- Copy items a slice lends are copied out for any use, a tuple pattern on a
+  reference binds references to its elements, Elixir's integer compares in
+  the Rust integer type of the other side, and a function argument that
+  cannot fail to match is bound with `=` rather than matched.
 - A variable put into a new list or pushed while still in use is copied, and
   `Map.get/3` with an empty default is `unwrap_or_default()`.
 

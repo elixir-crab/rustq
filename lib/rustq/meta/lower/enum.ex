@@ -954,6 +954,15 @@ defmodule RustQ.Meta.Lower.Enum do
     do: list_iteration(collection, type, use, context)
 
   defp iteration(%Type{} = type, _collection, :keeps_items, _context), do: lent_iteration(type)
+
+  # Copy items lent by a slice are copied out for any use, as `iter().copied()`.
+  defp iteration(%Type{} = type, _collection, _use, _context) do
+    case Type.slice_inner(type) || collection_inner(type) do
+      %Type{} = inner -> if Collection.copy?(inner), do: :copied, else: :owned
+      nil -> :owned
+    end
+  end
+
   defp iteration(_type, _collection, _use, _context), do: :owned
 
   defp list_iteration(collection, type, use, context) do

@@ -28,6 +28,17 @@ defmodule RustQ.Meta.Lower.Collection do
 
   def keyed(%Type{kind: :alias, meta: %{target: %Type{} = target}}), do: keyed(target)
 
+  def keyed(%Type{
+        ast: %AST.TypePath{parts: parts},
+        meta: %{generics: [%Type{} = key, %Type{} = value]}
+      })
+      when parts in [[:HashMap], [:BTreeMap]],
+      do: {:map, key, value}
+
+  def keyed(%Type{ast: %AST.TypePath{parts: parts}, meta: %{generics: [%Type{} = item]}})
+      when parts in [[:HashSet], [:BTreeSet]],
+      do: {:set, item}
+
   def keyed(%Type{ast: %AST.TypePath{parts: parts, generics: [key, value]}}) do
     if List.last(parts) in @maps, do: {:map, Type.ast_type(key), Type.ast_type(value)}
   end
@@ -95,8 +106,12 @@ defmodule RustQ.Meta.Lower.Collection do
 
   @doc "A key or item passed by reference, borrowed unless it already is one."
   @spec borrowed(Macro.t(), Type.t(), Context.t()) :: AST.expr()
-  def borrowed(expression, %Type{} = type, %Context{} = context),
-    do: lowered(expression, Type.ref(type), context)
+  def borrowed(expression, %Type{} = type, %Context{} = context) do
+    case type_of(expression, context) do
+      nil -> A.ref(lowered(expression, context))
+      _known -> lowered(expression, Type.ref(type), context)
+    end
+  end
 
   @doc "A value read out of a collection: copied when that costs nothing, otherwise cloned."
   @spec read_out(AST.expr(), Type.t()) :: AST.expr()

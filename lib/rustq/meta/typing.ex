@@ -302,7 +302,7 @@ defmodule RustQ.Meta.Typing do
   # earlier ones bound; filters bind nothing.
   defp bind_generator({:<-, _, [pattern, collection]}, %Env{} = env) do
     with %Type{} = list <- synth(collection, env),
-         %Type{} = item <- Type.vec_inner(list) || slice_item(list) do
+         %Type{} = item <- Type.vec_inner(list) || slice_item(list) || keyed_item(list) do
       {:cont, bind_pattern(pattern, item, env)}
     else
       _unknown -> {:halt, nil}
@@ -310,6 +310,18 @@ defmodule RustQ.Meta.Typing do
   end
 
   defp bind_generator(_filter, %Env{} = env), do: {:cont, env}
+
+  # A map yields its keys and values, and a set its items, copied where that costs nothing and
+  # borrowed otherwise, as `RustQ.Meta.Lower.Comprehension` iterates them.
+  defp keyed_item(type) do
+    case Collection.keyed(type) do
+      {:map, key, value} -> Type.tuple([lent(key), lent(value)])
+      {:set, item} -> lent(item)
+      nil -> nil
+    end
+  end
+
+  defp lent(type), do: if(Collection.copy?(type), do: type, else: Type.ref(type))
 
   defp collected(into, %Type{} = value) do
     case {Collection.keyed(constructed(into)), value} do
@@ -820,11 +832,21 @@ defmodule RustQ.Meta.Typing do
     end
   end
 
-  defp inferred_binding_type(%Type{} = inferred, %Type{} = rhs) do
-    if propagated_rhs_for_inferred_binding?(rhs, inferred), do: inferred, else: rhs
+  # Elixir's integer, as a count is, takes the integer type its use needs, as a literal does.
+  defp inferred_binding_type(%Type{} = inferred, %Type{kind: :i64} = rhs) do
+    if Type.category(inferred) == :integer,
+      do: inferred,
+      else: rhs_unless_propagated(inferred, rhs)
   end
 
+  defp inferred_binding_type(%Type{} = inferred, %Type{} = rhs),
+    do: rhs_unless_propagated(inferred, rhs)
+
   defp inferred_binding_type(inferred, _rhs), do: inferred
+
+  defp rhs_unless_propagated(inferred, rhs) do
+    if propagated_rhs_for_inferred_binding?(rhs, inferred), do: inferred, else: rhs
+  end
 
   defp propagated_rhs_for_inferred_binding?(%Type{} = rhs, %Type{} = inferred) do
     Type.propagates?(rhs) and

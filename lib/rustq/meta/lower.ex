@@ -700,6 +700,19 @@ defmodule RustQ.Meta.Lower do
        when is_list(fields),
        do: lower_struct_update(base, fields, context)
 
+  # A map literal where a reference to a map is expected builds the map and borrows it.
+  defp lower_expected_expr_context(
+         {:%{}, _, entries} = map,
+         %Type{kind: :ref, meta: %{inner: %Type{} = inner}},
+         %Context{} = context
+       )
+       when is_list(entries) do
+    case Collection.keyed(inner) do
+      {:map, _key, _value} -> A.ref(lower_expected_expr_context(map, inner, context))
+      _other -> lower_expr(map, context)
+    end
+  end
+
   # A map literal where a map's alias is expected builds the map it names.
   defp lower_expected_expr_context(
          {:%{}, _, entries} = map,
@@ -1146,7 +1159,7 @@ defmodule RustQ.Meta.Lower do
     do: %{lower_closure_args(args, body, context) | move: true}
 
   defp lower_expr_context({:fn, _, [{:->, _, [args, body]}]}, %Context{} = context),
-    do: lower_closure_args(args, body, context)
+    do: args |> lower_closure_args(body, context) |> eta_reduced()
 
   defp lower_expr_context(
          {{:., _, [receiver = {:__aliases__, _, [module]}, function]}, _, args} = call,
@@ -2411,6 +2424,26 @@ defmodule RustQ.Meta.Lower do
       suggestion: "Pipe into a method call, cast/1, or add an explicit lowering clause."
     )
   end
+
+  # A closure that only calls a function with its argument is that function, as clippy prefers:
+  # `|item| Wrapped(item)` is `Wrapped`.
+  defp eta_reduced(%AST.Closure{
+         args: [name],
+         body: %AST.PathCall{path: path, args: [%AST.Var{name: name}], generics: []},
+         move: false
+       })
+       when is_atom(name),
+       do: path
+
+  defp eta_reduced(%AST.Closure{
+         args: [name],
+         body: %AST.LocalCall{name: function, args: [%AST.Var{name: name}]},
+         move: false
+       })
+       when is_atom(name),
+       do: A.path([function])
+
+  defp eta_reduced(closure), do: closure
 
   # A map's key is read by reference; one already a reference is passed as it is.
   defp borrowed_key(key, %Context{} = context) do

@@ -13,6 +13,13 @@
   copying copy keys and values and borrowing the rest.
 - `first..last//step` with a positive literal step counts up between dynamic
   bounds, as Rust's `first..=last` does.
+- `Enum.sort/1` sorts booleans, strings, and tuples as well as integers.
+- A generator over a map or set is typed, map and set specs keep their key and
+  value types, and an Elixir integer bound with `=` takes the integer type its
+  later uses need.
+- `%{}` where a reference to a map is expected builds one and borrows it, and a
+  map key of unknown type is borrowed.
+- A closure that only calls a function with its argument is that function.
 - `List.replace_at/3` computes the new item, then sets it in place, leaving the
   list as it is for an index past its end.
 - `left ++ right` concatenates lists, growing `left` in place at its last use:

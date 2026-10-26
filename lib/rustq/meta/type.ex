@@ -1236,8 +1236,11 @@ defmodule RustQ.Meta.Type do
     type(:vec, %AST.TypeVec{inner: inner.ast}, %{inner: inner})
   end
 
+  # The parsed type arguments are kept, so a map's key and value keep what their specs say.
   defp parse_external_type({:__aliases__, _, parts}, :t, args, aliases) do
-    type(:type, external_type_path(parts, args, aliases), external_type_meta(parts, :t, args))
+    generics = for arg <- args, not lifetime_marker?(arg), do: parse(arg, aliases)
+    meta = Map.put(external_type_meta(parts, :t, args), :generics, generics)
+    type(:type, external_type_path(parts, args, aliases), meta)
   end
 
   defp parse_external_type({:__aliases__, _, parts}, function, args, aliases) do
@@ -1393,6 +1396,9 @@ defmodule RustQ.Meta.Type do
   end
 
   defp external_type_generics(arg, aliases), do: [parse(arg, aliases).ast]
+
+  defp lifetime_marker?({{:., _, [module, :lifetime]}, _, [_name]}), do: type_module?(module)
+  defp lifetime_marker?(_arg), do: false
 
   defp rust_module_part(part) when is_atom(part),
     do: Identifier.atom!(Macro.underscore(Atom.to_string(part)))

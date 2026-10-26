@@ -137,27 +137,17 @@ defmodule RustQ.Meta.Lower.Enum do
        |> A.method(:rev)
        |> A.method(:collect)}
 
+  # Rust orders integers, booleans, strings, and tuples of them as Elixir does.
   defp lower_call(%Call{function: :sort, args: [collection]} = call, %Context{} = context) do
-    case collection_inner(type_of(collection, context)) do
-      %Type{} = inner
-      when inner.kind in [:i8, :i16, :i32, :i64, :isize, :u8, :u16, :u32, :u64, :usize] ->
-        name = :rustq_sorted_values
-        variable = A.var(name)
-
-        {:ok,
-         A.block_expr([
-           %AST.Let{pattern: %AST.PatVar{name: name}, expr: lowered(collection, context)},
-           A.stmt(A.method(variable, :sort)),
-           A.return_stmt(variable)
-         ])}
-
-      _type ->
-        Diagnostic.lower(
-          :unsupported_enum_sort_semantics,
-          call.source,
-          "Enum.sort/1 currently requires a statically typed integer collection",
-          suggestion: "Use an explicit comparator adapter for other ordering semantics."
-        )
+    if ordered?(collection_inner(type_of(collection, context))) do
+      {:ok, Collection.updated(collection, &[A.stmt(A.method(&1, :sort))], context)}
+    else
+      Diagnostic.lower(
+        :unsupported_enum_sort_semantics,
+        call.source,
+        "Enum.sort/1 requires a list of integers, booleans, strings, or tuples of them",
+        suggestion: "Sort by a key with Enum.sort_by/2 for other ordering semantics."
+      )
     end
   end
 
@@ -1033,6 +1023,18 @@ defmodule RustQ.Meta.Lower.Enum do
 
   defp appended(list, other, before, context),
     do: [A.stmt(A.method(list, :extend, [iterable(other, before, context)]))]
+
+  defp ordered?(%Type{kind: :alias, meta: %{target: %Type{} = target}}), do: ordered?(target)
+
+  defp ordered?(%Type{} = type) do
+    case Type.category(type) do
+      category when category in [:integer, :boolean, :string] -> true
+      {:tuple, elements} -> Enum.all?(elements, &ordered?/1)
+      _other -> false
+    end
+  end
+
+  defp ordered?(nil), do: false
 
   defp same_root?({name, _, context}, {name, _, context}) when is_atom(context), do: true
   defp same_root?(_collection, _before), do: false

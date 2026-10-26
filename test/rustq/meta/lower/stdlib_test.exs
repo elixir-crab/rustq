@@ -117,6 +117,25 @@ defmodule RustQ.Meta.Lower.StdlibTest do
     @spec bumped(R.vec(R.u32()), R.usize()) :: R.vec(R.u32())
     defrust(bumped(values, index), do: List.replace_at(values, index, values[index] + 1))
 
+    @spec sorted_pairs(R.vec({R.u32(), R.u32()})) :: R.vec({R.u32(), R.u32()})
+    defrust(sorted_pairs(pairs), do: Enum.sort(pairs))
+
+    @spec counted_len(R.mut_ref(R.vec(R.usize()))) :: R.usize()
+    defrust counted_len(values) do
+      position = length(values)
+      values.push(position)
+      position
+    end
+
+    @spec sized(R.ref(paths())) :: R.usize()
+    defrust(sized(paths), do: map_size(paths))
+
+    @spec empty_size() :: R.usize()
+    defrust(empty_size(), do: sized(%{}))
+
+    @spec wrapped(R.vec(R.u32())) :: R.vec(R.option(R.u32()))
+    defrust(wrapped(values), do: Enum.map(values, fn value -> some(value) end))
+
     @spec joined(R.vec(R.u32()), R.vec(R.u32())) :: R.vec(R.u32())
     defrust(joined(left, right), do: left ++ right)
   end
@@ -187,6 +206,15 @@ defmodule RustQ.Meta.Lower.StdlibTest do
     assert source =~ "let rustq_item = values[index] + 1;"
     assert source =~ "if let Some(rustq_slot) = rustq_updated.get_mut(index) {"
     assert source =~ "*rustq_slot = rustq_item;"
+  end
+
+  test "lists of tuples sort as Elixir sorts them, and a count is the integer its use needs" do
+    assert rust_source!(Collections, :sorted_pairs) =~ "rustq_updated.sort();"
+    assert rust_source!(Collections, :counted_len) =~ "let position = values.len();"
+  end
+
+  test "an empty map passed for a reference to one is borrowed" do
+    assert rust_source!(Collections, :empty_size) =~ "sized(&HashMap::new())"
   end
 
   test "++ concatenates lists" do

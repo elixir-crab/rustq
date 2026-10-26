@@ -94,6 +94,8 @@
   than what a later use suggests, and a tuple destructured from a fallible call
   types its elements.
 - An empty map whose type is left to Rust is `HashMap::new()`.
+- A range bound that can fail propagates its error, and a range a method is
+  called on is parenthesized, as `(1..=count).into_iter()`.
 
 ## 1.0.0-rc.19 - 2026-10-26
 

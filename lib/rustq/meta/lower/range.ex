@@ -29,20 +29,17 @@ defmodule RustQ.Meta.Lower.Range do
   end
 
   # With a positive step, a range counts up and is empty when it ends below its start, as
-  # Rust's `start..=stop` is, so its bounds need not be literals.
+  # Rust's `start..=stop` is, so its bounds need not be literals; a fallible bound propagates
+  # its error.
   def lower(%Call{function: :..//, args: [start, stop, step]} = call, %Context{} = context) do
     if is_integer(step) and step > 0 do
       range = %AST.Range{
-        start: lowered(start, context),
-        stop: lowered(stop, context),
+        start: operand(start, context),
+        stop: operand(stop, context),
         inclusive: true
       }
 
-      {:ok,
-       if(step == 1,
-         do: range,
-         else: A.method(A.block_expr([A.return_stmt(range)]), :step_by, [A.lit(step)])
-       )}
+      {:ok, if(step == 1, do: range, else: A.method(range, :step_by, [A.lit(step)]))}
     else
       Diagnostic.lower(
         :unsupported_stdlib_semantics,
@@ -65,15 +62,8 @@ defmodule RustQ.Meta.Lower.Range do
     {:ok, A.method(A.array(Enum.map(items, &lowered(&1, context))), :contains, [A.ref(item)])}
   end
 
-  def lower(%Call{function: :in, args: [value, collection]}, %Context{} = context) do
-    receiver =
-      case lowered(collection, context) do
-        %AST.Range{} = range -> A.block_expr([A.return_stmt(range)])
-        expression -> expression
-      end
-
-    {:ok, A.method(receiver, :contains, [A.ref(lowered(value, context))])}
-  end
+  def lower(%Call{function: :in, args: [value, collection]}, %Context{} = context),
+    do: {:ok, A.method(lowered(collection, context), :contains, [A.ref(lowered(value, context))])}
 
   def lower(%Call{}, %Context{}), do: :unsupported
 

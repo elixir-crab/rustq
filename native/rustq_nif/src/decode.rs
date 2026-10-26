@@ -620,7 +620,7 @@ pub(crate) fn parse_method_call_expr(
 fn method_receiver_needs_grouping(receiver: &Expr) -> bool {
     matches!(
         receiver,
-        Expr::Binary(_) | Expr::Cast(_) | Expr::Reference(_) | Expr::Unary(_)
+        Expr::Binary(_) | Expr::Cast(_) | Expr::Range(_) | Expr::Reference(_) | Expr::Unary(_)
     )
 }
 

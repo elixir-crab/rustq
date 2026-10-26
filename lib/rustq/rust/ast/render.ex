@@ -942,6 +942,7 @@ defmodule RustQ.Rust.AST.Render do
   defp render_method_receiver(%Cast{} = expr), do: ["(", render_expr(expr), ")"]
   defp render_method_receiver(%Match{} = expr), do: ["(", render_expr(expr), ")"]
   defp render_method_receiver(%If{} = expr), do: ["(", render_expr(expr), ")"]
+  defp render_method_receiver(%Range{} = expr), do: ["(", render_expr(expr), ")"]
   defp render_method_receiver(expr), do: render_expr(expr)
 
   defp render_cast_operand(%BinaryOp{} = expr), do: ["(", render_expr(expr), ")"]

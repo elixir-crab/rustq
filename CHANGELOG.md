@@ -25,6 +25,11 @@
   Rusty-Elixir before lowering, by `RustQ.Meta.Desugar`.
 - Pattern, comprehension, path, and mutability lowering are their own modules
   beside `RustQ.Meta.Lower`.
+- Each Elixir module's lowering implements
+  `RustQ.Meta.Lower.Stdlib.Lowering`, whose `use` imports the helpers they
+  share, and a call goes to the lowering named after its module. Lowering
+  builds Rust with `RustQ.Rust.AST.Builder`, whose `expr/1` now accepts every
+  RustQ AST node.
 
 ## 1.0.0-rc.17 - 2026-10-25
 

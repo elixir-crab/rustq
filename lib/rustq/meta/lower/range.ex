@@ -7,6 +7,7 @@ defmodule RustQ.Meta.Lower.Range do
   alias RustQ.Meta.Core.Call
   alias RustQ.Meta.Lower.Stdlib.{Context, TypeContext}
   alias RustQ.Rust.AST
+  alias RustQ.Rust.AST.Builder, as: A
   alias RustQ.Spec
 
   @spec lower(Call.t(), Context.t()) :: {:ok, term()} | :unsupported
@@ -31,16 +32,11 @@ defmodule RustQ.Meta.Lower.Range do
   def lower(%Call{function: :in, args: [value, collection]}, %Context{} = context) do
     receiver =
       case context.lower.(collection) do
-        %AST.Range{} = range -> %AST.BlockExpr{body: [%AST.Return{expr: range}]}
+        %AST.Range{} = range -> A.block_expr([A.return_stmt(range)])
         expression -> expression
       end
 
-    {:ok,
-     %AST.MethodCall{
-       receiver: receiver,
-       method: :contains,
-       args: [%AST.Ref{expr: context.lower.(value)}]
-     }}
+    {:ok, A.method(receiver, :contains, [A.ref(context.lower.(value))])}
   end
 
   def lower(%Call{}, %Context{}), do: :unsupported

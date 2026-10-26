@@ -8,6 +8,7 @@ defmodule RustQ.Meta.Lower.Mutability do
 
   alias RustQ.Meta.StdMethods
   alias RustQ.Rust.AST
+  alias RustQ.Rust.AST.Builder, as: A
   alias RustQ.Rust.AST.Walk
 
   @mutating_methods StdMethods.mutating()
@@ -33,7 +34,7 @@ defmodule RustQ.Meta.Lower.Mutability do
       {[_ | _] = updates, [%AST.Return{expr: %AST.Var{name: :rustq_updated}}]} ->
         case rename_var(updates, :rustq_updated, name) do
           [update] -> update
-          updates -> %AST.ExprStmt{expr: %AST.BlockExpr{body: updates}}
+          updates -> A.stmt(A.block_expr(updates))
         end
 
       _other ->
@@ -43,7 +44,7 @@ defmodule RustQ.Meta.Lower.Mutability do
 
   def updated_in_place(statement), do: statement
 
-  defp rename_var(%AST.Var{name: from}, from, to), do: %AST.Var{name: to}
+  defp rename_var(%AST.Var{name: from}, from, to), do: A.var(to)
 
   defp rename_var(%module{} = node, from, to) do
     fields =

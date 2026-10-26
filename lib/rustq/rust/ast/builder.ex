@@ -66,7 +66,6 @@ defmodule RustQ.Rust.AST.Builder do
     MacroItem,
     MacroItemCall,
     MacroRepeat,
-    MacroRepeatExpr,
     MacroRule,
     MacroRules,
     MacroVar,
@@ -94,6 +93,8 @@ defmodule RustQ.Rust.AST.Builder do
     Var,
     VecLiteral
   }
+
+  @ast_modules AST.__rustq_ast_modules__()
 
   defmacro block(do: body) do
     quote do
@@ -406,53 +407,8 @@ defmodule RustQ.Rust.AST.Builder do
   def pat(name) when is_atom(name), do: PatternBuilder.var(name)
   def wildcard, do: PatternBuilder.wildcard()
 
-  def expr(%{__struct__: module} = value)
-      when module in [
-             Use,
-             AST.Attribute,
-             AST.Module,
-             AST.Const,
-             AST.Static,
-             AST.TypeAlias,
-             AST.MacroItem,
-             AST.MacroItemCall,
-             AST.Impl,
-             AST.Var,
-             AST.Path,
-             AST.Field,
-             AST.Index,
-             AST.Range,
-             AST.Cast,
-             AST.UnaryOp,
-             AST.PathCall,
-             AST.MethodCall,
-             AST.LocalCall,
-             AST.StructLiteral,
-             AST.Ref,
-             AST.Try,
-             AST.Tuple,
-             AST.VecLiteral,
-             AST.ArrayLiteral,
-             MacroRepeatExpr,
-             AST.Closure,
-             AST.Literal,
-             AST.ByteString,
-             AST.EscapeExpr,
-             AST.TokenMacro,
-             AST.MacroCall,
-             AST.AtomValue,
-             AST.None,
-             AST.Some,
-             AST.Ok,
-             AST.Err,
-             AST.NifRaiseAtom,
-             AST.BlockExpr,
-             AST.UnsafeBlock,
-             AST.Match,
-             AST.If,
-             AST.BinaryOp
-           ],
-      do: value
+  # Any RustQ AST node is already an expression, statement, or pattern in its own right.
+  def expr(%{__struct__: module} = value) when module in @ast_modules, do: value
 
   def expr(value) when is_boolean(value), do: lit(value)
   def expr(name) when is_atom(name), do: var(name)

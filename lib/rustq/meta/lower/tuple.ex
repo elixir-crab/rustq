@@ -8,13 +8,14 @@ defmodule RustQ.Meta.Lower.Tuple do
   alias RustQ.Meta.Lower.Stdlib.{Context, TypeContext}
   alias RustQ.Meta.Type
   alias RustQ.Rust.AST
+  alias RustQ.Rust.AST.Builder, as: A
 
   @spec lower(Call.t(), Context.t()) :: {:ok, term()} | :unsupported
   def lower(%Call{function: :to_list, args: [tuple]} = call, %Context{} = context) do
     with elements when is_list(elements) <- tuple_elements(context.type_of.(tuple)),
          true <- homogeneous?(elements) do
       name = :rustq_tuple_value
-      variable = %AST.Var{name: name}
+      variable = A.var(name)
 
       values =
         elements
@@ -24,12 +25,10 @@ defmodule RustQ.Meta.Lower.Tuple do
         end)
 
       {:ok,
-       %AST.BlockExpr{
-         body: [
-           %AST.Let{pattern: %AST.PatVar{name: name}, expr: context.lower.(tuple)},
-           %AST.Return{expr: %AST.VecLiteral{values: values}}
-         ]
-       }}
+       A.block_expr([
+         %AST.Let{pattern: %AST.PatVar{name: name}, expr: context.lower.(tuple)},
+         A.return_stmt(%AST.VecLiteral{values: values})
+       ])}
     else
       _unknown -> unsupported_tuple!(call)
     end

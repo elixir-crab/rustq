@@ -9,6 +9,7 @@ defmodule RustQ.Meta.Lower.String do
   alias RustQ.Meta.Lower.Stdlib.{Context, TypeContext}
   alias RustQ.Meta.Type
   alias RustQ.Rust.AST
+  alias RustQ.Rust.AST.Builder, as: A
   alias RustQ.Spec
 
   @predicate_methods %{
@@ -21,11 +22,9 @@ defmodule RustQ.Meta.Lower.String do
   def lower(%Call{function: function, args: [string, pattern]}, %Context{} = context)
       when is_map_key(@predicate_methods, function) do
     {:ok,
-     %AST.MethodCall{
-       receiver: context.lower.(string),
-       method: Map.fetch!(@predicate_methods, function),
-       args: [%AST.Ref{expr: context.lower.(pattern)}]
-     }}
+     A.method(context.lower.(string), Map.fetch!(@predicate_methods, function), [
+       A.ref(context.lower.(pattern))
+     ])}
   end
 
   def lower(%Call{function: :trim, args: [string]}, %Context{} = context),
@@ -33,8 +32,8 @@ defmodule RustQ.Meta.Lower.String do
       {:ok,
        string
        |> context.lower.()
-       |> method(:trim)
-       |> method(:to_string)}
+       |> A.method(:trim)
+       |> A.method(:to_string)}
 
   def lower(
         %Call{function: :replace, args: [string, pattern, replacement]},
@@ -42,14 +41,14 @@ defmodule RustQ.Meta.Lower.String do
       ),
       do:
         {:ok,
-         method(context.lower.(string), :replace, [
+         A.method(context.lower.(string), :replace, [
            string_slice(pattern, context),
            string_slice(replacement, context)
          ])}
 
   def lower(%Call{function: :duplicate, args: [string, count]} = call, %Context{} = context) do
     case Stdlib.nonnegative_count(count, context) do
-      {:ok, lowered_count} -> {:ok, method(context.lower.(string), :repeat, [lowered_count])}
+      {:ok, lowered_count} -> {:ok, A.method(context.lower.(string), :repeat, [lowered_count])}
       :unsupported -> unsupported_count!(call)
     end
   end
@@ -57,15 +56,15 @@ defmodule RustQ.Meta.Lower.String do
   def lower(%Call{function: :valid?, args: [string]}, %Context{} = context) do
     case context.type_of.(string) do
       %Type{} = type when type.kind == :binary ->
-        bytes = %AST.MethodCall{receiver: context.lower.(string), method: :as_slice, args: []}
+        bytes = A.method(context.lower.(string), :as_slice)
 
         {:ok,
-         %AST.PathCall{path: %AST.Path{parts: [:std, :str, :from_utf8]}, args: [bytes]}
+         %AST.PathCall{path: A.path([:std, :str, :from_utf8]), args: [bytes]}
          |> then(&%AST.MethodCall{receiver: &1, method: :is_ok, args: []})}
 
       %Type{} = type ->
         if Type.category(type) == :string,
-          do: {:ok, %AST.Literal{value: true}},
+          do: {:ok, A.lit(true)},
           else: :unsupported
 
       _unknown ->
@@ -87,10 +86,7 @@ defmodule RustQ.Meta.Lower.String do
   def synth(%Call{}, %TypeContext{}), do: :unsupported
 
   defp string_slice(value, context) when is_binary(value), do: context.lower.(value)
-  defp string_slice(value, context), do: method(context.lower.(value), :as_str)
-
-  defp method(receiver, name, args \\ []),
-    do: %AST.MethodCall{receiver: receiver, method: name, args: args}
+  defp string_slice(value, context), do: A.method(context.lower.(value), :as_str)
 
   @spec unsupported_count!(Call.t()) :: no_return()
   defp unsupported_count!(%Call{source: source}) do

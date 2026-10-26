@@ -9,6 +9,7 @@ defmodule RustQ.Meta.Lower.List do
   alias RustQ.Meta.Lower.Stdlib.{Context, TypeContext}
   alias RustQ.Meta.Type
   alias RustQ.Rust.AST
+  alias RustQ.Rust.AST.Builder, as: A
 
   @spec lower(Call.t(), Context.t()) :: {:ok, term()} | :unsupported
   def lower(%Call{function: function, args: [list]}, %Context{} = context)
@@ -18,8 +19,8 @@ defmodule RustQ.Meta.Lower.List do
     {:ok,
      list
      |> context.lower.()
-     |> method(:into_iter)
-     |> method(terminal)}
+     |> A.method(:into_iter)
+     |> A.method(terminal)}
   end
 
   def lower(%Call{function: function, args: [list, default]}, %Context{} = context)
@@ -29,9 +30,9 @@ defmodule RustQ.Meta.Lower.List do
     {:ok,
      list
      |> context.lower.()
-     |> method(:into_iter)
-     |> method(terminal)
-     |> method(:unwrap_or, [context.lower.(default)])}
+     |> A.method(:into_iter)
+     |> A.method(terminal)
+     |> A.method(:unwrap_or, [context.lower.(default)])}
   end
 
   def lower(%Call{function: :wrap, args: [nil]}, %Context{}),
@@ -54,11 +55,11 @@ defmodule RustQ.Meta.Lower.List do
       {:ok, lowered_count} ->
         {:ok,
          %AST.PathCall{
-           path: %AST.Path{parts: [:std, :iter, :repeat]},
+           path: A.path([:std, :iter, :repeat]),
            args: [context.lower.(value)]
          }
-         |> method(:take, [lowered_count])
-         |> method(:collect)}
+         |> A.method(:take, [lowered_count])
+         |> A.method(:collect)}
 
       :unsupported ->
         :unsupported
@@ -69,9 +70,9 @@ defmodule RustQ.Meta.Lower.List do
     depth = flatten_depth(context.type_of.(list))
 
     if is_integer(depth) and depth > 0 do
-      iterator = list |> context.lower.() |> method(:into_iter)
+      iterator = list |> context.lower.() |> A.method(:into_iter)
 
-      {:ok, iterator |> flatten_iterator(depth) |> method(:collect)}
+      {:ok, iterator |> flatten_iterator(depth) |> A.method(:collect)}
     else
       :unsupported
     end
@@ -122,7 +123,7 @@ defmodule RustQ.Meta.Lower.List do
   defp flatten_iterator(iterator, 1), do: iterator
 
   defp flatten_iterator(iterator, depth) do
-    Elixir.Enum.reduce(1..(depth - 1), iterator, fn _, acc -> method(acc, :flatten) end)
+    Elixir.Enum.reduce(1..(depth - 1), iterator, fn _, acc -> A.method(acc, :flatten) end)
   end
 
   defp flatten_depth(type), do: do_flatten_depth(type, 0)
@@ -150,7 +151,4 @@ defmodule RustQ.Meta.Lower.List do
 
   defp type_result(%Type{} = type), do: {:ok, type}
   defp type_result(_type), do: :unsupported
-
-  defp method(receiver, name, args \\ []),
-    do: %AST.MethodCall{receiver: receiver, method: name, args: args}
 end

@@ -12,6 +12,7 @@ defmodule RustQ.Meta.Lower.Collection do
   alias RustQ.Meta.Lower.Stdlib.Context
   alias RustQ.Meta.Type
   alias RustQ.Rust.AST
+  alias RustQ.Rust.AST.Builder, as: A
 
   @maps [:HashMap, :BTreeMap]
   @sets [:HashSet, :BTreeSet]
@@ -59,19 +60,18 @@ defmodule RustQ.Meta.Lower.Collection do
   @spec updated(Macro.t(), (AST.expr() -> [AST.stmt()]), Context.t()) :: AST.expr()
   def updated(collection, statements, %Context{} = context) do
     name = :rustq_updated
-    variable = %AST.Var{name: name}
+    variable = A.var(name)
 
-    %AST.BlockExpr{
-      body:
-        [
-          %AST.Let{
-            pattern: %AST.PatVar{name: name},
-            expr: owned(collection, context),
-            mutable: true
-          }
-        ] ++
-          statements.(variable) ++ [%AST.Return{expr: variable}]
-    }
+    A.block_expr(
+      [
+        %AST.Let{
+          pattern: %AST.PatVar{name: name},
+          expr: owned(collection, context),
+          mutable: true
+        }
+      ] ++
+        statements.(variable) ++ [A.return_stmt(variable)]
+    )
   end
 
   @doc "`collection` to take: itself at its last use, otherwise a copy."
@@ -80,7 +80,7 @@ defmodule RustQ.Meta.Lower.Collection do
     lowered = context.lower.(collection)
 
     if context.in_use?.(collection),
-      do: %AST.MethodCall{receiver: lowered, method: :clone, args: []},
+      do: A.method(lowered, :clone),
       else: lowered
   end
 
@@ -93,7 +93,7 @@ defmodule RustQ.Meta.Lower.Collection do
   @spec read_out(AST.expr(), Type.t()) :: AST.expr()
   def read_out(option, %Type{} = type) do
     method = if copy?(type), do: :copied, else: :cloned
-    %AST.MethodCall{receiver: option, method: method, args: []}
+    A.method(option, method)
   end
 
   @doc """
@@ -112,13 +112,4 @@ defmodule RustQ.Meta.Lower.Collection do
   end
 
   def copy?(_type), do: false
-
-  @doc "A call on `receiver`."
-  @spec call(AST.expr(), atom(), [AST.expr()]) :: AST.expr()
-  def call(receiver, method, args \\ []),
-    do: %AST.MethodCall{receiver: receiver, method: method, args: args}
-
-  @doc "A statement calling `method` on `receiver`."
-  @spec statement(AST.expr(), atom(), [AST.expr()]) :: AST.stmt()
-  def statement(receiver, method, args), do: %AST.ExprStmt{expr: call(receiver, method, args)}
 end

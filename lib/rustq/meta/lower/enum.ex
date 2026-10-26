@@ -13,6 +13,7 @@ defmodule RustQ.Meta.Lower.Enum do
   alias RustQ.Meta.Lower.Stdlib.{Context, TypeContext}
   alias RustQ.Meta.Type
   alias RustQ.Rust.AST
+  alias RustQ.Rust.AST.Builder, as: A
   alias RustQ.Spec
 
   @spec lower(Call.t(), Context.t()) :: {:ok, term()} | :unsupported
@@ -23,7 +24,7 @@ defmodule RustQ.Meta.Lower.Enum do
     do: {:ok, lower_map(collection, mapper, context)}
 
   defp lower_call(%Call{function: :sum, args: [collection]}, %Context{} = context),
-    do: {:ok, collection |> iterate(:question, context) |> method_chain(:sum)}
+    do: {:ok, collection |> iterate(:question, context) |> A.method(:sum)}
 
   defp lower_call(
          %Call{function: :reduce, args: [collection, initial, reducer]},
@@ -41,8 +42,8 @@ defmodule RustQ.Meta.Lower.Enum do
   # A stage's items are counted as they come; a list knows its length.
   defp lower_call(%Call{function: :count, args: [collection]}, %Context{} = context) do
     case stage(collection) do
-      {:ok, stage} -> {:ok, stage |> continued(context) |> method_chain(:count) |> cast_i64()}
-      :error -> {:ok, collection |> lower_collection(context) |> method_chain(:len) |> cast_i64()}
+      {:ok, stage} -> {:ok, stage |> continued(context) |> A.method(:count) |> cast_i64()}
+      :error -> {:ok, collection |> lower_collection(context) |> A.method(:len) |> cast_i64()}
     end
   end
 
@@ -56,17 +57,13 @@ defmodule RustQ.Meta.Lower.Enum do
       {:ok,
        collection
        |> iterate(:question, context)
-       |> method_chain(:next)
-       |> method_chain(:is_none)}
+       |> A.method(:next)
+       |> A.method(:is_none)}
 
   defp lower_call(%Call{function: :member?, args: [collection, value]}, %Context{} = context),
     do:
       {:ok,
-       %AST.MethodCall{
-         receiver: lower_collection(collection, context),
-         method: :contains,
-         args: [%AST.Ref{expr: context.lower.(value)}]
-       }}
+       A.method(lower_collection(collection, context), :contains, [A.ref(context.lower.(value))])}
 
   defp lower_call(%Call{function: :find, args: [collection, predicate]}, %Context{} = context) do
     iterator = iterate(collection, :keeps_items, context)
@@ -82,7 +79,7 @@ defmodule RustQ.Meta.Lower.Enum do
     {:ok,
      iterator
      |> lower_filter(predicate, false, collection, context, :find)
-     |> method_chain(:unwrap_or, [context.lower.(default)])}
+     |> A.method(:unwrap_or, [context.lower.(default)])}
   end
 
   defp lower_call(%Call{function: :concat, args: [collections]}, %Context{} = context),
@@ -90,59 +87,57 @@ defmodule RustQ.Meta.Lower.Enum do
       {:ok,
        collections
        |> context.lower.()
-       |> method_chain(:into_iter)
-       |> method_chain(:flatten)
-       |> method_chain(:collect)}
+       |> A.method(:into_iter)
+       |> A.method(:flatten)
+       |> A.method(:collect)}
 
   defp lower_call(%Call{function: :concat, args: [left, right]}, %Context{} = context),
     do:
       {:ok,
        left
        |> context.lower.()
-       |> method_chain(:into_iter)
-       |> method_chain(:chain, [context.lower.(right)])
-       |> method_chain(:collect)}
+       |> A.method(:into_iter)
+       |> A.method(:chain, [context.lower.(right)])
+       |> A.method(:collect)}
 
   defp lower_call(%Call{function: :zip, args: [left, right]}, %Context{} = context),
     do:
       {:ok,
        left
        |> context.lower.()
-       |> method_chain(:into_iter)
-       |> method_chain(:zip, [context.lower.(right)])
-       |> method_chain(:collect)}
+       |> A.method(:into_iter)
+       |> A.method(:zip, [context.lower.(right)])
+       |> A.method(:collect)}
 
   defp lower_call(%Call{function: :unzip, args: [collection]}, %Context{} = context),
     do:
       {:ok,
        collection
        |> context.lower.()
-       |> method_chain(:into_iter)
-       |> method_chain(:unzip)}
+       |> A.method(:into_iter)
+       |> A.method(:unzip)}
 
   defp lower_call(%Call{function: :reverse, args: [collection]}, %Context{} = context),
     do:
       {:ok,
        collection
        |> iterate(:keeps_items, context)
-       |> method_chain(:rev)
-       |> method_chain(:collect)}
+       |> A.method(:rev)
+       |> A.method(:collect)}
 
   defp lower_call(%Call{function: :sort, args: [collection]} = call, %Context{} = context) do
     case collection_inner(context.type_of.(collection)) do
       %Type{} = inner
       when inner.kind in [:i8, :i16, :i32, :i64, :isize, :u8, :u16, :u32, :u64, :usize] ->
         name = :rustq_sorted_values
-        variable = %AST.Var{name: name}
+        variable = A.var(name)
 
         {:ok,
-         %AST.BlockExpr{
-           body: [
-             %AST.Let{pattern: %AST.PatVar{name: name}, expr: context.lower.(collection)},
-             %AST.ExprStmt{expr: method_chain(variable, :sort)},
-             %AST.Return{expr: variable}
-           ]
-         }}
+         A.block_expr([
+           %AST.Let{pattern: %AST.PatVar{name: name}, expr: context.lower.(collection)},
+           A.stmt(A.method(variable, :sort)),
+           A.return_stmt(variable)
+         ])}
 
       _type ->
         Diagnostic.lower(
@@ -166,8 +161,8 @@ defmodule RustQ.Meta.Lower.Enum do
         {:ok,
          collection
          |> iterate(:keeps_items, context)
-         |> method_chain(method, [lowered_count])
-         |> method_chain(:collect)}
+         |> A.method(method, [lowered_count])
+         |> A.method(:collect)}
 
       :unsupported ->
         Diagnostic.lower(
@@ -186,7 +181,7 @@ defmodule RustQ.Meta.Lower.Enum do
      Collection.updated(
        collectable,
        fn collection ->
-         [Collection.statement(collection, :extend, [Collection.owned(enumerable, context)])]
+         [A.stmt(A.method(collection, :extend, [Collection.owned(enumerable, context)]))]
        end,
        context
      )}
@@ -196,11 +191,11 @@ defmodule RustQ.Meta.Lower.Enum do
     {:ok,
      enumerable
      |> iterate(:keeps_items, context)
-     |> method_chain(:enumerate)
-     |> method_chain(:map, [
+     |> A.method(:enumerate)
+     |> A.method(:map, [
        %AST.Closure{
          args: [%AST.PatTuple{patterns: [%AST.PatVar{name: :index}, %AST.PatVar{name: :item}]}],
-         body: %AST.Tuple{values: [%AST.Var{name: :item}, %AST.Var{name: :index}]}
+         body: %AST.Tuple{values: [A.var(:item), A.var(:index)]}
        }
      ])
      |> collect(context)}
@@ -213,7 +208,7 @@ defmodule RustQ.Meta.Lower.Enum do
     {:ok,
      enumerable
      |> iterate_as(iteration, context)
-     |> method_chain(:position, [mapper(predicate, context)])}
+     |> A.method(:position, [mapper(predicate, context)])}
   end
 
   # The function gives `some(value)` for the value to find and `nil` to go on.
@@ -224,7 +219,7 @@ defmodule RustQ.Meta.Lower.Enum do
     {:ok,
      enumerable
      |> iterate_as(iteration, context)
-     |> method_chain(:find_map, [mapper(function, context)])}
+     |> A.method(:find_map, [mapper(function, context)])}
   end
 
   # `{:cont, acc}` goes on and `{:halt, acc}` stops, as `Ok` and `Err` do for `try_fold`.
@@ -246,9 +241,9 @@ defmodule RustQ.Meta.Lower.Enum do
     {:ok,
      enumerable
      |> iterate_as(iteration, context)
-     |> method_chain(:try_fold, [context.lower.(initial), closure])
-     |> method_chain(:unwrap_or_else, [
-       %AST.Closure{args: [:rustq_halted], body: %AST.Var{name: :rustq_halted}}
+     |> A.method(:try_fold, [context.lower.(initial), closure])
+     |> A.method(:unwrap_or_else, [
+       %AST.Closure{args: [:rustq_halted], body: A.var(:rustq_halted)}
      ])}
   end
 
@@ -268,7 +263,7 @@ defmodule RustQ.Meta.Lower.Enum do
 
       enumerable
       |> iterate(:keeps_items, context)
-      |> method_chain(:min_by_key, [key_function(enumerable, key, order, context)])
+      |> A.method(:min_by_key, [key_function(enumerable, key, order, context)])
       |> fallback.()
       |> then(&{:ok, &1})
     end
@@ -279,7 +274,7 @@ defmodule RustQ.Meta.Lower.Enum do
     with {:ok, fallback} <- empty_fallback(fallback, context) do
       enumerable
       |> iterate(:keeps_items, context)
-      |> method_chain(function)
+      |> A.method(function)
       |> fallback.()
       |> then(&{:ok, &1})
     end
@@ -289,7 +284,7 @@ defmodule RustQ.Meta.Lower.Enum do
     {:ok,
      Collection.updated(
        enumerable,
-       fn list -> [Collection.statement(list, :dedup, [])] end,
+       fn list -> [A.stmt(A.method(list, :dedup, []))] end,
        context
      )}
   end
@@ -311,14 +306,14 @@ defmodule RustQ.Meta.Lower.Enum do
       {:ok, index} ->
         found =
           context.lower.(enumerable)
-          |> method_chain(:get, [index])
+          |> A.method(:get, [index])
           |> Collection.read_out(
             collection_inner(context.type_of.(enumerable)) || %Type{kind: :type}
           )
 
         case default do
           [] -> {:ok, found}
-          [default] -> {:ok, method_chain(found, :unwrap_or, [context.lower.(default)])}
+          [default] -> {:ok, A.method(found, :unwrap_or, [context.lower.(default)])}
         end
 
       :unsupported ->
@@ -332,8 +327,8 @@ defmodule RustQ.Meta.Lower.Enum do
       {:ok,
        enumerable
        |> iterate(:keeps_items, context)
-       |> method_chain(:skip, [start])
-       |> method_chain(:take, [amount])
+       |> A.method(:skip, [start])
+       |> A.method(:take, [amount])
        |> collect(context)}
     else
       :unsupported -> unsupported_count!(call)
@@ -361,8 +356,8 @@ defmodule RustQ.Meta.Lower.Enum do
 
     {:ok,
      lefts
-     |> method_chain(:zip, [rights])
-     |> method_chain(:map, [context.lower_closure.([{x, y}], body)])
+     |> A.method(:zip, [rights])
+     |> A.method(:map, [context.lower_closure.([{x, y}], body)])
      |> collect(context)}
   end
 
@@ -371,9 +366,9 @@ defmodule RustQ.Meta.Lower.Enum do
       {:ok, count} ->
         {:ok,
          context.lower.(enumerable)
-         |> method_chain(:chunks, [count])
-         |> method_chain(:map, [
-           %AST.Closure{args: [:chunk], body: method_chain(%AST.Var{name: :chunk}, :to_vec)}
+         |> A.method(:chunks, [count])
+         |> A.method(:map, [
+           %AST.Closure{args: [:chunk], body: A.method(A.var(:chunk), :to_vec)}
          ])
          |> collect(context)}
 
@@ -385,8 +380,7 @@ defmodule RustQ.Meta.Lower.Enum do
   defp lower_call(%Call{function: :join, args: [enumerable | separator]}, context) do
     if strings?(context.type_of.(enumerable)),
       do:
-        {:ok,
-         method_chain(context.lower.(enumerable), :join, [join_separator(separator, context)])},
+        {:ok, A.method(context.lower.(enumerable), :join, [join_separator(separator, context)])},
       else: :unsupported
   end
 
@@ -403,7 +397,7 @@ defmodule RustQ.Meta.Lower.Enum do
     strings =
       enumerable
       |> iterate_as(iteration, context)
-      |> method_chain(:map, [mapper(function, context)])
+      |> A.method(:map, [mapper(function, context)])
       |> then(
         &%AST.MethodCall{
           receiver: &1,
@@ -413,7 +407,7 @@ defmodule RustQ.Meta.Lower.Enum do
         }
       )
 
-    {:ok, method_chain(strings, :join, [join_separator(separator, context)])}
+    {:ok, A.method(strings, :join, [join_separator(separator, context)])}
   end
 
   defp lower_call(%Call{}, %Context{}), do: :unsupported
@@ -601,14 +595,14 @@ defmodule RustQ.Meta.Lower.Enum do
 
     collection
     |> iterate_as(iteration, context)
-    |> method_chain(:map, [closure])
+    |> A.method(:map, [closure])
     |> collect(context)
   end
 
   defp lower_map(collection, {:&, _, [{:/, _, [capture, 1]}]}, context) do
     collection
     |> iterate(:maps_items, context)
-    |> method_chain(:map, [context.lower_capture.(capture)])
+    |> A.method(:map, [context.lower_capture.(capture)])
     |> collect(context)
   end
 
@@ -633,7 +627,7 @@ defmodule RustQ.Meta.Lower.Enum do
 
     collection
     |> iterate_as(iteration, context)
-    |> method_chain(:fold, [context.lower.(initial), closure])
+    |> A.method(:fold, [context.lower.(initial), closure])
   end
 
   defp lower_reduce(_collection, _initial, other, _context) do
@@ -663,16 +657,16 @@ defmodule RustQ.Meta.Lower.Enum do
         lower_filter(iterator, mapper, true, collection, context, :collect)
 
       :flat_map ->
-        iterator |> method_chain(:flat_map, [mapper(mapper, context)]) |> collect(context)
+        iterator |> A.method(:flat_map, [mapper(mapper, context)]) |> collect(context)
 
       :each ->
-        method_chain(iterator, :for_each, [mapper(mapper, context)])
+        A.method(iterator, :for_each, [mapper(mapper, context)])
 
       :any? ->
-        method_chain(iterator, :any, [mapper(mapper, context)])
+        A.method(iterator, :any, [mapper(mapper, context)])
 
       :all? ->
-        method_chain(iterator, :all, [mapper(mapper, context)])
+        A.method(iterator, :all, [mapper(mapper, context)])
     end
   end
 
@@ -712,11 +706,11 @@ defmodule RustQ.Meta.Lower.Enum do
 
     {method, finish} = Map.fetch!(@filter_adapters, terminal)
     {iterator, kept} = kept_items(iterator, finish)
-    adapted = iterator |> method_chain(method, [closure]) |> kept.()
+    adapted = iterator |> A.method(method, [closure]) |> kept.()
 
     case finish do
       :collect -> collect(adapted, context)
-      :count -> method_chain(adapted, :count)
+      :count -> A.method(adapted, :count)
       _kept -> adapted
     end
   end
@@ -734,7 +728,7 @@ defmodule RustQ.Meta.Lower.Enum do
   # not at all when only counted. `partition` keeps every item, so it copies them first.
   defp kept_items(%AST.MethodCall{method: :cloned, receiver: borrowed}, finish)
        when finish != :partition,
-       do: {borrowed, if(finish == :count, do: & &1, else: &method_chain(&1, :cloned))}
+       do: {borrowed, if(finish == :count, do: & &1, else: &A.method(&1, :cloned))}
 
   defp kept_items(iterator, _finish), do: {iterator, & &1}
 
@@ -827,7 +821,7 @@ defmodule RustQ.Meta.Lower.Enum do
   defp continued(stage, context) do
     case context.lower.(stage) do
       %AST.MethodCall{method: :collect, receiver: iterator} -> iterator
-      collected -> method_chain(collected, :into_iter)
+      collected -> A.method(collected, :into_iter)
     end
   end
 
@@ -868,17 +862,17 @@ defmodule RustQ.Meta.Lower.Enum do
     case iteration do
       :owned ->
         if borrowed_collection?(context.type_of.(collection)),
-          do: method_chain(receiver, :iter),
-          else: method_chain(receiver, :into_iter)
+          do: A.method(receiver, :iter),
+          else: A.method(receiver, :into_iter)
 
       :borrowed ->
-        method_chain(receiver, :iter)
+        A.method(receiver, :iter)
 
       :copied ->
-        receiver |> method_chain(:iter) |> method_chain(:copied)
+        receiver |> A.method(:iter) |> A.method(:copied)
 
       :cloned ->
-        receiver |> method_chain(:iter) |> method_chain(:cloned)
+        receiver |> A.method(:iter) |> A.method(:cloned)
     end
   end
 
@@ -935,10 +929,10 @@ defmodule RustQ.Meta.Lower.Enum do
     %AST.MethodCall{receiver: receiver, method: :collect, args: [], generics: [type]}
   end
 
-  defp collect(receiver, %Context{}), do: method_chain(receiver, :collect)
+  defp collect(receiver, %Context{}), do: A.method(receiver, :collect)
 
   defp cast_i64(expression),
-    do: %AST.Cast{expr: expression, type: %AST.TypePath{parts: [:i64]}}
+    do: A.cast(expression, %AST.TypePath{parts: [:i64]})
 
   defp continuation(body) do
     Macro.prewalk(body, fn
@@ -953,7 +947,7 @@ defmodule RustQ.Meta.Lower.Enum do
       enumerable,
       fn list ->
         [
-          Collection.statement(list, :sort_by_key, [key_function(enumerable, key, order, context)])
+          A.stmt(A.method(list, :sort_by_key, [key_function(enumerable, key, order, context)]))
         ]
       end,
       context
@@ -977,7 +971,7 @@ defmodule RustQ.Meta.Lower.Enum do
     if order == :desc,
       do: %{
         closure
-        | body: %AST.PathCall{path: %AST.Path{parts: [:std, :cmp, :Reverse]}, args: [body]}
+        | body: %AST.PathCall{path: A.path([:std, :cmp, :Reverse]), args: [body]}
       },
       else: closure
   end
@@ -989,10 +983,10 @@ defmodule RustQ.Meta.Lower.Enum do
   defp empty_fallback({:fn, _, [{:->, _, [[], default]}]}, context) do
     if Macro.quoted_literal?(default) or
          match?({name, _, ctx} when is_atom(name) and is_atom(ctx), default) do
-      {:ok, &method_chain(&1, :unwrap_or, [context.lower.(default)])}
+      {:ok, &A.method(&1, :unwrap_or, [context.lower.(default)])}
     else
       {:ok,
-       &method_chain(&1, :unwrap_or_else, [%AST.Closure{args: [], body: context.lower.(default)}])}
+       &A.method(&1, :unwrap_or_else, [%AST.Closure{args: [], body: context.lower.(default)}])}
     end
   end
 
@@ -1013,7 +1007,7 @@ defmodule RustQ.Meta.Lower.Enum do
   defp string_type, do: RustQ.Spec.type(quote(do: String.t()))
   defp usize, do: RustQ.Spec.type(quote(do: RustQ.Type.usize()))
 
-  defp join_separator([], _context), do: %AST.Literal{value: ""}
+  defp join_separator([], _context), do: A.lit("")
   defp join_separator([separator], context), do: context.lower.(separator)
 
   @spec unsupported_count!(Call.t()) :: no_return()
@@ -1024,9 +1018,5 @@ defmodule RustQ.Meta.Lower.Enum do
       "Enum.#{function} requires a non-negative literal or unsigned index type",
       suggestion: "Use R.usize() for dynamic non-negative native indexes."
     )
-  end
-
-  defp method_chain(receiver, method, args \\ []) do
-    %AST.MethodCall{receiver: receiver, method: method, args: args}
   end
 end

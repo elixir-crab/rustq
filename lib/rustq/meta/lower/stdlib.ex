@@ -9,6 +9,7 @@ defmodule RustQ.Meta.Lower.Stdlib do
   alias RustQ.Meta.Core.Call
   alias RustQ.Meta.Type
   alias RustQ.Rust.AST
+  alias RustQ.Rust.AST.Builder, as: A
 
   defmodule Context do
     @moduledoc """
@@ -63,12 +64,10 @@ defmodule RustQ.Meta.Lower.Stdlib do
       end
 
     {:ok,
-     %AST.BlockExpr{
-       body: [
-         %AST.Let{pattern: %AST.PatWildcard{}, expr: evaluated},
-         %AST.Return{expr: %AST.Literal{value: value}}
-       ]
-     }}
+     A.block_expr([
+       %AST.Let{pattern: %AST.PatWildcard{}, expr: evaluated},
+       A.return_stmt(A.lit(value))
+     ])}
   end
 
   @spec lower(Macro.t(), Context.t()) :: {:ok, term()} | :unsupported
@@ -123,7 +122,7 @@ defmodule RustQ.Meta.Lower.Stdlib do
         {:ok, context.lower.(count)}
 
       %Type{kind: kind} when kind in [:u8, :u16, :u32, :u64] ->
-        {:ok, %AST.Cast{expr: context.lower.(count), type: %AST.TypePath{parts: [:usize]}}}
+        {:ok, A.cast(context.lower.(count), %AST.TypePath{parts: [:usize]})}
 
       _type ->
         :unsupported

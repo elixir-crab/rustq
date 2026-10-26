@@ -11,6 +11,7 @@ defmodule RustQ.Meta.Lower.Kernel do
   alias RustQ.Meta.Lower.Stdlib.{Context, TypeContext}
   alias RustQ.Meta.Type
   alias RustQ.Rust.AST
+  alias RustQ.Rust.AST.Builder, as: A
   alias RustQ.Spec
 
   @binary_ops %{
@@ -85,12 +86,12 @@ defmodule RustQ.Meta.Lower.Kernel do
     do: {:ok, %AST.UnaryOp{op: :not, expr: context.lower.(expression)}}
 
   def lower(%Call{function: :abs, args: [expression]}, %Context{} = context),
-    do: {:ok, method(context.lower.(expression), :abs)}
+    do: {:ok, A.method(context.lower.(expression), :abs)}
 
   def lower(%Call{function: function, args: [left, right]} = call, %Context{} = context)
       when function in [:min, :max] do
     if integer_type?(context.type_of.(left)) and integer_type?(context.type_of.(right)) do
-      {:ok, method(context.lower.(left), function, [context.lower.(right)])}
+      {:ok, A.method(context.lower.(left), function, [context.lower.(right)])}
     else
       unsupported_semantics!(
         call,
@@ -101,7 +102,7 @@ defmodule RustQ.Meta.Lower.Kernel do
 
   def lower(%Call{function: function, args: [value]}, %Context{} = context)
       when function in [:byte_size, :length],
-      do: {:ok, cast_i64(method(context.lower.(value), :len))}
+      do: {:ok, cast_i64(A.method(context.lower.(value), :len))}
 
   def lower(%Call{function: :map_size, args: [map]} = call, %Context{} = context) do
     case struct_fields(shape_type(context.type_of.(map))) do
@@ -122,7 +123,7 @@ defmodule RustQ.Meta.Lower.Kernel do
     case tuple_elements(context.type_of.(tuple)) do
       elements when index < length(elements) ->
         tuple_name = :rustq_tuple_value
-        tuple_var = %AST.Var{name: tuple_name}
+        tuple_var = A.var(tuple_name)
 
         values =
           elements
@@ -133,12 +134,10 @@ defmodule RustQ.Meta.Lower.Kernel do
           end)
 
         {:ok,
-         %AST.BlockExpr{
-           body: [
-             %AST.Let{pattern: %AST.PatVar{name: tuple_name}, expr: context.lower.(tuple)},
-             %AST.Return{expr: %AST.Tuple{values: values}}
-           ]
-         }}
+         A.block_expr([
+           %AST.Let{pattern: %AST.PatVar{name: tuple_name}, expr: context.lower.(tuple)},
+           A.return_stmt(%AST.Tuple{values: values})
+         ])}
 
       _unknown ->
         unsupported_semantics!(
@@ -159,7 +158,7 @@ defmodule RustQ.Meta.Lower.Kernel do
   end
 
   def lower(%Call{function: :is_nil, args: [value]}, %Context{} = context),
-    do: {:ok, method(context.lower.(value), :is_none)}
+    do: {:ok, A.method(context.lower.(value), :is_none)}
 
   def lower(%Call{}, %Context{}), do: :unsupported
 
@@ -189,11 +188,8 @@ defmodule RustQ.Meta.Lower.Kernel do
 
   def synth(%Call{}, %TypeContext{}), do: :unsupported
 
-  defp method(receiver, name, args \\ []),
-    do: %AST.MethodCall{receiver: receiver, method: name, args: args}
-
   defp cast_i64(expression),
-    do: %AST.Cast{expr: expression, type: %AST.TypePath{parts: [:i64]}}
+    do: A.cast(expression, %AST.TypePath{parts: [:i64]})
 
   defp tuple_elements(%Type{kind: :tuple, meta: %{elements: elements}}), do: elements
   defp tuple_elements(_type), do: nil

@@ -88,7 +88,7 @@ defmodule RustQ.Meta.Lower.Kernel do
 
   def lower(%Call{function: function, args: [value]}, %Context{} = context)
       when function in [:byte_size, :length],
-      do: {:ok, cast_i64(A.method(lowered(value, context), :len))}
+      do: {:ok, value |> lowered(context) |> A.method(:len) |> integer_count(context)}
 
   def lower(%Call{function: :map_size, args: [map]} = call, %Context{} = context) do
     case struct_fields(shape_type(type_of(map, context))) do
@@ -177,9 +177,6 @@ defmodule RustQ.Meta.Lower.Kernel do
     do: type_result(type_of(tuple, context))
 
   def synth(%Call{}, %TypeContext{}), do: :unsupported
-
-  defp cast_i64(expression),
-    do: A.cast(expression, A.type(:i64))
 
   defp tuple_elements(%Type{kind: :tuple, meta: %{elements: elements}}), do: elements
   defp tuple_elements(_type), do: nil

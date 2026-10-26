@@ -68,8 +68,9 @@ defmodule RustQ.Meta.StdMethods.Source do
 
       @doc \"""
       What the inherent methods of std's strings, characters, lists, maps, sets, and options
-      return, keyed by the type they belong to and their name, where that type does not depend
-      on the receiver's own type parameters: `str`'s `len` returns `usize`.
+      return, keyed by the type they belong to and their name, with the type parameters of the
+      type they belong to, in the order it takes them: `str`'s `len` returns `usize`, and
+      `Option`'s `as_ref` returns `Option<&T>` for its `T`.
       \"""
       def returns, do: #{inspect(returns(std), limit: :infinity, printable_limit: :infinity)}
     end
@@ -264,19 +265,38 @@ defmodule RustQ.Meta.StdMethods.Source do
         %{returns_ast: returns} = method when not is_nil(returns) <- impl.methods,
         method.visibility == :public and receiver?(method),
         stable?(method),
-        concrete?(returns, impl.type_parameters ++ method.type_parameters),
+        concrete?(returns, method.type_parameters -- impl.type_parameters),
         reduce: %{} do
-      returns_by_method -> Map.put_new(returns_by_method, {target, method.name}, returns)
+      returns_by_method ->
+        Map.put_new(returns_by_method, {target, method.name}, {parameters(impl), returns})
     end
   end
+
+  # The impl's type parameters, those its type takes first and in its order, as `[:T, :A]` for
+  # `impl<T, A: Allocator> Vec<T, A>`, so typing binds them to a receiver's type arguments.
+  defp parameters(%Syn.Impl{target_ast: target, type_parameters: parameters}) do
+    taken = target |> type_arguments() |> Enum.filter(&(&1 in parameters))
+    Enum.map(taken ++ (parameters -- taken), &String.to_atom/1)
+  end
+
+  defp type_arguments(%Type.Slice{inner: %Type.Path{name: name}}), do: [name]
+  defp type_arguments(%Type.Option{inner: %Type.Path{name: name}}), do: [name]
+
+  defp type_arguments(%Type.Path{args: args}),
+    do: for(%Type.Path{name: name} <- args, do: name)
+
+  defp type_arguments(_type), do: []
 
   defp stable?(%{docs: docs, name: name, attributes: attributes}),
     do: docs != [] and "unstable" not in attributes and not String.starts_with?(name, "_")
 
-  # A type naming none of the impl's or method's type parameters, nor `Self` or an opaque
-  # `impl Trait`, means the same for every receiver.
-  defp concrete?(%Type.Path{name: name, args: args}, parameters),
-    do: name not in ["Self" | parameters] and concrete?(args, parameters)
+  # A type naming none of the method's own type parameters, nor `Self` or an opaque
+  # `impl Trait`, is known once the receiver's type arguments are: `Option<&T>` on an
+  # `Option<String>` is `Option<&String>`.
+  defp concrete?(%Type.Path{name: name, segments: segments, args: args}, parameters),
+    do:
+      not Enum.any?([name | segments], &(&1 in ["Self" | parameters])) and
+        concrete?(args, parameters)
 
   defp concrete?(%Type.Self{}, _parameters), do: false
   defp concrete?(%Type.ImplTrait{}, _parameters), do: false

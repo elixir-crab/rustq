@@ -163,6 +163,16 @@ defmodule RustQ.Meta.Typing do
   def synth({:{}, _meta, [first | _rest] = elements}, %Env{} = env) when not is_atom(first),
     do: synth_tuple(elements, env)
 
+  # A list literal whose items all have one known type is a list of that type.
+  def synth([first | rest], %Env{} = env) do
+    with %Type{} = item <- synth(first, env),
+         true <- Enum.all?(rest, &(synth(&1, env) == item)) do
+      Type.vec(item)
+    else
+      _unknown -> nil
+    end
+  end
+
   # A comprehension collects its body's values into a list, or into the map or set `into:`
   # names, as `RustQ.Meta.Desugar` writes `Map.new/1,2` and `MapSet.new/1,2`.
   def synth({:for, _meta, [{:<-, _, [pattern, collection]} | rest]}, %Env{} = env) do
@@ -454,12 +464,6 @@ defmodule RustQ.Meta.Typing do
     end
   end
 
-  defp synth_method_call({{:., _, [receiver, :as_ref]}, _meta, []}, %Env{} = env) do
-    receiver
-    |> synth(env)
-    |> option_as_ref_type()
-  end
-
   defp synth_method_call({{:., _, [receiver, :ok_or]}, _meta, [_error]}, %Env{} = env) do
     receiver
     |> synth(env)
@@ -564,13 +568,41 @@ defmodule RustQ.Meta.Typing do
     name = Atom.to_string(function)
     returns = StdMethods.returns()
 
-    receiver
-    |> std_receivers()
-    |> Enum.find_value(&Map.get(returns, {&1, name}))
-    |> then(&(&1 && Spec.from_syn(&1)))
+    case Enum.find_value(std_receivers(receiver), &Map.get(returns, {&1, name})) do
+      {parameters, returns} ->
+        # Parameters past the receiver's own type arguments, as a `Vec`'s allocator, are unknown.
+        arguments = type_arguments(receiver)
+
+        bindings =
+          Map.new(Enum.with_index(parameters), fn {parameter, index} ->
+            {parameter, Enum.at(arguments, index)}
+          end)
+
+        returns |> Spec.from_syn() |> Type.substitute(bindings)
+
+      nil ->
+        nil
+    end
   end
 
   defp std_return(_receiver, _function), do: nil
+
+  # The type arguments of a std type, in the order it takes them: a list's item type, and a
+  # map's key and value types.
+  defp type_arguments(%Type{kind: kind} = type) when kind in [:ref, :mut_ref],
+    do: type_arguments(Type.ref_inner(type))
+
+  defp type_arguments(%Type{kind: :option} = type), do: [Type.inner(type)]
+  defp type_arguments(%Type{kind: :vec} = type), do: [Type.vec_inner(type)]
+  defp type_arguments(%Type{kind: :slice} = type), do: [Type.slice_inner(type)]
+
+  defp type_arguments(%Type{} = type) do
+    case Collection.keyed(type) do
+      {:map, key, value} -> [key, value]
+      {:set, item} -> [item]
+      nil -> []
+    end
+  end
 
   defp std_receivers(%Type{kind: kind} = type) when kind in [:ref, :mut_ref],
     do: std_receivers(Type.ref_inner(type))
@@ -666,15 +698,6 @@ defmodule RustQ.Meta.Typing do
   end
 
   defp result_ok_type(_type), do: nil
-
-  defp option_as_ref_type(%Type{kind: :option} = type) do
-    case Type.inner(type) do
-      %Type{} = inner -> option_type(ref_type(inner))
-      nil -> nil
-    end
-  end
-
-  defp option_as_ref_type(_type), do: nil
 
   defp option_ok_or_type(%Type{kind: :option} = type) do
     case Type.inner(type) do

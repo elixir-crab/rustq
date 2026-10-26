@@ -6,6 +6,8 @@
 
 - A function a `defrustmacro` defines can name the module's own types in its
   spec, as a `defrust` can.
+- A fallible call used as the receiver of a method its result lacks, as
+  `decoder.read_bool().encode(env)`, propagates its error first.
 
 ## 1.0.0-rc.18 - 2026-10-26
 

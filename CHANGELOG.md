@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.0.0-rc.21 - 2026-10-27
+
+### Fixed
+
+- `option.as_ref()` is typed as an option of a reference, also through a
+  reference to an option.
+- An item indexed out of a borrowed slice keeps its type's fields, so a field
+  of it is borrowed where a reference is expected.
+- Binding an item indexed out of a collection borrows it when it cannot be
+  copied, instead of moving it out of the index.
+- Payloads bound by `enum_variant(Enum, :variant, value)` patterns are typed,
+  so a copy payload bound through a reference is dereferenced where its value
+  is expected.
+- `Term.cached_struct_keys` takes its keys as a slice of strings, so a list
+  literal passed for them is borrowed.
+
 ## 1.0.0-rc.20 - 2026-10-27
 
 ### Added

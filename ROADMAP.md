@@ -1,6 +1,6 @@
 # RustQ roadmap
 
-Last reviewed 2026-10-27, at 1.0.0-rc.20. The [changelog](CHANGELOG.md) records
+Last reviewed 2026-10-27, at 1.0.0-rc.21. The [changelog](CHANGELOG.md) records
 what shipped; this file covers where RustQ stands and what comes next.
 
 ## Where things stand
@@ -40,7 +40,7 @@ The core pieces are in place:
 | skia_ex | rc.3 | `defrust` drawing commands with generated targets |
 | folio | rc.6 | Rustler generation |
 | figler | rc.3, moving to rc.20 | `defrust` helpers over scene storage, an effective graph interpreted natively |
-| kiwi_codec | rc.13, moving to rc.14 | `defrust` helpers, Rustler term helpers, and native Kiwi records |
+| kiwi_codec | rc.19, moving to rc.21 | `defrust` helpers, Rustler term helpers, and native Kiwi records |
 
 kiwi_codec 0.4.0 runs rc.13. Building its generated Rust in its tests found
 the bugs rc.14 fixes, and the rustler 0.39 incompatibility in RustQ's own

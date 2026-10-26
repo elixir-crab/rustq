@@ -13,6 +13,8 @@
   copying copy keys and values and borrowing the rest.
 - `first..last//step` with a positive literal step counts up between dynamic
   bounds, as Rust's `first..=last` does.
+- `List.replace_at/3` computes the new item, then sets it in place, leaving the
+  list as it is for an index past its end.
 - `left ++ right` concatenates lists, growing `left` in place at its last use:
   `list ++ [item]` pushes, and `list ++ other` extends.
 - A comprehension's type follows all its generators, `{:some, value}` and
@@ -37,6 +39,7 @@
 
 ### Fixed
 
+- What indexing reaches is never taken from its collection; it is copied.
 - Taking a value behind a reference copies it, so an update to a borrowed set
   never changes the set it was given.
 - A list matched against a list pattern binds its items by reference, and a

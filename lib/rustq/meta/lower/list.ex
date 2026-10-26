@@ -1,11 +1,12 @@
 defmodule RustQ.Meta.Lower.List do
   @moduledoc """
-  Lowers `List.duplicate/2`, `List.flatten/1`, and `List.wrap/1` for `RustQ.Meta.Lower.Stdlib`,
-  and types such calls.
+  Lowers `List.duplicate/2`, `List.flatten/1`, `List.wrap/1`, and `List.replace_at/3` for
+  `RustQ.Meta.Lower.Stdlib`, and types such calls.
   """
 
   use RustQ.Meta.Lower.Stdlib.Lowering
 
+  alias RustQ.Meta.Lower.Collection
   alias RustQ.Meta.Type
 
   @impl true
@@ -30,6 +31,35 @@ defmodule RustQ.Meta.Lower.List do
      |> A.method(:into_iter)
      |> A.method(terminal)
      |> A.method(:unwrap_or, [lowered(default, context)])}
+  end
+
+  # The new item is computed before the list is taken, as it may read the list; an index past
+  # the end leaves the list as it is, as in Elixir.
+  def lower(%Call{function: :replace_at, args: [list, index, value]}, %Context{} = context) do
+    with {:ok, index} <- list_index(index, context) do
+      item = collection_inner(type_of(list, context))
+      slot = A.var(:rustq_slot)
+
+      {:ok,
+       A.block_expr([
+         %AST.Let{pattern: %AST.PatVar{name: :rustq_item}, expr: lowered(value, item, context)},
+         A.return_stmt(
+           Collection.updated(
+             list,
+             fn list ->
+               [
+                 %AST.IfLet{
+                   pattern: %AST.PatSome{pattern: %AST.PatVar{name: :rustq_slot}},
+                   expr: A.method(list, :get_mut, [index]),
+                   then: [A.assign(A.deref(slot), A.var(:rustq_item))]
+                 }
+               ]
+             end,
+             context
+           )
+         )
+       ])}
+    end
   end
 
   def lower(%Call{function: :wrap, args: [nil]}, %Context{}),
@@ -112,7 +142,20 @@ defmodule RustQ.Meta.Lower.List do
     end
   end
 
+  def synth(%Call{function: :replace_at, args: [list, _index, _value]}, %TypeContext{} = context),
+    do: type_result(type_of(list, context))
+
   def synth(%Call{}, %TypeContext{}), do: :unsupported
+
+  # An index of a type not known here, or left to Rust to infer, is the `usize` Rust infers for
+  # it; a known signed one is not an index.
+  defp list_index(index, context) do
+    case type_of(index, context) do
+      nil -> {:ok, lowered(index, context)}
+      %Type{ast: %AST.TypeRaw{source: "_"}} -> {:ok, lowered(index, context)}
+      _known -> nonnegative_count(index, context)
+    end
+  end
 
   defp flatten_iterator(iterator, 1), do: iterator
 

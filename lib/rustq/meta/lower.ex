@@ -1010,16 +1010,12 @@ defmodule RustQ.Meta.Lower do
     end
   end
 
-  # A variable put in a new list while still in use is copied into it.
-  defp lower_list_item({name, _, ast_context} = variable, %Type{} = item_type, context)
-       when is_atom(name) and is_atom(ast_context) do
-    if in_use?(variable, context) and not Collection.copy?(item_type),
-      do: A.method(lower_expr(variable, item_type, context), :clone),
-      else: lower_expr(variable, item_type, context)
+  # A value put in a new list while still in use, or still in its collection, is copied in.
+  defp lower_list_item(value, %Type{} = item_type, context) do
+    if in_use?(value, context) and not Collection.copy?(item_type),
+      do: A.method(lower_expr(value, item_type, context), :clone),
+      else: lower_expr(value, item_type, context)
   end
-
-  defp lower_list_item(value, %Type{} = item_type, context),
-    do: lower_expr(value, item_type, context)
 
   @doc "The item type of a list a comprehension builds."
   def collection_item_type(type) do
@@ -2455,6 +2451,18 @@ defmodule RustQ.Meta.Lower do
   # A collection is in use unless this is its value's last use; see `RustQ.Meta.Ownership`. A
   # field reached through a reference is never taken, since the reference does not own it.
   def in_use?(collection, %Context{} = context) do
+    indexed_place?(collection) or root_in_use?(collection, context)
+  end
+
+  # What indexing reaches stays in its collection, so it is never taken.
+  defp indexed_place?({{:., _, [Access, :get]}, _, [_collection, _key]}), do: true
+
+  defp indexed_place?({{:., _, [receiver, _field]}, meta, []}),
+    do: meta[:no_parens] == true and indexed_place?(receiver)
+
+  defp indexed_place?(_expression), do: false
+
+  defp root_in_use?(collection, %Context{} = context) do
     case root_variable_node(collection) do
       {name, _meta, _context} = variable ->
         behind_reference?(collection, name, context) or

@@ -114,6 +114,9 @@ defmodule RustQ.Meta.Lower.StdlibTest do
     @spec widened(R.ref(MapSet.t(R.u32())), R.vec(R.u32())) :: MapSet.t(R.u32())
     defrust(widened(seen, keys), do: MapSet.union(seen, MapSet.new(keys)))
 
+    @spec bumped(R.vec(R.u32()), R.usize()) :: R.vec(R.u32())
+    defrust(bumped(values, index), do: List.replace_at(values, index, values[index] + 1))
+
     @spec joined(R.vec(R.u32()), R.vec(R.u32())) :: R.vec(R.u32())
     defrust(joined(left, right), do: left ++ right)
   end
@@ -176,6 +179,14 @@ defmodule RustQ.Meta.Lower.StdlibTest do
 
   test "a set behind a reference is copied, never updated in place" do
     assert rust_source!(Collections, :widened) =~ "seen.clone()"
+  end
+
+  test "replace_at computes the item, then sets it in place unless the index is past the end" do
+    source = rust_source!(Collections, :bumped)
+
+    assert source =~ "let rustq_item = values[index] + 1;"
+    assert source =~ "if let Some(rustq_slot) = rustq_updated.get_mut(index) {"
+    assert source =~ "*rustq_slot = rustq_item;"
   end
 
   test "++ concatenates lists" do

@@ -914,9 +914,11 @@ defmodule RustQ.Meta.Lower.Enum do
 
     case iteration do
       :owned ->
-        if borrowed_collection?(type_of(collection, context)),
-          do: A.method(receiver, :iter),
-          else: A.method(receiver, :into_iter)
+        cond do
+          borrowed_collection?(type_of(collection, context)) -> A.method(receiver, :iter)
+          collected?(receiver) -> receiver.receiver
+          true -> A.method(receiver, :into_iter)
+        end
 
       :borrowed ->
         A.method(receiver, :iter)
@@ -1000,12 +1002,15 @@ defmodule RustQ.Meta.Lower.Enum do
   defp collect(receiver, %Context{}), do: A.method(receiver, :collect)
 
   # What `chain` and `zip` take: any iterable, so a list taken whole is passed as it is. The
-  # list the iterator before it borrows is still borrowed, so it is copied from too.
+  # list the iterator before it borrows is still borrowed, so it is copied from too; a list a
+  # fallible call gives propagates its error first.
   defp iterable(collection, before, context) do
     iterator =
-      if same_root?(collection, before),
-        do: iterate_as(collection, :cloned, context),
-        else: iterate(collection, :keeps_items, context)
+      cond do
+        same_root?(collection, before) -> iterate_as(collection, :cloned, context)
+        fallible?(collection, context) -> collection |> operand(context) |> A.method(:into_iter)
+        true -> iterate(collection, :keeps_items, context)
+      end
 
     case iterator do
       %AST.MethodCall{method: :into_iter, receiver: list, args: []} -> list
@@ -1035,6 +1040,19 @@ defmodule RustQ.Meta.Lower.Enum do
   end
 
   defp ordered?(nil), do: false
+
+  # An iterator collected into a list only to be iterated again is iterated as it is.
+  defp collected?(%AST.MethodCall{method: :collect, generics: []}), do: true
+  defp collected?(%AST.MethodCall{method: :collect, generics: [%AST.TypeVec{}]}), do: true
+
+  defp collected?(%AST.MethodCall{method: :collect, generics: [%AST.TypePath{parts: [:Vec]}]}),
+    do: true
+
+  defp collected?(_receiver), do: false
+
+  defp fallible?(collection, context),
+    do:
+      match?(%Type{kind: kind} when kind in [:result, :nif_result], type_of(collection, context))
 
   defp same_root?({name, _, context}, {name, _, context}) when is_atom(context), do: true
   defp same_root?(_collection, _before), do: false

@@ -2065,6 +2065,13 @@ defmodule RustQ.Meta.Lower do
        ),
        do: A.try(lower_expr(receiver, context))
 
+  defp lower_dot_receiver(receiver, :clone, %Context{} = context) do
+    receiver_type =
+      infer_expr_type(receiver, context.vars) || Typing.synth(receiver, typing_env(context))
+
+    lower_method_receiver(receiver, receiver_type, :clone, context)
+  end
+
   defp lower_dot_receiver(receiver, _method, %Context{} = context),
     do: lower_expr(receiver, context)
 
@@ -2125,6 +2132,14 @@ defmodule RustQ.Meta.Lower do
 
   # A fallible receiver of a method its result lacks, as `decoder.read_bool().encode(env)`,
   # propagates its error first, as a fallible operand does.
+  # Cloning a reference to a reference clones what it refers to, the value Elixir means.
+  defp lower_method_receiver(receiver, %Type{kind: :ref} = receiver_type, :clone, context) do
+    case Type.ref_inner(receiver_type) do
+      %Type{kind: :ref} -> A.deref(lower_expr(receiver, context))
+      _value -> lower_expr(receiver, context)
+    end
+  end
+
   defp lower_method_receiver(receiver, receiver_type, function, %Context{} = context) do
     if fallible_receiver?(receiver_type, function, context),
       do: A.try(lower_expr(receiver, context)),

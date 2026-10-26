@@ -20,6 +20,12 @@
 - `%{}` where a reference to a map is expected builds one and borrows it, and a
   map key of unknown type is borrowed.
 - A closure that only calls a function with its argument is that function.
+- An interpolated string is `format!` of its parts, and a `for ... reduce:`
+  over several generators or filters reduces the comprehension of the
+  variables its clauses use.
+- `MapSet.new()` where a reference to a set is expected is borrowed, a
+  fallible list concatenated propagates its error, and cloning a reference to
+  a reference clones the value.
 - `List.replace_at/3` computes the new item, then sets it in place, leaving the
   list as it is for an index past its end.
 - `left ++ right` concatenates lists, growing `left` in place at its last use:

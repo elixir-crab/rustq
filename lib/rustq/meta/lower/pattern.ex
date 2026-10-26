@@ -68,29 +68,11 @@ defmodule RustQ.Meta.Lower.Pattern do
   @doc "The variables a pattern binds, as one variable or a tuple of them."
   # The variables a pattern binds, as one variable or a tuple of them.
   def pattern_binder(pattern) do
-    case pattern_variables(pattern) do
+    case ElixirPattern.variables(pattern) do
       [] -> quote(do: {})
       [variable] -> variable
       variables -> {:{}, [], variables}
     end
-  end
-
-  defp pattern_variables(pattern) do
-    {_pattern, variables} =
-      Macro.prewalk(pattern, [], fn
-        {:^, _meta, _args}, variables ->
-          {:pinned, variables}
-
-        {name, meta, context} = variable, variables when is_atom(name) and is_atom(context) ->
-          if name |> Atom.to_string() |> String.starts_with?("_"),
-            do: {variable, variables},
-            else: {variable, [{name, meta, context} | variables]}
-
-        other, variables ->
-          {other, variables}
-      end)
-
-    variables |> Enum.reverse() |> Enum.uniq_by(fn {name, _meta, context} -> {name, context} end)
   end
 
   @doc "The type a `case` scrutinee has, as its clauses' patterns reveal it."
@@ -263,7 +245,7 @@ defmodule RustQ.Meta.Lower.Pattern do
 
   # A pattern of unknown type still shadows the names it binds; they lose their old types.
   def context_with_match_pattern(pattern, _type, %Context{} = context) do
-    names = pattern |> pattern_variables() |> Enum.map(&elem(&1, 0))
+    names = pattern |> ElixirPattern.variables() |> Enum.map(&elem(&1, 0))
     %{context | vars: Map.drop(context.vars, names)}
   end
 

@@ -12,6 +12,10 @@ defmodule RustQ.Meta.Lower.MapSet do
   alias RustQ.Meta.Type
 
   @impl true
+  # A new set where a reference to one is expected is borrowed.
+  def lower(%Call{function: :new, args: []}, %Context{expected: %Type{kind: :ref}}),
+    do: {:ok, A.ref(A.path_call([:HashSet, :new]))}
+
   def lower(%Call{function: :new, args: []}, %Context{}),
     do: {:ok, A.path_call([:HashSet, :new])}
 

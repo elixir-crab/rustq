@@ -30,6 +30,9 @@ defmodule RustQ.Meta.Lower.StdlibTest do
     @spec empty(R.ref(state())) :: R.bool()
     defrust(empty(state), do: Enum.empty?(state.keys) or state.index == %{})
 
+    @spec named(R.ref(String.t())) :: R.bool()
+    defrust(named(name), do: name != "")
+
     @spec fresh() :: state()
     defrust(fresh(), do: %{keys: [], index: %{}})
 
@@ -140,12 +143,58 @@ defmodule RustQ.Meta.Lower.StdlibTest do
     defrust(joined(left, right), do: left ++ right)
   end
 
+  defmodule Readings do
+    @moduledoc "Operators on values a pattern borrows."
+
+    use RustQ.Meta
+
+    alias RustQ.Type, as: R
+
+    @typep kind :: :number | :flag
+    @typep reading :: R.enum(number: [R.f64()], flag: [R.bool()])
+
+    @spec kind(R.ref(reading())) :: kind()
+    defrust kind(reading) do
+      case reading do
+        {:number, _number} -> :number
+        {:flag, _flag} -> :flag
+      end
+    end
+
+    @spec weight(R.ref(reading())) :: R.u32()
+    defrust weight(reading) do
+      case reading do
+        {:number, number} -> if number == 0.0, do: 0, else: 2
+        {:flag, flag} -> if flag, do: 1, else: 0
+      end
+    end
+
+    @spec both(R.ref(reading()), R.ref(reading())) :: R.bool()
+    defrust both(left, right) do
+      case {left, right} do
+        {{:flag, a}, {:flag, b}} -> a and b
+        _ -> kind(left) == :number
+      end
+    end
+
+    @spec counted(R.ref(MapSet.t(R.u32()))) :: R.u32()
+    defrust(counted(seen), do: depth(MapSet.size(seen)))
+
+    @spec depth(R.u32()) :: R.u32()
+    defrust(depth(count), do: count + 1)
+
+    @spec negative?(String.t()) :: R.bool()
+    defrust(negative?(word), do: String.downcase(String.trim(word)) in ["false", "no", "off"])
+  end
+
   test "counts and emptiness of lists, maps, and sets are Rust's" do
     assert rust_source!(Collections, :sizes) =~
              "state.keys.len() + state.index.len() + seen.len()"
 
     assert rust_source!(Collections, :empty) =~
              "state.keys.is_empty() || state.index.is_empty()"
+
+    assert rust_source!(Collections, :named) =~ "!name.is_empty()"
   end
 
   test "empty and literal maps build where a map is expected" do
@@ -308,6 +357,22 @@ defmodule RustQ.Meta.Lower.StdlibTest do
     assert_raise Diagnostic.Error, ~r/typed Map lowering requires/, fn ->
       Lower.quoted_body(quote(do: Map.has_key?(value, :x)), nil)
     end
+  end
+
+  test "operators read borrowed copy values, and atoms take the enum compared with" do
+    assert rust_source!(Readings, :weight) =~ "*number == 0.0"
+    assert rust_source!(Readings, :weight) =~ "if *flag {"
+    assert rust_source!(Readings, :both) =~ "*a && *b"
+    assert rust_source!(Readings, :both) =~ "kind(left) == Kind::Number"
+  end
+
+  test "a count takes the integer type expected of it" do
+    assert rust_source!(Readings, :counted) =~ "depth(seen.len() as u32)"
+  end
+
+  test "membership among literals asks an array, and strings change case in place" do
+    assert rust_source!(Readings, :negative?) =~
+             ~s|["false", "no", "off"].contains(&word.trim().to_lowercase().as_str())|
   end
 
   test "rejects descending ranges instead of silently changing Elixir semantics" do

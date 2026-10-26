@@ -17,7 +17,7 @@ defmodule RustQ.Meta.Lower.List do
     {:ok,
      list
      |> lowered(context)
-     |> A.method(:into_iter)
+     |> Collection.iterated(:into_iter)
      |> A.method(terminal)}
   end
 
@@ -28,7 +28,7 @@ defmodule RustQ.Meta.Lower.List do
     {:ok,
      list
      |> lowered(context)
-     |> A.method(:into_iter)
+     |> Collection.iterated(:into_iter)
      |> A.method(terminal)
      |> A.method(:unwrap_or, [lowered(default, context)])}
   end

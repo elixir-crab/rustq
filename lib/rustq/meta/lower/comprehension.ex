@@ -207,7 +207,7 @@ defmodule RustQ.Meta.Lower.Comprehension do
   # What a generator iterates, and the type of each item.
   defp generator_items(collection, %Context{} = context),
     do:
-      borrowed_keyed(collection, context) ||
+      borrowed_keyed(collection, context) || borrowed_tuples(collection, context) ||
         {collection, comprehension_item_type(collection, context)}
 
   # A map or set behind a reference, or still in use, is iterated by reference: its keys and
@@ -221,6 +221,33 @@ defmodule RustQ.Meta.Lower.Comprehension do
          keyed when keyed != nil <- Collection.keyed(type),
          true <- Type.ref_inner(type) != nil or Lower.in_use?(collection, context) do
       borrowed_items(collection, keyed)
+    else
+      _owned -> nil
+    end
+  end
+
+  # A list of tuples still in use is iterated by reference as a map is, so reading a copy
+  # element never clones the others.
+  defp borrowed_tuples(collection, %Context{} = context) do
+    with false <- iterator_call?(collection),
+         %Type{kind: :vec} = type <-
+           Lower.infer_expr_type(collection, context.vars) ||
+             Typing.synth(collection, Lower.typing_env(context)),
+         %Type{} = item <- Type.vec_inner(type),
+         {:tuple, elements} <- Type.category(item),
+         false <- Collection.copy?(item),
+         true <- Lower.in_use?(collection, context) do
+      vars = Enum.map(1..length(elements)//1, &Macro.var(:"element#{&1}", __MODULE__))
+      read = Enum.zip_with(vars, elements, &read_item/2)
+
+      items =
+        quote do
+          unquote(collection)
+          |> iter()
+          |> map(fn {unquote_splicing(vars)} -> {unquote_splicing(read)} end)
+        end
+
+      {items, Type.tuple(Enum.map(elements, &item_type/1))}
     else
       _owned -> nil
     end

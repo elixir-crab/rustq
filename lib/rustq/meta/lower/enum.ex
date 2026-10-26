@@ -916,7 +916,7 @@ defmodule RustQ.Meta.Lower.Enum do
       :owned ->
         cond do
           borrowed_collection?(type_of(collection, context)) -> A.method(receiver, :iter)
-          collected?(receiver) -> receiver.receiver
+          Collection.collected?(receiver) -> receiver.receiver
           true -> A.method(receiver, :into_iter)
         end
 
@@ -1040,15 +1040,6 @@ defmodule RustQ.Meta.Lower.Enum do
   end
 
   defp ordered?(nil), do: false
-
-  # An iterator collected into a list only to be iterated again is iterated as it is.
-  defp collected?(%AST.MethodCall{method: :collect, generics: []}), do: true
-  defp collected?(%AST.MethodCall{method: :collect, generics: [%AST.TypeVec{}]}), do: true
-
-  defp collected?(%AST.MethodCall{method: :collect, generics: [%AST.TypePath{parts: [:Vec]}]}),
-    do: true
-
-  defp collected?(_receiver), do: false
 
   defp fallible?(collection, context),
     do:

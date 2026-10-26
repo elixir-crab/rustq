@@ -104,14 +104,42 @@ defmodule RustQ.Meta.Lower.Collection do
   defp borrowed?(%Type{kind: kind}) when kind in [:ref, :mut_ref, :slice], do: true
   defp borrowed?(_type), do: false
 
-  @doc "A key or item passed by reference, borrowed unless it already is one."
+  @doc """
+  A key or item passed by reference, borrowed unless it already is one, as a string literal
+  is.
+  """
   @spec borrowed(Macro.t(), Type.t(), Context.t()) :: AST.expr()
+  def borrowed(expression, %Type{}, %Context{} = context) when is_binary(expression),
+    do: lowered(expression, context)
+
   def borrowed(expression, %Type{} = type, %Context{} = context) do
     case type_of(expression, context) do
       nil -> A.ref(lowered(expression, context))
       _known -> lowered(expression, Type.ref(type), context)
     end
   end
+
+  @doc """
+  `expression` iterated with `method`; what an iterator collects into a list is iterated as
+  the iterator it is.
+  """
+  @spec iterated(AST.expr(), atom()) :: AST.expr()
+  def iterated(expression, method) do
+    if collected?(expression), do: expression.receiver, else: A.method(expression, method)
+  end
+
+  @doc """
+  Whether an expression collects an iterator into a list, or into whatever is needed, not a map
+  or set, which keeps one item per key.
+  """
+  @spec collected?(AST.expr()) :: boolean()
+  def collected?(%AST.MethodCall{method: :collect, generics: []}), do: true
+  def collected?(%AST.MethodCall{method: :collect, generics: [%AST.TypeVec{}]}), do: true
+
+  def collected?(%AST.MethodCall{method: :collect, generics: [%AST.TypePath{parts: [:Vec]}]}),
+    do: true
+
+  def collected?(_expression), do: false
 
   @doc "A value read out of a collection: copied when that costs nothing, otherwise cloned."
   @spec read_out(AST.expr(), Type.t()) :: AST.expr()

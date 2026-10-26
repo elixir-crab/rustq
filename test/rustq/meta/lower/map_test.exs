@@ -14,6 +14,12 @@ defmodule RustQ.Meta.Lower.MapTest do
     @spec found(R.ref(%{String.t() => integer()}), R.ref(String.t())) :: R.option(integer())
     defrust(found(scores, name), do: Map.get(scores, name))
 
+    @spec unnamed(R.ref(%{String.t() => integer()})) :: integer()
+    defrust(unnamed(scores), do: Map.get(scores, "", 0))
+
+    @spec any_score(R.ref(%{String.t() => integer()})) :: R.option(integer())
+    defrust(any_score(scores), do: scores |> Map.values() |> List.first())
+
     @spec known?(R.ref(%{String.t() => integer()}), R.ref(String.t())) :: R.bool()
     defrust(known?(scores, name), do: Map.has_key?(scores, name))
 
@@ -55,6 +61,14 @@ defmodule RustQ.Meta.Lower.MapTest do
     assert rust_source!(Scores, :score) =~ "scores.get(&name).copied().unwrap_or(0)"
     assert rust_source!(Scores, :found) =~ "scores.get(name).copied()"
     assert rust_source!(Scores, :known?) =~ "scores.contains_key(name)"
+  end
+
+  test "takes the first value from the iterator over values" do
+    assert rust_source!(Scores, :any_score) =~ "scores.values().copied().next()"
+  end
+
+  test "looks a string literal key up as the reference it is" do
+    assert rust_source!(Scores, :unnamed) =~ ~s|scores.get("").copied().unwrap_or(0)|
   end
 
   test "update/4 gives a present value to the function and stores the default otherwise" do

@@ -1,13 +1,16 @@
 defmodule RustQ.Meta.Lower.String do
   @moduledoc """
   Lowers `String` functions whose Rust counterparts keep their semantics, such as
-  `String.replace/3` and `String.trim/1` for `RustQ.Meta.Lower.Stdlib`, and types such calls.
+  `String.replace/3`, `String.trim/1`, and `String.downcase/1` for `RustQ.Meta.Lower.Stdlib`,
+  and types such calls.
   """
 
   use RustQ.Meta.Lower.Stdlib.Lowering
 
   alias RustQ.Meta.Type
   alias RustQ.Spec
+
+  @case_methods %{downcase: :to_lowercase, upcase: :to_uppercase}
 
   @predicate_methods %{
     starts_with?: :starts_with,
@@ -31,6 +34,18 @@ defmodule RustQ.Meta.Lower.String do
        |> lowered(context)
        |> A.method(:trim)
        |> A.method(:to_string)}
+
+  # Changing the case of a string made only to be changed reads the string it was made from.
+  def lower(%Call{function: function, args: [string]}, %Context{} = context)
+      when is_map_key(@case_methods, function) do
+    receiver =
+      case lowered(string, context) do
+        %AST.MethodCall{method: :to_string, receiver: borrowed} -> borrowed
+        owned -> owned
+      end
+
+    {:ok, A.method(receiver, Map.fetch!(@case_methods, function))}
+  end
 
   def lower(
         %Call{function: :replace, args: [string, pattern, replacement]},
@@ -77,7 +92,7 @@ defmodule RustQ.Meta.Lower.String do
       do: {:ok, Spec.type(quote(do: boolean()))}
 
   def synth(%Call{function: function}, %TypeContext{})
-      when function in [:trim, :replace, :duplicate],
+      when function in [:trim, :replace, :duplicate, :downcase, :upcase],
       do: {:ok, Spec.type(quote(do: String.t()))}
 
   def synth(%Call{}, %TypeContext{}), do: :unsupported

@@ -6,6 +6,7 @@ defmodule RustQ.Meta.Lower.Range do
   use RustQ.Meta.Lower.Stdlib.Lowering
 
   alias RustQ.Diagnostic
+  alias RustQ.Meta.Type
   alias RustQ.Spec
 
   @impl true
@@ -52,6 +53,18 @@ defmodule RustQ.Meta.Lower.Range do
     end
   end
 
+  # Membership in a literal list asks an array, which allocates nothing; a string is looked
+  # up among string literals as the `&str` they are.
+  def lower(%Call{function: :in, args: [value, items]}, %Context{} = context)
+      when is_list(items) do
+    item =
+      if Enum.all?(items, &is_binary/1) and string?(type_of(value, context)),
+        do: A.method(lowered(value, context), :as_str),
+        else: lowered(value, context)
+
+    {:ok, A.method(A.array(Enum.map(items, &lowered(&1, context))), :contains, [A.ref(item)])}
+  end
+
   def lower(%Call{function: :in, args: [value, collection]}, %Context{} = context) do
     receiver =
       case lowered(collection, context) do
@@ -75,4 +88,7 @@ defmodule RustQ.Meta.Lower.Range do
        do: true
 
   defp ascending_literal_range?(_start, _stop), do: false
+
+  defp string?(%Type{} = type), do: Type.category(type) == :string
+  defp string?(_type), do: false
 end

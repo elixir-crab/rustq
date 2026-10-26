@@ -1689,8 +1689,14 @@ defmodule RustQ.Meta.Lower do
     end
   end
 
-  defp lower_condition(condition, %Context{} = context),
-    do: lower_binary_operand(condition, context)
+  # A condition is a boolean; a borrowed one is read.
+  defp lower_condition(condition, %Context{} = context) do
+    case infer_expr_type(condition, context.vars) ||
+           Typing.synth(condition, typing_env(context)) do
+      %Type{kind: :ref} -> A.deref(lower_expr(condition, context))
+      _owned -> lower_binary_operand(condition, context)
+    end
+  end
 
   defp lower_with(clauses, %Context{} = context, expected_type \\ nil) do
     {matches, body_opts} = Enum.split_while(clauses, &match?({:<-, _, _}, &1))
@@ -2046,7 +2052,7 @@ defmodule RustQ.Meta.Lower do
 
         receiver
         |> lower_dot_receiver(:into_iter, context)
-        |> iterated(borrowed_iteration(:into_iter, [], receiver_type))
+        |> Collection.iterated(borrowed_iteration(:into_iter, [], receiver_type))
 
       true ->
         %AST.MethodCall{
@@ -2467,20 +2473,6 @@ defmodule RustQ.Meta.Lower do
       _owned -> A.ref(lower_expr(key, context))
     end
   end
-
-  # Iterating what an iterator collects into a list is iterating the iterator.
-  defp iterated(%AST.MethodCall{method: :collect, receiver: iterator} = collected, method) do
-    if listed?(collected), do: iterator, else: A.method(collected, method)
-  end
-
-  defp iterated(receiver, method), do: A.method(receiver, method)
-
-  # A collect into a list, or into whatever is needed, not a map or set, which keeps one item
-  # per key.
-  defp listed?(%AST.MethodCall{generics: []}), do: true
-  defp listed?(%AST.MethodCall{generics: [%AST.TypeVec{}]}), do: true
-  defp listed?(%AST.MethodCall{generics: [%AST.TypePath{parts: [:Vec]}]}), do: true
-  defp listed?(%AST.MethodCall{}), do: false
 
   defp lower_expected_operand(expression, %Type{} = expected_type, %Context{} = context) do
     if fallible_expression?(expression, context) and propagation_allowed?(context.return_type),

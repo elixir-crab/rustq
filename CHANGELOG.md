@@ -49,6 +49,11 @@
   cannot fail to match is bound with `=` rather than matched.
 - A variable put into a new list or pushed while still in use is copied, and
   `Map.get/3` with an empty default is `unwrap_or_default()`.
+- `String.downcase/1` and `String.upcase/1` lower to `to_lowercase()` and
+  `to_uppercase()`, and membership among literals, as `word in ["no", "off"]`,
+  asks an array, looking a `String` up as a `&str`.
+- A comprehension over a list of tuples still in use iterates it by
+  reference, copying copy elements rather than cloning every item.
 
 ### Fixed
 
@@ -65,6 +70,14 @@
   from one the other side borrows.
 - An iterator collected into a list and iterated again is iterated as it is.
 - A generator over one value computes it before the item moves into the pair.
+- A string literal key is looked up as the `&str` it is, and comparing a string
+  with `""` asks whether it is empty.
+- Operators read borrowed copy values a pattern binds: a comparison derefs the
+  borrowed side, `and`/`or` and `if` take booleans, and an atom compared with
+  an enum is that enum's variant.
+- A count passed where a `u32` or another integer is expected is cast to it.
+- `List.first/1` and `List.last/1` on an iterator collected into a list take
+  from the iterator.
 
 ## 1.0.0-rc.19 - 2026-10-26
 

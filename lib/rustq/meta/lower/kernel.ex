@@ -46,9 +46,9 @@ defmodule RustQ.Meta.Lower.Kernel do
     end
   end
 
-  # Comparing a collection with an empty one asks whether it is empty.
-  def lower(%Call{function: function, args: [collection, []]}, %Context{} = context)
-      when function in [:==, :!=],
+  # Comparing a collection or string with an empty one asks whether it is empty.
+  def lower(%Call{function: function, args: [collection, empty]}, %Context{} = context)
+      when function in [:==, :!=] and empty in [[], ""],
       do: {:ok, emptiness(function, collection, context)}
 
   def lower(%Call{function: function, args: [collection, {:%{}, _, []}]}, %Context{} = context)
@@ -227,21 +227,38 @@ defmodule RustQ.Meta.Lower.Kernel do
   end
 
   # Elixir's integer, as a count is, compares in the Rust integer type of the other side.
+  # A boolean operator takes booleans, and a comparison values of one type: a borrowed copy
+  # operand is read where the other is not borrowed or the operator is boolean, and an atom
+  # or integer literal takes the other operand's type.
   defp compared(function, left, right, context) do
     {left_type, right_type} = {type_of(left, context), type_of(right, context)}
+    logical? = function in [:and, :or]
 
     A.binary(
-      compared_operand(left, left_type, right_type, context),
+      compared_operand(left, left_type, right_type, logical?, context),
       Map.fetch!(@binary_ops, function),
-      compared_operand(right, right_type, left_type, context)
+      compared_operand(right, right_type, left_type, logical?, context)
     )
   end
 
-  defp compared_operand(operand, %Type{kind: :i64}, %Type{kind: kind} = other, context)
+  defp compared_operand(operand, %Type{kind: :i64}, %Type{kind: kind} = other, _logical?, context)
        when kind in [:u8, :u16, :u32, :u64, :usize, :i8, :i16, :i32, :isize],
        do: lowered(operand, other, context)
 
-  defp compared_operand(operand, _type, _other, context), do: operand(operand, context)
+  defp compared_operand(operand, _type, %Type{} = other, false, context)
+       when is_atom(operand) and operand not in [nil, true, false],
+       do: lowered(operand, other, context)
+
+  defp compared_operand(operand, %Type{kind: :ref} = type, other, logical?, context) do
+    if Collection.copy?(Type.ref_inner(type)) and (logical? or not borrowed?(other)),
+      do: A.deref(lowered(operand, context)),
+      else: operand(operand, context)
+  end
+
+  defp compared_operand(operand, _type, _other, _logical?, context), do: operand(operand, context)
+
+  defp borrowed?(%Type{kind: kind}), do: kind in [:ref, :mut_ref]
+  defp borrowed?(_type), do: false
 
   defp emptiness(function, collection, context) do
     is_empty = collection |> lowered(context) |> A.method(:is_empty)

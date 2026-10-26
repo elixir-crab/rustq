@@ -135,9 +135,10 @@ defmodule RustQ.Meta.Typing do
     end
   end
 
+  # A slice is indexed before any reference is looked through, which keeps its items' metadata.
   def synth({:index, _meta, [collection, _index]}, %Env{} = env) do
     case synth(collection, env) do
-      %Type{} = type -> indexed_type(Type.ref_inner(type) || type)
+      %Type{} = type -> indexed_type(type) || indexed_type(Type.ref_inner(type))
       nil -> nil
     end
   end
@@ -355,6 +356,7 @@ defmodule RustQ.Meta.Typing do
   defp unknown, do: %Type{kind: :type, rust: "_", ast: %AST.TypeRaw{source: "_"}, meta: %{}}
 
   defp indexed_type(%Type{} = type), do: Type.vec_inner(type) || Type.slice_inner(type)
+  defp indexed_type(nil), do: nil
 
   defp synth_stdlib({name, _meta, args} = call_ast, %Env{} = env)
        when is_atom(name) and is_list(args) do
@@ -555,6 +557,18 @@ defmodule RustQ.Meta.Typing do
       option_type(value)
     else
       _unknown -> nil
+    end
+  end
+
+  # Borrowing an option, owned or behind a reference, gives an option of a reference; an option
+  # of a reference stays as it is.
+  defp synth_method_call({{:., _, [receiver, :as_ref]}, _meta, []} = ast, %Env{} = env) do
+    with %Type{} = type <- synth(receiver, env),
+         %Type{kind: :option} = option <- Type.ref_inner(type) || type,
+         %Type{} = inner <- Type.inner(option) do
+      if Type.ref_inner(inner), do: option, else: Type.option(Type.ref(inner))
+    else
+      _unknown -> synth_method_return(ast, env)
     end
   end
 

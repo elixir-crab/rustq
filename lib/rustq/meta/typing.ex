@@ -376,8 +376,7 @@ defmodule RustQ.Meta.Typing do
     # already known.
     wrapped_types =
       expressions
-      |> Enum.flat_map(&let_rhs_type(&1, env))
-      |> Map.new()
+      |> let_rhs_types(env)
       |> Map.filter(fn {name, type} ->
         Type.propagates?(type) and not Map.has_key?(env.vars, name)
       end)
@@ -790,9 +789,19 @@ defmodule RustQ.Meta.Typing do
 
   defp non_propagating_let_rhs_types(expressions, %Env{} = env) do
     expressions
-    |> Enum.flat_map(&let_rhs_type(&1, env))
-    |> Map.new()
+    |> let_rhs_types(env)
     |> Map.reject(fn {_name, type} -> Type.propagates?(type) end)
+  end
+
+  # Each binding's type, in order, so a later right-hand side reads the earlier bindings.
+  defp let_rhs_types(expressions, %Env{} = env) do
+    {types, _env} =
+      Enum.reduce(expressions, {%{}, env}, fn expression, {types, env} ->
+        bound = Map.new(let_rhs_type(expression, env))
+        {Map.merge(types, bound), %{env | vars: Map.merge(env.vars, bound)}}
+      end)
+
+    types
   end
 
   defp let_rhs_type({:=, _meta, [{name, _pattern_meta, context}, expression]}, %Env{} = env)

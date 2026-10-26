@@ -8,6 +8,8 @@
   spec, as a `defrust` can.
 - A fallible call used as the receiver of a method its result lacks, as
   `decoder.read_bool().encode(env)`, propagates its error first.
+- A loop over a slice, or a list behind a reference, reads each item by
+  reference, so passing one on where a reference is expected borrows it once.
 
 ## 1.0.0-rc.18 - 2026-10-26
 

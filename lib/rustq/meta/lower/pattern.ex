@@ -299,8 +299,22 @@ defmodule RustQ.Meta.Lower.Pattern do
     end
   end
 
-  defp for_item_type(%Type{} = type), do: Type.vec_inner(type) || Type.slice_inner(type)
+  # A loop over a slice, or over a list behind a reference, reads each item by reference.
+  defp for_item_type(%Type{kind: kind} = type) when kind in [:ref, :mut_ref] do
+    case type |> Type.ref_inner() |> for_item_type() do
+      %Type{kind: kind} = item when kind not in [:ref, :mut_ref] -> Type.ref(item)
+      item -> item
+    end
+  end
 
+  defp for_item_type(%Type{kind: :slice} = type) do
+    case Type.slice_inner(type) do
+      %Type{} = item -> Type.ref(item)
+      nil -> nil
+    end
+  end
+
+  defp for_item_type(%Type{} = type), do: Type.vec_inner(type)
   defp for_item_type(_type), do: nil
 
   defp context_with_inner_pattern(pattern, %Type{} = inner, wrappers, %Context{} = context) do

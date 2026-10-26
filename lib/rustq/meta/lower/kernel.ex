@@ -7,6 +7,7 @@ defmodule RustQ.Meta.Lower.Kernel do
   use RustQ.Meta.Lower.Stdlib.Lowering
 
   alias RustQ.Diagnostic
+  alias RustQ.Meta.Lower.Collection
   alias RustQ.Meta.Type
   alias RustQ.Spec
 
@@ -30,8 +31,9 @@ defmodule RustQ.Meta.Lower.Kernel do
   @comparison_functions [:==, :!=, :<, :<=, :>, :>=, :and, :or, :not, :is_nil]
 
   @impl true
-  def lower(%Call{function: function} = call, %Context{} = context) when function in [:.., :in],
-    do: RustQ.Meta.Lower.Range.lower(call, context)
+  def lower(%Call{function: function} = call, %Context{} = context)
+      when function in [:.., :..//, :in],
+      do: RustQ.Meta.Lower.Range.lower(call, context)
 
   def lower(%Call{function: :/, args: [left, right]} = call, %Context{} = context) do
     if integer_type?(type_of(left, context)) or integer_type?(type_of(right, context)) do
@@ -43,6 +45,15 @@ defmodule RustQ.Meta.Lower.Kernel do
       {:ok, A.binary(operand(left, context), :div, operand(right, context))}
     end
   end
+
+  # Comparing a collection with an empty one asks whether it is empty.
+  def lower(%Call{function: function, args: [collection, []]}, %Context{} = context)
+      when function in [:==, :!=],
+      do: {:ok, emptiness(function, collection, context)}
+
+  def lower(%Call{function: function, args: [collection, {:%{}, _, []}]}, %Context{} = context)
+      when function in [:==, :!=],
+      do: {:ok, emptiness(function, collection, context)}
 
   # Comparing two options or results compares the wrappers; neither side propagates.
   def lower(%Call{function: function, args: [left, right]}, %Context{} = context)
@@ -91,11 +102,16 @@ defmodule RustQ.Meta.Lower.Kernel do
       do: {:ok, value |> lowered(context) |> A.method(:len) |> integer_count(context)}
 
   def lower(%Call{function: :map_size, args: [map]} = call, %Context{} = context) do
-    case struct_fields(shape_type(type_of(map, context))) do
-      fields when is_list(fields) ->
-        evaluated_constant(map, length(fields), context)
+    type = shape_type(type_of(map, context))
 
-      _unknown ->
+    cond do
+      match?({:map, _key, _value}, Collection.keyed(type)) ->
+        {:ok, map |> lowered(context) |> A.method(:len) |> integer_count(context)}
+
+      is_list(struct_fields(type)) ->
+        evaluated_constant(map, length(struct_fields(type)), context)
+
+      true ->
         unsupported_semantics!(call, "map_size/1 requires a statically typed map or struct")
     end
   end
@@ -150,7 +166,7 @@ defmodule RustQ.Meta.Lower.Kernel do
 
   @impl true
   def synth(%Call{function: function} = call, %TypeContext{} = context)
-      when function in [:.., :in],
+      when function in [:.., :..//, :in],
       do: RustQ.Meta.Lower.Range.synth(call, context)
 
   def synth(%Call{function: function}, %TypeContext{}) when function in @comparison_functions,
@@ -202,6 +218,11 @@ defmodule RustQ.Meta.Lower.Kernel do
       message,
       suggestion: "Use an explicit Rust adapter when Elixir and Rust semantics differ."
     )
+  end
+
+  defp emptiness(function, collection, context) do
+    is_empty = collection |> lowered(context) |> A.method(:is_empty)
+    if function == :==, do: is_empty, else: A.not_(is_empty)
   end
 
   defp wrapper_comparison?(left, right, %Context{} = context) do

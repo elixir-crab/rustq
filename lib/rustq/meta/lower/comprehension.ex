@@ -10,6 +10,7 @@ defmodule RustQ.Meta.Lower.Comprehension do
 
   alias RustQ.Diagnostic
   alias RustQ.Meta.Lower
+  alias RustQ.Meta.Lower.Collection
   alias RustQ.Meta.Lower.Env, as: Context
   alias RustQ.Meta.Lower.Pattern, as: LowerPattern
   alias RustQ.Meta.Pattern
@@ -120,7 +121,9 @@ defmodule RustQ.Meta.Lower.Comprehension do
          {nested?, generated}
        ) do
     {filters, rest} = Enum.split_while(rest, &(not generator?(&1)))
-    item_type = comprehension_item_type(collection, context)
+
+    {collection, item_type} = generator_items(collection, context)
+
     root = root_variable(collection)
 
     reused? =
@@ -199,6 +202,57 @@ defmodule RustQ.Meta.Lower.Comprehension do
       end
     end
   end
+
+  # What a generator iterates, and the type of each item.
+  defp generator_items(collection, %Context{} = context),
+    do:
+      borrowed_keyed(collection, context) ||
+        {collection, comprehension_item_type(collection, context)}
+
+  # A map or set behind a reference, or still in use, is iterated by reference: its keys and
+  # values copied where that costs nothing, and borrowed otherwise, so a record is never
+  # cloned to be read.
+  defp borrowed_keyed(collection, %Context{} = context) do
+    with false <- iterator_call?(collection),
+         %Type{} = type <-
+           Lower.infer_expr_type(collection, context.vars) ||
+             Typing.synth(collection, Lower.typing_env(context)),
+         keyed when keyed != nil <- Collection.keyed(type),
+         true <- Type.ref_inner(type) != nil or Lower.in_use?(collection, context) do
+      borrowed_items(collection, keyed)
+    else
+      _owned -> nil
+    end
+  end
+
+  defp borrowed_items(collection, {:map, key, value}) do
+    {key_var, value_var} = {Macro.var(:key, __MODULE__), Macro.var(:value, __MODULE__)}
+
+    items =
+      quote do
+        unquote(collection)
+        |> iter()
+        |> map(fn {unquote(key_var), unquote(value_var)} ->
+          {unquote(read_item(key_var, key)), unquote(read_item(value_var, value))}
+        end)
+      end
+
+    {items, Type.tuple([item_type(key), item_type(value)])}
+  end
+
+  defp borrowed_items(collection, {:set, item}) do
+    items =
+      if Collection.copy?(item),
+        do: quote(do: unquote(collection) |> iter() |> copied()),
+        else: quote(do: unquote(collection) |> iter())
+
+    {items, item_type(item)}
+  end
+
+  defp read_item(var, type),
+    do: if(Collection.copy?(type), do: quote(do: deref(unquote(var))), else: var)
+
+  defp item_type(type), do: if(Collection.copy?(type), do: type, else: Type.ref(type))
 
   # The type of the variables a generator binds, as one variable or a tuple of them.
   defp binder_type({name, _, ast_context}, %Context{vars: vars}) when is_atom(ast_context),

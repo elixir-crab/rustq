@@ -85,7 +85,7 @@ defmodule RustQ.Meta.Lower.MapSet do
   end
 
   defp lower_set(%Call{function: :size, args: [set]}, _item, context) do
-    {:ok, A.cast(A.method(lowered(set, context), :len), A.type(:i64))}
+    {:ok, set |> lowered(context) |> A.method(:len) |> integer_count(context)}
   end
 
   defp lower_set(%Call{function: :to_list, args: [set]}, item, context) do

@@ -56,13 +56,16 @@ defmodule RustQ.Meta.Lower.Enum do
      |> integer_count(context)}
   end
 
-  defp lower_call(%Call{function: :empty?, args: [collection]}, %Context{} = context),
-    do:
-      {:ok,
-       collection
-       |> iterate(:question, context)
-       |> A.method(:next)
-       |> A.method(:is_none)}
+  # A collection is asked directly; a stage, whether it yields anything.
+  defp lower_call(%Call{function: :empty?, args: [collection]}, %Context{} = context) do
+    case stage(collection) do
+      {:ok, stage} ->
+        {:ok, stage |> continued(context) |> A.method(:next) |> A.method(:is_none)}
+
+      :error ->
+        {:ok, collection |> lower_collection(context) |> A.method(:is_empty)}
+    end
+  end
 
   defp lower_call(%Call{function: :member?, args: [collection, value]}, %Context{} = context),
     do:

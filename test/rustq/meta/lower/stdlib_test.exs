@@ -8,6 +8,74 @@ defmodule RustQ.Meta.Lower.StdlibTest do
   alias RustQ.Meta.Typing
   alias RustQ.Rust.AST
 
+  import RustQ.Test, only: [rust_source!: 2]
+
+  defmodule Collections do
+    @moduledoc "Elixir's collection functions on Rust's collections, through a reference."
+
+    use RustQ.Meta
+
+    alias RustQ.Type, as: R
+
+    @type state :: %{
+            required(:keys) => R.vec(String.t()),
+            required(:index) => HashMap.t(R.u32(), R.usize())
+          }
+
+    @spec sizes(R.ref(state()), R.ref(MapSet.t(R.u32()))) :: R.usize()
+    defrust(sizes(state, seen),
+      do: length(state.keys) + map_size(state.index) + MapSet.size(seen)
+    )
+
+    @spec empty(R.ref(state())) :: R.bool()
+    defrust(empty(state), do: Enum.empty?(state.keys) or state.index == %{})
+
+    @spec fresh() :: state()
+    defrust(fresh(), do: %{keys: [], index: %{}})
+
+    @spec counted(R.u32()) :: HashMap.t(R.u32(), R.usize())
+    defrust(counted(id), do: %{id => 1})
+
+    @spec ids(R.ref(state())) :: R.vec(R.u32())
+    defrust(ids(state), do: for({id, _at} <- state.index, do: id))
+
+    @spec numbers(R.mut_ref(R.vec(R.u32())), R.u32()) :: R.unit()
+    defrust numbers(values, count) do
+      for number <- 1..count//1 do
+        values.push(number)
+      end
+    end
+
+    @spec joined(R.vec(R.u32()), R.vec(R.u32())) :: R.vec(R.u32())
+    defrust(joined(left, right), do: left ++ right)
+  end
+
+  test "counts and emptiness of lists, maps, and sets are Rust's" do
+    assert rust_source!(Collections, :sizes) =~
+             "state.keys.len() + state.index.len() + seen.len()"
+
+    assert rust_source!(Collections, :empty) =~
+             "state.keys.is_empty() || state.index.is_empty()"
+  end
+
+  test "empty and literal maps build where a map is expected" do
+    assert rust_source!(Collections, :fresh) =~ "index: HashMap::new()"
+    assert rust_source!(Collections, :counted) =~ "HashMap::from([(id, 1)])"
+  end
+
+  test "a map behind a reference is iterated by reference, copying copy keys" do
+    assert rust_source!(Collections, :ids) =~
+             "state.index.iter().map(|(key, value)| (*key, *value))"
+  end
+
+  test "a range with a step counts up between dynamic bounds" do
+    assert rust_source!(Collections, :numbers) =~ "for number in 1..=count {"
+  end
+
+  test "++ concatenates lists" do
+    assert rust_source!(Collections, :joined) =~ "left.into_iter().chain(right).collect()"
+  end
+
   test "normalizes remote stdlib calls and local Kernel forms" do
     assert {:ok, %Call{module: Enum, function: :count, args: [_values]}} =
              Call.normalize(quote(do: Enum.count(values)))

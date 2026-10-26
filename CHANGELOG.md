@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `map_size` of a `HashMap`, `MapSet.size`, and `length` are Rust's `len()`,
+  a `usize` where one is expected; so is arithmetic on them there.
+- `Enum.empty?/1` and comparing with `[]` or `%{}` are `is_empty()`.
+- `%{}` and `%{key => value}` build a `HashMap` or `BTreeMap` where one is
+  expected.
+- A generator over a map or set behind a reference iterates it by reference,
+  copying copy keys and values and borrowing the rest.
+- `first..last//step` with a positive literal step counts up between dynamic
+  bounds, as Rust's `first..=last` does.
+- `left ++ right` concatenates lists.
+
 ## 1.0.0-rc.19 - 2026-10-26
 
 ### Added

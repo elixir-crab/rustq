@@ -7,7 +7,8 @@ defmodule RustQ.Meta.Desugar do
       comprehension collecting into it;
     * `Enum.group_by/2,3` is a map filled by a loop, and `Enum.uniq/1` and `Enum.uniq_by/2`
       keep the items a set has not seen;
-    * a generator over `Enum.with_index(list)` enumerates the list in place.
+    * a generator over `Enum.with_index(list)` enumerates the list in place;
+    * `left ++ right` is `Enum.concat(left, right)`.
 
   Where a rewrite needs what only lowering knows, it leaves an internal form for lowering to
   resolve: `__rustq_items__(list)` iterates a list as its ownership allows, and
@@ -112,6 +113,8 @@ defmodule RustQ.Meta.Desugar do
       call
     end
   end
+
+  defp rewrite({:++, _, [left, right]}), do: quote(do: Enum.concat(unquote(left), unquote(right)))
 
   defp rewrite({:for, meta, args}), do: {:for, meta, Enum.map(args, &indexed_generator/1)}
   defp rewrite(ast), do: ast

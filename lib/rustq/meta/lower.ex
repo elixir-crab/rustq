@@ -700,6 +700,33 @@ defmodule RustQ.Meta.Lower do
        when is_list(fields),
        do: lower_struct_update(base, fields, context)
 
+  # A map literal where a map is expected builds one: `%{}` is `HashMap::new()`, and
+  # `%{key => value}` is `HashMap::from([(key, value)])`.
+  defp lower_expected_expr_context(
+         {:%{}, _, entries},
+         %Type{ast: %AST.TypePath{parts: parts, generics: [_key, _value]}} = expected_type,
+         %Context{} = context
+       )
+       when is_list(entries) and parts in [[:HashMap], [:BTreeMap]] do
+    case entries do
+      [] ->
+        A.path_call(parts ++ [:new])
+
+      entries ->
+        {:map, key, value} = Collection.keyed(expected_type)
+
+        pairs =
+          Enum.map(entries, fn {entry_key, entry_value} ->
+            A.tuple([
+              lower_expr(entry_key, key, context),
+              lower_expr(entry_value, value, context)
+            ])
+          end)
+
+        A.path_call(parts ++ [:from], [A.array(pairs)])
+    end
+  end
+
   defp lower_expected_expr_context(
          {:%{}, _, fields},
          %Type{kind: :struct, ast: %AST.TypePath{parts: parts}} = expected_type,
@@ -849,6 +876,34 @@ defmodule RustQ.Meta.Lower do
          %Context{} = context
        ),
        do: lower_pipe(left, right, expected_type, context)
+
+  # Arithmetic where an integer is expected computes in that integer, as its operands do.
+  defp lower_expected_expr_context(
+         {operator, _, [left, right]},
+         %Type{kind: kind} = expected_type,
+         %Context{} = context
+       )
+       when operator in [:+, :-, :*] and
+              kind in [:i8, :i16, :i32, :i64, :isize, :u8, :u16, :u32, :u64, :usize] do
+    A.binary(
+      lower_expected_operand(left, expected_type, context),
+      operator_op(operator),
+      lower_expected_operand(right, expected_type, context)
+    )
+  end
+
+  # A count is a `usize` where one is expected, not Elixir's integer.
+  defp lower_expected_expr_context(
+         {function, _, [_value] = args} = call,
+         %Type{} = expected_type,
+         context
+       )
+       when function in [:length, :byte_size, :map_size] do
+    case BindingIndex.get(context.callables, nil, function, length(args)) do
+      %RustQ.Binding.Callable{} -> lower_local_or_macro_call(function, args, context)
+      nil -> Stdlib.lower!(call, stdlib_context(context, expected_type))
+    end
+  end
 
   defp lower_expected_expr_context(
          {{:., _, [receiver = {:__aliases__, _, [module]}, function]}, _, args} = call,
@@ -1182,6 +1237,7 @@ defmodule RustQ.Meta.Lower do
   defp lower_expr_context({function, _, args} = call, %Context{} = context)
        when function in [
               :..,
+              :..//,
               :in,
               :==,
               :!=,
@@ -2336,6 +2392,12 @@ defmodule RustQ.Meta.Lower do
       "unsupported defrust pipeline step",
       suggestion: "Pipe into a method call, cast/1, or add an explicit lowering clause."
     )
+  end
+
+  defp lower_expected_operand(expression, %Type{} = expected_type, %Context{} = context) do
+    if fallible_expression?(expression, context) and propagation_allowed?(context.return_type),
+      do: A.try(lower_expr(expression, context)),
+      else: lower_expr(expression, expected_type, context)
   end
 
   defp lower_binary_op(left, op, right, %Context{} = context) do

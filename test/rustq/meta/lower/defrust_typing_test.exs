@@ -469,6 +469,16 @@ defmodule RustQ.Meta.Lower.DefrustTypingTest do
         ok(named(base, count))
       end
 
+      @spec present(R.option(R.ref(item()))) :: R.bool()
+      defrustp(present(base), do: base != nil)
+
+      @spec reused(holder()) :: R.bool()
+      defrustp reused(holder) do
+        base = holder.base.as_ref()
+        found = present(base)
+        found and base != nil
+      end
+
       @spec count(R.ref(holder())) :: R.usize()
       defrustp count(holder) do
         case holder.base do
@@ -495,6 +505,7 @@ defmodule RustQ.Meta.Lower.DefrustTypingTest do
     source = BorrowedOptionCase.__rustq_source__()
 
     assert source =~ "Ok(named(base, count))"
+    assert source =~ "let found = present(base);"
     assert source =~ "match &holder.base {"
     assert source =~ "Some(item) => item.names.len()"
     assert source =~ "let mut tally = HashMap::new();"

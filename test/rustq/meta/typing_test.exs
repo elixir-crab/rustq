@@ -132,6 +132,28 @@ defmodule RustQ.Meta.TypingTest do
     assert %Typing.Check{coercion: :none} = Typing.check(expression, option, env)
   end
 
+  test "synthesizes Option.as_ref as an option of a reference" do
+    term = type(:term, "Term")
+    borrowed = Type.option(Type.ref(term))
+
+    env =
+      Typing.env(
+        vars: %{
+          owned: Type.option(term),
+          lent: Type.ref(Type.option(term)),
+          borrowed: borrowed
+        },
+        callables: []
+      )
+
+    assert Typing.synth(quote(do: owned.as_ref()), env) == borrowed
+    assert Typing.synth(quote(do: lent.as_ref()), env) == borrowed
+    assert Typing.synth(quote(do: borrowed.as_ref()), env) == borrowed
+
+    assert %Typing.Check{coercion: :none} =
+             Typing.check(quote(do: owned.as_ref()), borrowed, env)
+  end
+
   test "synthesizes unambiguous parent-module free-function returns" do
     string = type(:type, "String")
 

@@ -558,6 +558,18 @@ defmodule RustQ.Meta.Typing do
     end
   end
 
+  # Borrowing an option, owned or behind a reference, gives an option of a reference; an option
+  # of a reference stays as it is.
+  defp synth_method_call({{:., _, [receiver, :as_ref]}, _meta, []} = ast, %Env{} = env) do
+    with %Type{} = type <- synth(receiver, env),
+         %Type{kind: :option} = option <- Type.ref_inner(type) || type,
+         %Type{} = inner <- Type.inner(option) do
+      if Type.ref_inner(inner), do: option, else: Type.option(Type.ref(inner))
+    else
+      _unknown -> synth_method_return(ast, env)
+    end
+  end
+
   defp synth_method_call({{:., _, [receiver, :ok_or]}, _meta, [_error]}, %Env{} = env) do
     receiver
     |> synth(env)

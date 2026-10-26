@@ -174,6 +174,16 @@ defmodule RustQ.Meta.Typing do
   def synth({:{}, _meta, [first | _rest] = elements}, %Env{} = env) when not is_atom(first),
     do: synth_tuple(elements, env)
 
+  # Indexing a map reads a value, and indexing a list an item.
+  def synth({{:., _, [Access, :get]}, _meta, [collection, _key]}, %Env{} = env) do
+    with %Type{} = type <- synth(collection, env) do
+      case Collection.keyed(type) do
+        {:map, _key, value} -> declared(value, env)
+        _list -> Type.vec_inner(Type.ref_inner(type) || type) || Type.slice_inner(type)
+      end
+    end
+  end
+
   # A branching expression has the type of its first branch whose type is known, as `nil` and
   # `[]` have none; a `case` branch reads what its pattern binds from the subject.
   def synth({:case, _meta, [subject, [do: clauses]]}, %Env{} = env) when is_list(clauses) do
@@ -265,6 +275,18 @@ defmodule RustQ.Meta.Typing do
          |> then(&bind_pattern(right, right_type, &1))
 
   defp bind_pattern(_pattern, _item, %Env{} = env), do: env
+
+  # A type named in Rust as one of the module's aliases is that alias, as `Table` read out of
+  # a map of tables.
+  defp declared(%Type{ast: %AST.TypePath{parts: [name], generics: []}} = type, %Env{} = env) do
+    rust_name = to_string(name)
+
+    Enum.find_value(env.type_aliases, type, fn {_key, alias} ->
+      if alias.rust == rust_name, do: alias
+    end)
+  end
+
+  defp declared(type, _env), do: type
 
   defp unguarded({:when, _, [pattern, _guard]}), do: pattern
   defp unguarded(pattern), do: pattern
@@ -909,6 +931,8 @@ defmodule RustQ.Meta.Typing do
   end
 
   defp copy_deref_compatible?(_actual, _expected), do: false
+
+  defp copy?(%Type{kind: :alias, meta: %{target: %Type{} = target}}), do: copy?(target)
 
   defp copy?(%Type{} = type) do
     case Type.category(Type.expected_value(type)) do

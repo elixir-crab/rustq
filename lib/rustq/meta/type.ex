@@ -1401,6 +1401,13 @@ defmodule RustQ.Meta.Type do
 
   @doc "Type metadata for a RustQ AST type."
   @spec ast_type(AST.type()) :: t()
+  def ast_type(%AST.TypePath{parts: [:Vec], generics: [item]}), do: vec(ast_type(item))
+  def ast_type(%AST.TypeVec{inner: item}), do: vec(ast_type(item))
+
+  def ast_type(%AST.TypeRef{inner: inner, mutable: false} = ast),
+    do: %{ref(ast_type(inner)) | ast: ast}
+
+  def ast_type(%AST.TypeTuple{items: [_ | _] = items}), do: tuple(Enum.map(items, &ast_type/1))
   def ast_type(ast), do: type(ast_type_kind(ast), ast)
 
   defp ast_type_kind(%AST.TypeNifResult{}), do: :nif_result

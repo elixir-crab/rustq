@@ -75,6 +75,45 @@ defmodule RustQ.Meta.Lower.StdlibTest do
       values
     end
 
+    @typep paths :: HashMap.t(R.u32(), R.vec(R.usize()))
+    @typep tables :: HashMap.t(R.vec(R.usize()), paths())
+
+    @spec indexed(R.slice(R.u32())) :: paths()
+    defrust indexed(keys) do
+      keys
+      |> Enum.with_index()
+      |> Enum.reduce(%{}, fn {key, index}, table ->
+        Map.update(table, key, [index], fn found -> found ++ [index] end)
+      end)
+    end
+
+    @spec single(R.vec(R.u32())) :: R.result(R.u32(), R.usize())
+    defrust single(keys) do
+      found = Enum.reduce(keys, [], fn key, found -> kept(key, found) end)
+
+      case found do
+        [key] -> {:ok, key}
+        found -> {:error, length(found)}
+      end
+    end
+
+    @spec kept(R.u32(), R.vec(R.u32())) :: R.vec(R.u32())
+    defrust(kept(key, found), do: found ++ [key])
+
+    @spec first_value(R.slice(R.u32()), R.slice(R.usize())) :: R.u32()
+    defrust first_value(values, path) do
+      case path do
+        [index | _rest] -> values[index]
+        [] -> 0
+      end
+    end
+
+    @spec lookup(R.ref(tables()), R.slice(R.usize()), R.u32()) :: R.vec(R.usize())
+    defrust(lookup(tables, at, key), do: Map.get(tables[at], key, []))
+
+    @spec widened(R.ref(MapSet.t(R.u32())), R.vec(R.u32())) :: MapSet.t(R.u32())
+    defrust(widened(seen, keys), do: MapSet.union(seen, MapSet.new(keys)))
+
     @spec joined(R.vec(R.u32()), R.vec(R.u32())) :: R.vec(R.u32())
     defrust(joined(left, right), do: left ++ right)
   end
@@ -114,6 +153,29 @@ defmodule RustQ.Meta.Lower.StdlibTest do
 
     assert source =~ ".chain(long.iter().cloned())"
     assert source =~ ".collect::<Vec<String>>(),"
+  end
+
+  test "a reduction grows the accumulator it builds in place" do
+    source = rust_source!(Collections, :indexed)
+
+    assert source =~ "HashMap::new(),"
+    assert source =~ "Some(found) => {"
+    assert source =~ "rustq_updated.push(index);"
+  end
+
+  test "a reduction's list is matched as a slice, and a slice index is copied" do
+    assert rust_source!(Collections, :single) =~ "match found.as_slice() {"
+    assert rust_source!(Collections, :single) =~ "[key] => Ok(*key),"
+    assert rust_source!(Collections, :first_value) =~ "values[*index]"
+  end
+
+  test "a map read out of a map of maps is typed by its alias" do
+    assert rust_source!(Collections, :lookup) =~
+             "tables[at].get(&key).cloned().unwrap_or_default()"
+  end
+
+  test "a set behind a reference is copied, never updated in place" do
+    assert rust_source!(Collections, :widened) =~ "seen.clone()"
   end
 
   test "++ concatenates lists" do

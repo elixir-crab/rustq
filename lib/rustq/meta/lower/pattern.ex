@@ -275,11 +275,12 @@ defmodule RustQ.Meta.Lower.Pattern do
   defp context_with_list_pattern(pattern, %Type{} = type, %Context{} = context) do
     {elements, rest} = split_list_pattern(pattern)
     inner = list_item_type(type)
-    inner = if inner && type.kind == :slice, do: Type.ref(inner), else: inner
+    # A list is matched as a slice, so its items bind by reference.
+    item = if inner && type.kind in [:slice, :vec], do: Type.ref(inner), else: inner
 
     context =
       Enum.reduce(elements, context, fn element, acc ->
-        context_with_match_pattern(element, inner, acc)
+        context_with_match_pattern(element, item, acc)
       end)
 
     if rest,
@@ -421,9 +422,9 @@ defmodule RustQ.Meta.Lower.Pattern do
   def lower_match_pattern(pattern, %Type{kind: :slice} = type) when is_list(pattern),
     do: lower_list_pattern(pattern, type)
 
-  # A list pattern on a value of unknown type matches it as a slice.
-  def lower_match_pattern(pattern, nil)
-      when is_list(pattern) and pattern != [] and not is_tuple(hd(pattern)),
+  # A list pattern on a value of unknown type matches it as a slice; a keyword list does not.
+  def lower_match_pattern([head | _tail] = pattern, nil)
+      when not (is_tuple(head) and tuple_size(head) == 2 and is_atom(elem(head, 0))),
       do: lower_list_pattern(pattern, nil)
 
   def lower_match_pattern([_head | _tail] = pattern, %Type{kind: :vec} = type),

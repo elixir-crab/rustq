@@ -102,7 +102,8 @@ defmodule RustQ.Meta.Lower.Enum do
   # extends the list with the other's items.
   defp lower_call(%Call{function: :concat, args: [left, right]}, %Context{} = context) do
     if owned_list?(left, context) do
-      {:ok, Collection.updated(left, &appended(&1, right, left, context), context)}
+      grown = Collection.updated(left, &appended(&1, right, left, context), context)
+      {:ok, if(match?(%Type{kind: :slice}, context.expected), do: A.ref(grown), else: grown)}
     else
       {:ok,
        left
@@ -438,11 +439,12 @@ defmodule RustQ.Meta.Lower.Enum do
   def synth(%Call{function: :sum, args: [collection]}, %TypeContext{} = context),
     do: collection |> type_of(context) |> collection_inner_result()
 
+  # A reduction has its initial value's type, or, for an empty literal, the reducer's.
   def synth(
-        %Call{function: :reduce, args: [_collection, initial, _reducer]},
+        %Call{function: :reduce, args: [_collection, initial, reducer]},
         %TypeContext{} = context
       ),
-      do: type_result(type_of(initial, context))
+      do: type_result(type_of(initial, context) || reducer_type(reducer, context))
 
   def synth(%Call{function: operation}, %TypeContext{}) when operation in [:any?, :all?],
     do: {:ok, Spec.type(quote(do: boolean()))}
@@ -665,11 +667,23 @@ defmodule RustQ.Meta.Lower.Enum do
        ) do
     iteration = iteration(collection, :maps_items, context)
     [item] = typed_items([item], collection, iteration, context)
-    closure = closure([accumulator, item], body, context)
+
+    # The accumulator is what the reduction returns, where that is known.
+    {initial, closure} =
+      case context.expected do
+        %Type{} = acc_type ->
+          accumulator = {:__rustq_typed_arg__, [], [accumulator, acc_type]}
+
+          {lowered(initial, acc_type, context),
+           closure([accumulator, item], body, acc_type, context)}
+
+        nil ->
+          {lowered(initial, context), closure([accumulator, item], body, context)}
+      end
 
     collection
     |> iterate_as(iteration, context)
-    |> A.method(:fold, [lowered(initial, context), closure])
+    |> A.method(:fold, [initial, closure])
   end
 
   defp lower_reduce(_collection, _initial, other, _context) do
@@ -800,6 +814,11 @@ defmodule RustQ.Meta.Lower.Enum do
        do: type_with_vars(body, %{name => inner}, context)
 
   defp mapper_type(_mapper, _inner, _context), do: nil
+
+  defp reducer_type({:fn, _, [{:->, _, [[_item, _accumulator], body]}]}, context),
+    do: type_of(body, context)
+
+  defp reducer_type(_reducer, _context), do: nil
 
   defp collection_inner(%Type{} = type), do: Type.vec_inner(type) || Type.slice_inner(type)
   defp collection_inner(_type), do: nil
@@ -995,13 +1014,13 @@ defmodule RustQ.Meta.Lower.Enum do
     end
   end
 
-  defp owned_list?(list, context),
-    do:
-      match?(%Type{kind: :vec}, type_of(list, context)) and
-        iteration(list, :keeps_items, context) == :owned
+  defp owned_list?(list, context) do
+    match?(%Type{kind: :vec}, type_of(list, context)) and
+      iteration(list, :keeps_items, context) == :owned
+  end
 
   defp appended(list, items, _before, context) when is_list(items),
-    do: Enum.map(items, &A.stmt(A.method(list, :push, [lowered(&1, context)])))
+    do: Enum.map(items, &A.stmt(A.method(list, :push, [Collection.owned(&1, context)])))
 
   defp appended(list, other, before, context),
     do: [A.stmt(A.method(list, :extend, [iterable(other, before, context)]))]

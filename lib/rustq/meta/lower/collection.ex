@@ -80,11 +80,18 @@ defmodule RustQ.Meta.Lower.Collection do
   @spec owned(Macro.t(), Context.t()) :: AST.expr()
   def owned(collection, %Context{} = context) do
     lowered = lowered(collection, context)
+    type = type_of(collection, context)
 
-    if in_use?(collection, context),
-      do: A.method(lowered, :clone),
-      else: lowered
+    cond do
+      borrowed?(type) -> A.method(lowered, :clone)
+      in_use?(collection, context) and not copy?(type) -> A.method(lowered, :clone)
+      true -> lowered
+    end
   end
+
+  # A value behind a reference is never owned: taking it copies what it refers to.
+  defp borrowed?(%Type{kind: kind}) when kind in [:ref, :mut_ref, :slice], do: true
+  defp borrowed?(_type), do: false
 
   @doc "A key or item passed by reference, borrowed unless it already is one."
   @spec borrowed(Macro.t(), Type.t(), Context.t()) :: AST.expr()
@@ -104,6 +111,7 @@ defmodule RustQ.Meta.Lower.Collection do
   """
   @spec copy?(Type.t() | nil) :: boolean()
   def copy?(%Type{kind: kind}) when kind in [:ref], do: true
+  def copy?(%Type{kind: :alias, meta: %{target: %Type{} = target}}), do: copy?(target)
 
   def copy?(%Type{} = type) do
     case Type.category(type) do

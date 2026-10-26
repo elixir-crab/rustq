@@ -700,6 +700,15 @@ defmodule RustQ.Meta.Lower do
        when is_list(fields),
        do: lower_struct_update(base, fields, context)
 
+  # A map literal where a map's alias is expected builds the map it names.
+  defp lower_expected_expr_context(
+         {:%{}, _, entries} = map,
+         %Type{kind: :alias, meta: %{target: %Type{ast: %AST.TypePath{parts: parts}} = target}},
+         %Context{} = context
+       )
+       when is_list(entries) and parts in [[:HashMap], [:BTreeMap]],
+       do: lower_expected_expr_context(map, target, context)
+
   # A map literal where a map is expected builds one: `%{}` is `HashMap::new()`, and
   # `%{key => value}` is `HashMap::from([(key, value)])`.
   defp lower_expected_expr_context(
@@ -996,10 +1005,21 @@ defmodule RustQ.Meta.Lower do
 
   defp lower_expected_collection_values(values, expected_type, context) do
     case collection_item_type(expected_type) do
-      %Type{} = item_type -> Enum.map(values, &lower_expr(&1, item_type, context))
+      %Type{} = item_type -> Enum.map(values, &lower_list_item(&1, item_type, context))
       nil -> Enum.map(values, &lower_array_value(&1, context))
     end
   end
+
+  # A variable put in a new list while still in use is copied into it.
+  defp lower_list_item({name, _, ast_context} = variable, %Type{} = item_type, context)
+       when is_atom(name) and is_atom(ast_context) do
+    if in_use?(variable, context) and not Collection.copy?(item_type),
+      do: A.method(lower_expr(variable, item_type, context), :clone),
+      else: lower_expr(variable, item_type, context)
+  end
+
+  defp lower_list_item(value, %Type{} = item_type, context),
+    do: lower_expr(value, item_type, context)
 
   @doc "The item type of a list a comprehension builds."
   def collection_item_type(type) do
@@ -1223,7 +1243,7 @@ defmodule RustQ.Meta.Lower do
     index =
       case Collection.keyed(receiver_type) do
         {:map, _key, _value} -> borrowed_key(key, context)
-        _list -> lower_expr(key, context)
+        _list -> lower_expr(key, RustQ.Spec.type(quote(do: RustQ.Type.usize())), context)
       end
 
     A.index(lower_expr(receiver, context), index)
@@ -2399,7 +2419,7 @@ defmodule RustQ.Meta.Lower do
   # A map's key is read by reference; one already a reference is passed as it is.
   defp borrowed_key(key, %Context{} = context) do
     case infer_expr_type(key, context.vars) || Typing.synth(key, typing_env(context)) do
-      %Type{kind: kind} when kind in [:ref, :mut_ref] -> lower_expr(key, context)
+      %Type{kind: kind} when kind in [:ref, :mut_ref, :slice] -> lower_expr(key, context)
       _owned -> A.ref(lower_expr(key, context))
     end
   end

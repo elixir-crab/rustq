@@ -46,10 +46,7 @@ defmodule RustQ.Meta.Lower.Map do
     lookup =
       A.method(lowered(map, context), :get, [Collection.borrowed(key, key_type, context)])
 
-    {:ok,
-     lookup
-     |> Collection.read_out(value_type)
-     |> A.method(:unwrap_or, [lowered(default, value_type, context)])}
+    {:ok, lookup |> Collection.read_out(value_type) |> or_default(default, value_type, context)}
   end
 
   # A missing key raises in Elixir; indexing panics, which Rustler raises.
@@ -164,6 +161,15 @@ defmodule RustQ.Meta.Lower.Map do
   end
 
   defp lower_keyed(%Call{}, _key_type, _value_type, _context), do: :unsupported
+
+  # An empty collection is the value's default, as clippy prefers.
+  defp or_default(option, [], _value_type, _context), do: A.method(option, :unwrap_or_default)
+
+  defp or_default(option, {:%{}, _, []}, _value_type, _context),
+    do: A.method(option, :unwrap_or_default)
+
+  defp or_default(option, default, value_type, context),
+    do: A.method(option, :unwrap_or, [lowered(default, value_type, context)])
 
   # The present value's pattern, and `fun`'s result for it: a function's body with its argument
   # bound to the value, or a captured function called with it.

@@ -23,9 +23,20 @@
   is known, and a block's bindings are typed in order.
 - `Enum.map(list, fn item -> item.clone() end)` is `cloned()` over a list of
   references, and the list itself otherwise.
+- `Enum.reduce/3` builds its accumulator as the expected type, `%{}` and `[]`
+  included, and has the reducer's type when its initial value has none.
+- Indexing a map or list, and the module's own aliases named inside other
+  types, are typed; a `Vec`, reference, or tuple rebuilt from Rust syntax keeps
+  its kind; an alias of a copy type is copied.
+- A variable put into a new list or pushed while still in use is copied, and
+  `Map.get/3` with an empty default is `unwrap_or_default()`.
 
 ### Fixed
 
+- Taking a value behind a reference copies it, so an update to a borrowed set
+  never changes the set it was given.
+- A list matched against a list pattern binds its items by reference, and a
+  slice index read from one is copied.
 - `Map.update/4` matches the present value, so the function and the default
   may each take what they use.
 - A map is indexed by a borrowed key.

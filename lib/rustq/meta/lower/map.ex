@@ -28,7 +28,7 @@ defmodule RustQ.Meta.Lower.Map do
 
   # `Map.new/1,2` is a comprehension; see `RustQ.Meta.Desugar`.
   defp lower_new([], _context),
-    do: {:ok, %AST.PathCall{path: A.path([:HashMap, :new]), args: []}}
+    do: {:ok, A.path_call([:HashMap, :new])}
 
   defp lower_keyed(%Call{function: :get, args: [map, key]}, key_type, value_type, context) do
     lookup =
@@ -54,10 +54,7 @@ defmodule RustQ.Meta.Lower.Map do
 
   # A missing key raises in Elixir; indexing panics, which Rustler raises.
   defp lower_keyed(%Call{function: :fetch!, args: [map, key]}, key_type, value_type, context) do
-    value = %AST.Index{
-      receiver: lowered(map, context),
-      index: Collection.borrowed(key, key_type, context)
-    }
+    value = A.index(lowered(map, context), Collection.borrowed(key, key_type, context))
 
     {:ok, if(Collection.copy?(value_type), do: value, else: A.method(value, :clone))}
   end
@@ -195,7 +192,7 @@ defmodule RustQ.Meta.Lower.Map do
        when is_atom(key) do
     with %Type{} = map_type <- map_type(type_of(map, context)),
          %Type{} <- Type.field_type(map_type, key) do
-      {:ok, %AST.Field{receiver: lowered(map, context), field: key}}
+      {:ok, A.field(lowered(map, context), key)}
     else
       _unknown -> unsupported_field!(call)
     end
@@ -231,10 +228,7 @@ defmodule RustQ.Meta.Lower.Map do
            expr: lowered(map, context),
            mutable: true
          },
-         %AST.Assign{
-           target: %AST.Field{receiver: variable, field: key},
-           expr: lowered(value, field_type, context)
-         },
+         A.assign(A.field(variable, key), lowered(value, field_type, context)),
          A.return_stmt(variable)
        ])}
     else
@@ -327,12 +321,12 @@ defmodule RustQ.Meta.Lower.Map do
      A.block_expr([
        %AST.Let{pattern: %AST.PatVar{name: name}, expr: lowered(map, context)},
        %AST.Let{pattern: %AST.PatWildcard{}, expr: default},
-       A.return_stmt(%AST.Field{receiver: A.var(name), field: key})
+       A.return_stmt(A.field(A.var(name), key))
      ])}
   end
 
   defp lower_present_get(map, key, _default, false, context),
-    do: {:ok, %AST.Field{receiver: lowered(map, context), field: key}}
+    do: {:ok, A.field(lowered(map, context), key)}
 
   defp lower_missing_get(map, default, context) do
     {:ok,

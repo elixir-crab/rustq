@@ -190,10 +190,10 @@ defmodule RustQ.Meta.Lower.Enum do
      |> iterate(:keeps_items, context)
      |> A.method(:enumerate)
      |> A.method(:map, [
-       %AST.Closure{
-         args: [%AST.PatTuple{patterns: [%AST.PatVar{name: :index}, %AST.PatVar{name: :item}]}],
-         body: %AST.Tuple{values: [A.var(:item), A.var(:index)]}
-       }
+       A.closure(
+         [%AST.PatTuple{patterns: [%AST.PatVar{name: :index}, %AST.PatVar{name: :item}]}],
+         A.tuple([A.var(:item), A.var(:index)])
+       )
      ])
      |> collect(context)}
   end
@@ -240,7 +240,7 @@ defmodule RustQ.Meta.Lower.Enum do
      |> iterate_as(iteration, context)
      |> A.method(:try_fold, [lowered(initial, context), closure])
      |> A.method(:unwrap_or_else, [
-       %AST.Closure{args: [:rustq_halted], body: A.var(:rustq_halted)}
+       A.closure([:rustq_halted], A.var(:rustq_halted))
      ])}
   end
 
@@ -365,7 +365,7 @@ defmodule RustQ.Meta.Lower.Enum do
          lowered(enumerable, context)
          |> A.method(:chunks, [count])
          |> A.method(:map, [
-           %AST.Closure{args: [:chunk], body: A.method(A.var(:chunk), :to_vec)}
+           A.closure([:chunk], A.method(A.var(:chunk), :to_vec))
          ])
          |> collect(context)}
 
@@ -692,14 +692,14 @@ defmodule RustQ.Meta.Lower.Enum do
        ) do
     name = closure_arg(argument)
     condition = closure_body(body, nil, context)
-    condition = if negate?, do: %AST.UnaryOp{op: :not, expr: condition}, else: condition
+    condition = if negate?, do: A.not_(condition), else: condition
 
     argument =
       if Collection.copy?(collection_inner(type_of(collection, context))),
         do: %AST.PatRef{pattern: %AST.PatVar{name: name}},
         else: name
 
-    closure = %AST.Closure{args: [argument], body: condition}
+    closure = A.closure([argument], condition)
 
     {method, finish} = Map.fetch!(@filter_adapters, terminal)
     {iterator, kept} = kept_items(iterator, finish)
@@ -929,7 +929,7 @@ defmodule RustQ.Meta.Lower.Enum do
   defp collect(receiver, %Context{}), do: A.method(receiver, :collect)
 
   defp cast_i64(expression),
-    do: A.cast(expression, %AST.TypePath{parts: [:i64]})
+    do: A.cast(expression, A.type(:i64))
 
   defp continuation(body) do
     Macro.prewalk(body, fn
@@ -968,7 +968,7 @@ defmodule RustQ.Meta.Lower.Enum do
     if order == :desc,
       do: %{
         closure
-        | body: %AST.PathCall{path: A.path([:std, :cmp, :Reverse]), args: [body]}
+        | body: A.path_call([:std, :cmp, :Reverse], [body])
       },
       else: closure
   end
@@ -982,8 +982,7 @@ defmodule RustQ.Meta.Lower.Enum do
          match?({name, _, ctx} when is_atom(name) and is_atom(ctx), default) do
       {:ok, &A.method(&1, :unwrap_or, [lowered(default, context)])}
     else
-      {:ok,
-       &A.method(&1, :unwrap_or_else, [%AST.Closure{args: [], body: lowered(default, context)}])}
+      {:ok, &A.method(&1, :unwrap_or_else, [A.closure([], lowered(default, context))])}
     end
   end
 

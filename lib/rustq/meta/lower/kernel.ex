@@ -40,12 +40,7 @@ defmodule RustQ.Meta.Lower.Kernel do
         "Kernel.//2 with integer operands requires an explicit floating-point conversion"
       )
     else
-      {:ok,
-       %AST.BinaryOp{
-         left: operand(left, context),
-         op: :div,
-         right: operand(right, context)
-       }}
+      {:ok, A.binary(operand(left, context), :div, operand(right, context))}
     end
   end
 
@@ -58,31 +53,23 @@ defmodule RustQ.Meta.Lower.Kernel do
         else: &operand(&1, context)
 
     {:ok,
-     %AST.BinaryOp{
-       left: lower_operand.(left),
-       op: Map.fetch!(@binary_ops, function),
-       right: lower_operand.(right)
-     }}
+     A.binary(lower_operand.(left), Map.fetch!(@binary_ops, function), lower_operand.(right))}
   end
 
   def lower(%Call{function: function, args: [left, right]}, %Context{} = context)
       when is_map_key(@binary_ops, function) do
     {:ok,
-     %AST.BinaryOp{
-       left: operand(left, context),
-       op: Map.fetch!(@binary_ops, function),
-       right: operand(right, context)
-     }}
+     A.binary(operand(left, context), Map.fetch!(@binary_ops, function), operand(right, context))}
   end
 
   def lower(%Call{function: :-, args: [expression]}, %Context{} = context),
-    do: {:ok, %AST.UnaryOp{op: :neg, expr: lowered(expression, context)}}
+    do: {:ok, A.neg(lowered(expression, context))}
 
   def lower(%Call{function: :+, args: [expression]}, %Context{} = context),
     do: {:ok, lowered(expression, context)}
 
   def lower(%Call{function: :not, args: [expression]}, %Context{} = context),
-    do: {:ok, %AST.UnaryOp{op: :not, expr: lowered(expression, context)}}
+    do: {:ok, A.not_(lowered(expression, context))}
 
   def lower(%Call{function: :abs, args: [expression]}, %Context{} = context),
     do: {:ok, A.method(lowered(expression, context), :abs)}
@@ -115,7 +102,7 @@ defmodule RustQ.Meta.Lower.Kernel do
 
   def lower(%Call{function: :elem, args: [tuple, index]}, %Context{} = context)
       when is_integer(index) and index >= 0,
-      do: {:ok, %AST.Field{receiver: lowered(tuple, context), field: index}}
+      do: {:ok, A.field(lowered(tuple, context), index)}
 
   def lower(%Call{function: :put_elem, args: [tuple, index, value]} = call, %Context{} = context)
       when is_integer(index) and index >= 0 do
@@ -129,13 +116,13 @@ defmodule RustQ.Meta.Lower.Kernel do
           |> Elixir.Enum.with_index()
           |> Elixir.Enum.map(fn
             {type, ^index} -> lowered(value, type, context)
-            {_type, field} -> %AST.Field{receiver: tuple_var, field: field}
+            {_type, field} -> A.field(tuple_var, field)
           end)
 
         {:ok,
          A.block_expr([
            %AST.Let{pattern: %AST.PatVar{name: tuple_name}, expr: lowered(tuple, context)},
-           A.return_stmt(%AST.Tuple{values: values})
+           A.return_stmt(A.tuple(values))
          ])}
 
       _unknown ->
@@ -192,7 +179,7 @@ defmodule RustQ.Meta.Lower.Kernel do
   def synth(%Call{}, %TypeContext{}), do: :unsupported
 
   defp cast_i64(expression),
-    do: A.cast(expression, %AST.TypePath{parts: [:i64]})
+    do: A.cast(expression, A.type(:i64))
 
   defp tuple_elements(%Type{kind: :tuple, meta: %{elements: elements}}), do: elements
   defp tuple_elements(_type), do: nil

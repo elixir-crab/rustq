@@ -19,13 +19,13 @@ defmodule RustQ.Meta.Lower.Tuple do
         elements
         |> Elixir.Enum.with_index()
         |> Elixir.Enum.map(fn {_type, index} ->
-          %AST.Field{receiver: variable, field: index}
+          A.field(variable, index)
         end)
 
       {:ok,
        A.block_expr([
          %AST.Let{pattern: %AST.PatVar{name: name}, expr: lowered(tuple, context)},
-         A.return_stmt(%AST.VecLiteral{values: values})
+         A.return_stmt(A.vec(values))
        ])}
     else
       _unknown -> unsupported_tuple!(call)

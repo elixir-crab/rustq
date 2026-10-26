@@ -56,7 +56,7 @@ defmodule RustQ.Meta.Lower.String do
         bytes = A.method(lowered(string, context), :as_slice)
 
         {:ok,
-         %AST.PathCall{path: A.path([:std, :str, :from_utf8]), args: [bytes]}
+         A.path_call([:std, :str, :from_utf8], [bytes])
          |> then(&%AST.MethodCall{receiver: &1, method: :is_ok, args: []})}
 
       %Type{} = type ->

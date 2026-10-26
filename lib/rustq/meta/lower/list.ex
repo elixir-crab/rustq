@@ -33,14 +33,14 @@ defmodule RustQ.Meta.Lower.List do
   end
 
   def lower(%Call{function: :wrap, args: [nil]}, %Context{}),
-    do: {:ok, %AST.VecLiteral{values: []}}
+    do: {:ok, A.vec([])}
 
   def lower(%Call{function: :wrap, args: [value]}, %Context{} = context) do
     case type_of(value, context) do
       %Type{} = type ->
         if collection_inner(type),
           do: {:ok, lowered(value, context)},
-          else: {:ok, %AST.VecLiteral{values: [lowered(value, context)]}}
+          else: {:ok, A.vec([lowered(value, context)])}
 
       _unknown ->
         :unsupported
@@ -51,10 +51,7 @@ defmodule RustQ.Meta.Lower.List do
     case nonnegative_count(count, context) do
       {:ok, lowered_count} ->
         {:ok,
-         %AST.PathCall{
-           path: A.path([:std, :iter, :repeat]),
-           args: [lowered(value, context)]
-         }
+         A.path_call([:std, :iter, :repeat], [lowered(value, context)])
          |> A.method(:take, [lowered_count])
          |> A.method(:collect)}
 

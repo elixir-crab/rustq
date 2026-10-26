@@ -159,7 +159,7 @@ defmodule RustQ.Meta.Lower.Stdlib.Lowering do
         {:ok, lowered(count, context)}
 
       %Type{kind: kind} when kind in [:u8, :u16, :u32, :u64] ->
-        {:ok, A.cast(lowered(count, context), %AST.TypePath{parts: [:usize]})}
+        {:ok, A.cast(lowered(count, context), A.type(:usize))}
 
       _type ->
         :unsupported

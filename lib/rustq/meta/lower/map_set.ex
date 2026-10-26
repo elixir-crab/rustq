@@ -13,7 +13,7 @@ defmodule RustQ.Meta.Lower.MapSet do
 
   @impl true
   def lower(%Call{function: :new, args: []}, %Context{}),
-    do: {:ok, %AST.PathCall{path: A.path([:HashSet, :new]), args: []}}
+    do: {:ok, A.path_call([:HashSet, :new])}
 
   def lower(%Call{args: [set | _]} = call, %Context{} = context) do
     case Collection.keyed_of(set, context) do
@@ -65,13 +65,13 @@ defmodule RustQ.Meta.Lower.MapSet do
        when function in [:difference, :intersection] do
     kept = A.method(lowered(other, context), :contains, [A.var(:rustq_item)])
 
-    kept = if function == :difference, do: %AST.UnaryOp{op: :not, expr: kept}, else: kept
+    kept = if function == :difference, do: A.not_(kept), else: kept
 
     {:ok,
      Collection.updated(
        set,
        fn set ->
-         [A.stmt(A.method(set, :retain, [%AST.Closure{args: [:rustq_item], body: kept}]))]
+         [A.stmt(A.method(set, :retain, [A.closure([:rustq_item], kept)]))]
        end,
        context
      )}
@@ -85,7 +85,7 @@ defmodule RustQ.Meta.Lower.MapSet do
   end
 
   defp lower_set(%Call{function: :size, args: [set]}, _item, context) do
-    {:ok, A.cast(A.method(lowered(set, context), :len), %AST.TypePath{parts: [:i64]})}
+    {:ok, A.cast(A.method(lowered(set, context), :len), A.type(:i64))}
   end
 
   defp lower_set(%Call{function: :to_list, args: [set]}, item, context) do

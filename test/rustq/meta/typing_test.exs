@@ -441,4 +441,14 @@ defmodule RustQ.Meta.TypingTest do
     assert %Typing.Check{type: ^count, coercion: :none} =
              Typing.check(quote(do: count), count, env)
   end
+
+  test "types std methods on strings, lists, and maps from std's source" do
+    string = Type.parse(quote(do: String.t()), %{})
+    names = Type.parse(quote(do: [String.t()]), %{})
+    env = Typing.env(vars: %{name: Type.ref(string), names: names})
+
+    assert %Type{rust: "usize"} = Typing.synth(quote(do: name.len()), env)
+    assert %Type{rust: "bool"} = Typing.synth(quote(do: names.is_empty()), env)
+    assert %Type{rust: "&str"} = Typing.synth(quote(do: name.trim()), env)
+  end
 end

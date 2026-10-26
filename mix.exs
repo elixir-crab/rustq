@@ -68,7 +68,7 @@ defmodule RustQ.MixProject do
         "test",
         "credo --strict",
         "dialyzer",
-        "ex_dna --max-clones 0",
+        "ex_dna --max-clones 0 --ignore lib/rustq/meta/std_methods.ex",
         "reach.check --arch --smells"
       ],
       "rust.fmt": &rust_fmt/1,

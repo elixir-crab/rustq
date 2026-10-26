@@ -9,17 +9,15 @@ defmodule RustQ.Meta.Lower.Map do
   `fetch!`, `has_key?`, `put`, and `replace!` read and write its fields.
   """
 
-  alias RustQ.Diagnostic
-  alias RustQ.Meta.Core.Call
-  alias RustQ.Meta.Lower.Collection
-  alias RustQ.Meta.Lower.Stdlib
-  alias RustQ.Meta.Lower.Stdlib.{Context, TypeContext}
-  alias RustQ.Meta.Type
-  alias RustQ.Rust.AST
+  use RustQ.Meta.Lower.Stdlib.Lowering
 
-  @spec lower(Call.t(), Context.t()) :: {:ok, term()} | :unsupported
-  def lower(%Call{function: :new, args: args}, %Context{} = context),
-    do: lower_new(args, context)
+  alias RustQ.Diagnostic
+  alias RustQ.Meta.Lower.Collection
+  alias RustQ.Meta.Type
+
+  @impl true
+  def lower(%Call{function: :new, args: []}, %Context{} = context),
+    do: lower_new([], context)
 
   def lower(%Call{args: [map | _]} = call, %Context{} = context) do
     case Collection.keyed_of(map, context) do
@@ -28,43 +26,13 @@ defmodule RustQ.Meta.Lower.Map do
     end
   end
 
-  # `Map.new/0,1,2` builds what the comprehension `for item <- enumerable, into: %{}` would.
+  # `Map.new/1,2` is a comprehension; see `RustQ.Meta.Desugar`.
   defp lower_new([], _context),
-    do: {:ok, %AST.PathCall{path: %AST.Path{parts: [:HashMap, :new]}, args: []}}
-
-  defp lower_new([enumerable | transform], context),
-    do: {:ok, collect(comprehension(enumerable, transform, quote(do: HashMap.new())), context)}
-
-  @doc "Lowers a comprehension collecting into the type the call is expected to give, if known."
-  @spec collect(Macro.t(), Context.t()) :: AST.expr()
-  def collect(comprehension, %Context{expected: %Type{} = expected} = context),
-    do: context.lower_expected.(comprehension, expected)
-
-  def collect(comprehension, %Context{} = context), do: context.lower.(comprehension)
-
-  @doc """
-  The comprehension collecting `enumerable` into `into`, through the one-argument function
-  `transform` gives, as `Map.new/1,2`, `MapSet.new/1,2`, and `Enum.into/2` build.
-  """
-  @spec comprehension(Macro.t(), [Macro.t()], Macro.t()) :: Macro.t()
-  def comprehension(enumerable, [], into),
-    do: quote(do: for(item <- unquote(enumerable), into: unquote(into), do: item))
-
-  def comprehension(enumerable, [{:fn, _, [{:->, _, [[pattern], body]}]}], into),
-    do:
-      quote(
-        do: for(unquote(pattern) <- unquote(enumerable), into: unquote(into), do: unquote(body))
-      )
-
-  def comprehension(enumerable, [{:&, _, [{:/, _, [function, 1]}]}], into) do
-    quote do
-      for item <- unquote(enumerable), into: unquote(into), do: unquote(function)(item)
-    end
-  end
+    do: {:ok, A.path_call([:HashMap, :new])}
 
   defp lower_keyed(%Call{function: :get, args: [map, key]}, key_type, value_type, context) do
     lookup =
-      Collection.call(context.lower.(map), :get, [Collection.borrowed(key, key_type, context)])
+      A.method(lowered(map, context), :get, [Collection.borrowed(key, key_type, context)])
 
     {:ok, Collection.read_out(lookup, value_type)}
   end
@@ -76,27 +44,24 @@ defmodule RustQ.Meta.Lower.Map do
          context
        ) do
     lookup =
-      Collection.call(context.lower.(map), :get, [Collection.borrowed(key, key_type, context)])
+      A.method(lowered(map, context), :get, [Collection.borrowed(key, key_type, context)])
 
     {:ok,
      lookup
      |> Collection.read_out(value_type)
-     |> Collection.call(:unwrap_or, [context.lower_expected.(default, value_type)])}
+     |> A.method(:unwrap_or, [lowered(default, value_type, context)])}
   end
 
   # A missing key raises in Elixir; indexing panics, which Rustler raises.
   defp lower_keyed(%Call{function: :fetch!, args: [map, key]}, key_type, value_type, context) do
-    value = %AST.Index{
-      receiver: context.lower.(map),
-      index: Collection.borrowed(key, key_type, context)
-    }
+    value = A.index(lowered(map, context), Collection.borrowed(key, key_type, context))
 
-    {:ok, if(Collection.copy?(value_type), do: value, else: Collection.call(value, :clone))}
+    {:ok, if(Collection.copy?(value_type), do: value, else: A.method(value, :clone))}
   end
 
   defp lower_keyed(%Call{function: :has_key?, args: [map, key]}, key_type, _value_type, context) do
     {:ok,
-     Collection.call(context.lower.(map), :contains_key, [
+     A.method(lowered(map, context), :contains_key, [
        Collection.borrowed(key, key_type, context)
      ])}
   end
@@ -105,13 +70,14 @@ defmodule RustQ.Meta.Lower.Map do
     {:ok,
      Collection.updated(
        map,
-       [key, value],
        fn map ->
          [
-           Collection.statement(map, :insert, [
-             context.lower_expected.(key, key_type),
-             context.lower_expected.(value, value_type)
-           ])
+           A.stmt(
+             A.method(map, :insert, [
+               lowered(key, key_type, context),
+               lowered(value, value_type, context)
+             ])
+           )
          ]
        end,
        context
@@ -122,9 +88,8 @@ defmodule RustQ.Meta.Lower.Map do
     {:ok,
      Collection.updated(
        map,
-       [key],
        fn map ->
-         [Collection.statement(map, :remove, [Collection.borrowed(key, key_type, context)])]
+         [A.stmt(A.method(map, :remove, [Collection.borrowed(key, key_type, context)]))]
        end,
        context
      )}
@@ -134,9 +99,8 @@ defmodule RustQ.Meta.Lower.Map do
     {:ok,
      Collection.updated(
        map,
-       [other],
        fn map ->
-         [Collection.statement(map, :extend, [Collection.owned(other, [], context)])]
+         [A.stmt(A.method(map, :extend, [Collection.owned(other, context)]))]
        end,
        context
      )}
@@ -149,27 +113,26 @@ defmodule RustQ.Meta.Lower.Map do
          value_type,
          context
        ) do
-    key_name = %AST.Var{name: :rustq_key}
-    value_name = %AST.Var{name: :rustq_value}
+    key_name = A.var(:rustq_key)
+    value_name = A.var(:rustq_value)
 
     {:ok,
      Collection.updated(
        map,
-       [key, default, fun],
        fn map ->
          updated =
            map
-           |> Collection.call(:remove, [%AST.Ref{expr: key_name}])
-           |> Collection.call(:map, [update_function(fun, value_type, context)])
-           |> Collection.call(:unwrap_or, [context.lower_expected.(default, value_type)])
+           |> A.method(:remove, [A.ref(key_name)])
+           |> A.method(:map, [update_function(fun, value_type, context)])
+           |> A.method(:unwrap_or, [lowered(default, value_type, context)])
 
          [
            %AST.Let{
              pattern: %AST.PatVar{name: :rustq_key},
-             expr: context.lower_expected.(key, key_type)
+             expr: lowered(key, key_type, context)
            },
            %AST.Let{pattern: %AST.PatVar{name: :rustq_value}, expr: updated},
-           Collection.statement(map, :insert, [key_name, value_name])
+           A.stmt(A.method(map, :insert, [key_name, value_name]))
          ]
        end,
        context
@@ -181,29 +144,29 @@ defmodule RustQ.Meta.Lower.Map do
     {method, type} = if function == :keys, do: {:keys, key_type}, else: {:values, value_type}
 
     {:ok,
-     context.lower.(map)
-     |> Collection.call(method)
+     lowered(map, context)
+     |> A.method(method)
      |> Collection.read_out(type)
-     |> Collection.call(:collect)
+     |> A.method(:collect)
      |> collected(Type.vec(type))}
   end
 
   defp lower_keyed(%Call{function: :to_list, args: [map]}, key_type, value_type, context) do
     {:ok,
      map
-     |> Collection.owned([], context)
-     |> Collection.call(:into_iter)
-     |> Collection.call(:collect)
+     |> Collection.owned(context)
+     |> A.method(:into_iter)
+     |> A.method(:collect)
      |> collected(Type.vec(Type.tuple([key_type, value_type])))}
   end
 
   defp lower_keyed(%Call{}, _key_type, _value_type, _context), do: :unsupported
 
   defp update_function({:fn, _, [{:->, _, [[argument], body]}]}, value_type, context),
-    do: context.lower_closure.([{:__rustq_typed_arg__, [], [argument, value_type]}], body)
+    do: closure([{:__rustq_typed_arg__, [], [argument, value_type]}], body, context)
 
   defp update_function({:&, _, [{:/, _, [function, 1]}]}, _value_type, context),
-    do: context.lower_capture.(function)
+    do: capture(function, context)
 
   defp update_function(other, _value_type, _context) do
     Diagnostic.lower(
@@ -223,13 +186,13 @@ defmodule RustQ.Meta.Lower.Map do
 
   defp lower_fields(%Call{function: :get, args: [map, key, default]} = call, %Context{} = context)
        when is_atom(key),
-       do: lower_get(call, map, key, context.lower.(default), true, context)
+       do: lower_get(call, map, key, lowered(default, context), true, context)
 
   defp lower_fields(%Call{function: :fetch!, args: [map, key]} = call, %Context{} = context)
        when is_atom(key) do
-    with %Type{} = map_type <- map_type(context.type_of.(map)),
+    with %Type{} = map_type <- map_type(type_of(map, context)),
          %Type{} <- Type.field_type(map_type, key) do
-      {:ok, %AST.Field{receiver: context.lower.(map), field: key}}
+      {:ok, A.field(lowered(map, context), key)}
     else
       _unknown -> unsupported_field!(call)
     end
@@ -237,11 +200,11 @@ defmodule RustQ.Meta.Lower.Map do
 
   defp lower_fields(%Call{function: :has_key?, args: [map, key]} = call, %Context{} = context)
        when is_atom(key) do
-    case map_type(Stdlib.shape_type(context.type_of.(map))) do
+    case map_type(shape_type(type_of(map, context))) do
       %Type{} = type ->
         present? = match?(%Type{}, Type.field_type(type, key))
 
-        Stdlib.evaluated_constant(map, present?, context)
+        evaluated_constant(map, present?, context)
 
       nil ->
         unsupported_field!(call)
@@ -253,26 +216,21 @@ defmodule RustQ.Meta.Lower.Map do
          %Context{} = context
        )
        when function in [:put, :replace!] and is_atom(key) do
-    with %Type{} = map_type <- map_type(context.type_of.(map)),
+    with %Type{} = map_type <- map_type(type_of(map, context)),
          %Type{} = field_type <- Type.field_type(map_type, key) do
       name = :rustq_map_value
-      variable = %AST.Var{name: name}
+      variable = A.var(name)
 
       {:ok,
-       %AST.BlockExpr{
-         body: [
-           %AST.Let{
-             pattern: %AST.PatVar{name: name},
-             expr: context.lower.(map),
-             mutable: true
-           },
-           %AST.Assign{
-             target: %AST.Field{receiver: variable, field: key},
-             expr: context.lower_expected.(value, field_type)
-           },
-           %AST.Return{expr: variable}
-         ]
-       }}
+       A.block_expr([
+         %AST.Let{
+           pattern: %AST.PatVar{name: name},
+           expr: lowered(map, context),
+           mutable: true
+         },
+         A.assign(A.field(variable, key), lowered(value, field_type, context)),
+         A.return_stmt(variable)
+       ])}
     else
       _unknown -> unsupported_field!(call)
     end
@@ -280,21 +238,11 @@ defmodule RustQ.Meta.Lower.Map do
 
   defp lower_fields(%Call{}, %Context{}), do: :unsupported
 
-  @spec synth(Call.t(), TypeContext.t()) :: {:ok, Type.t()} | :unsupported
-  def synth(%Call{function: :new, args: [enumerable]}, %TypeContext{} = context) do
-    with %Type{} = type <- context.type_of.(enumerable),
-         %Type{kind: :tuple, meta: %{elements: [key, value]}} <-
-           Type.vec_inner(type) || Type.slice_inner(type) do
-      {:ok, Collection.map(key, value)}
-    else
-      _unknown -> :unsupported
-    end
-  end
-
+  @impl true
   def synth(%Call{function: :new}, %TypeContext{}), do: :unsupported
 
   def synth(%Call{args: [map | _]} = call, %TypeContext{} = context) do
-    case Collection.keyed(context.type_of.(map)) do
+    case Collection.keyed(type_of(map, context)) do
       {:map, key, value} -> synth_keyed(call, map, key, value, context)
       _fields -> synth_fields(call, context)
     end
@@ -314,7 +262,7 @@ defmodule RustQ.Meta.Lower.Map do
 
   defp synth_keyed(%Call{function: function}, map, _key_type, _value, context)
        when function in [:put, :delete, :merge, :update] do
-    case context.type_of.(map) do
+    case type_of(map, context) do
       %Type{kind: kind} = type when kind in [:ref, :mut_ref] -> type_result(Type.ref_inner(type))
       type -> type_result(type)
     end
@@ -332,7 +280,7 @@ defmodule RustQ.Meta.Lower.Map do
 
   defp synth_fields(%Call{function: function, args: [map, key | _rest]}, %TypeContext{} = context)
        when function in [:get, :fetch!] and is_atom(key) do
-    with %Type{} = map_type <- map_type(context.type_of.(map)),
+    with %Type{} = map_type <- map_type(type_of(map, context)),
          %Type{} = field_type <- Type.field_type(map_type, key) do
       {:ok, field_type}
     else
@@ -348,12 +296,12 @@ defmodule RustQ.Meta.Lower.Map do
          %TypeContext{} = context
        )
        when function in [:put, :replace!],
-       do: type_result(context.type_of.(map))
+       do: type_result(type_of(map, context))
 
   defp synth_fields(%Call{}, %TypeContext{}), do: :unsupported
 
   defp lower_get(call, map, key, default, evaluate_default?, context) do
-    case map_type(context.type_of.(map)) do
+    case map_type(type_of(map, context)) do
       %Type{} = type -> lower_typed_get(type, map, key, default, evaluate_default?, context)
       nil -> unsupported_field!(call)
     end
@@ -370,26 +318,22 @@ defmodule RustQ.Meta.Lower.Map do
     name = :rustq_map_get_value
 
     {:ok,
-     %AST.BlockExpr{
-       body: [
-         %AST.Let{pattern: %AST.PatVar{name: name}, expr: context.lower.(map)},
-         %AST.Let{pattern: %AST.PatWildcard{}, expr: default},
-         %AST.Return{expr: %AST.Field{receiver: %AST.Var{name: name}, field: key}}
-       ]
-     }}
+     A.block_expr([
+       %AST.Let{pattern: %AST.PatVar{name: name}, expr: lowered(map, context)},
+       %AST.Let{pattern: %AST.PatWildcard{}, expr: default},
+       A.return_stmt(A.field(A.var(name), key))
+     ])}
   end
 
   defp lower_present_get(map, key, _default, false, context),
-    do: {:ok, %AST.Field{receiver: context.lower.(map), field: key}}
+    do: {:ok, A.field(lowered(map, context), key)}
 
   defp lower_missing_get(map, default, context) do
     {:ok,
-     %AST.BlockExpr{
-       body: [
-         %AST.Let{pattern: %AST.PatWildcard{}, expr: context.lower.(map)},
-         %AST.Return{expr: default}
-       ]
-     }}
+     A.block_expr([
+       %AST.Let{pattern: %AST.PatWildcard{}, expr: lowered(map, context)},
+       A.return_stmt(default)
+     ])}
   end
 
   defp map_type(%Type{kind: :alias, meta: %{target: %Type{} = target}}), do: map_type(target)

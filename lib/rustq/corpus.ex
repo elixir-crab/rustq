@@ -6,7 +6,12 @@ defmodule RustQ.Corpus do
   """
 
   @root Path.expand("../../test/corpus", __DIR__)
-  @lower_path Path.expand("meta/lower.ex", __DIR__)
+  # Core lowering, in `lower.ex` and the modules split out of it; the standard-library modules
+  # under `lower/` report their own diagnostics.
+  @lower_paths Enum.map(
+                 ~w(lower.ex lower/paths.ex lower/mutability.ex lower/pattern.ex lower/comprehension.ex),
+                 &Path.expand("meta/#{&1}", __DIR__)
+               )
 
   @spec cases(Path.t()) :: [Path.t()]
   def cases(root \\ @root) do
@@ -91,27 +96,29 @@ defmodule RustQ.Corpus do
     }
   end
 
-  @spec unsupported_diagnostics(Path.t()) :: [atom()]
-  def unsupported_diagnostics(lower_path \\ @lower_path) do
-    lower_path
+  @spec unsupported_diagnostics([Path.t()] | Path.t()) :: [atom()]
+  def unsupported_diagnostics(lower_paths \\ @lower_paths) do
+    lower_paths
+    |> List.wrap()
+    |> Enum.flat_map(&diagnostic_codes/1)
+    |> Enum.filter(&(Atom.to_string(&1) |> String.starts_with?("unsupported")))
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
+
+  defp diagnostic_codes(path) do
+    path
     |> File.read!()
     |> Code.string_to_quoted!()
-    |> then(fn ast ->
-      {_ast, codes} =
-        Macro.prewalk(ast, [], fn
-          {{:., _, [{:__aliases__, _, [:Diagnostic]}, :lower]}, _, [code | _]} = node, acc
-          when is_atom(code) ->
-            {node, [code | acc]}
+    |> Macro.prewalk([], fn
+      {{:., _, [{:__aliases__, _, [:Diagnostic]}, :lower]}, _, [code | _]} = node, acc
+      when is_atom(code) ->
+        {node, [code | acc]}
 
-          node, acc ->
-            {node, acc}
-        end)
-
-      codes
-      |> Enum.filter(&(Atom.to_string(&1) |> String.starts_with?("unsupported")))
-      |> Enum.uniq()
-      |> Enum.sort()
+      node, acc ->
+        {node, acc}
     end)
+    |> elem(1)
   end
 
   defp corpus_category(root, source_path) do

@@ -37,6 +37,10 @@ defmodule RustQ.Meta.Lower.MapTest do
     @spec names(R.ref(%{String.t() => integer()})) :: [String.t()]
     defrust(names(scores), do: Map.keys(scores))
 
+    @spec beside(%{String.t() => integer()}, String.t()) ::
+            {%{String.t() => integer()}, %{String.t() => integer()}}
+    defrust(beside(scores, name), do: {Map.put(scores, name, 1), scores})
+
     @spec tallied(%{String.t() => integer()}, String.t()) :: %{String.t() => integer()}
     defrust tallied(scores, name) do
       scores = Map.put(scores, name, 1)
@@ -64,6 +68,10 @@ defmodule RustQ.Meta.Lower.MapTest do
   test "an update takes the map at its last use and copies it otherwise" do
     assert rust_source!(Scores, :added) =~ "let mut rustq_updated = scores;"
     assert rust_source!(Scores, :kept) =~ "let mut rustq_updated = scores.clone();"
+  end
+
+  test "an update copies a map the same expression uses after it" do
+    assert rust_source!(Scores, :beside) =~ "let mut rustq_updated = scores.clone();"
   end
 
   test "rebinding a map to its update changes it in place" do

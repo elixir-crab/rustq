@@ -7,6 +7,7 @@ defmodule RustQ.Meta.AST do
   alias RustQ.Diagnostic
   alias RustQ.Meta.Decoder
   alias RustQ.Meta.Lower
+  alias RustQ.Meta.Lower.Mutability
   alias RustQ.Meta.RustMacro
   alias RustQ.Meta.Type
   alias RustQ.Rust
@@ -543,7 +544,8 @@ defmodule RustQ.Meta.AST do
       |> mark_mutable_owned_args(body_ast, arg_names, arg_types, external_callables)
       |> maybe_prepend_nif_env(implicit_env?)
 
-    vars = Map.merge(external_static_types, Map.new(Enum.zip(arg_names, arg_types)))
+    arg_types_by_name = Map.new(Enum.zip(arg_names, arg_types))
+    vars = Map.merge(external_static_types, arg_types_by_name)
 
     paths =
       env.module |> Module.get_attribute(:rustq_rust_sources) |> List.wrap() |> List.flatten()
@@ -561,6 +563,8 @@ defmodule RustQ.Meta.AST do
         rust_macros: rust_macros
       )
 
+    args = mark_updated_args(args, body, arg_types_by_name)
+
     lifetime =
       if implicit_env? or Enum.any?(arg_types ++ [return_type], &Type.lifetime?/1), do: :a
 
@@ -575,21 +579,6 @@ defmodule RustQ.Meta.AST do
 
     %{ast: ast, rust_module: rust_module, rust_impl: rust_impl}
   end
-
-  # The collection updates that change a collection in place where it is rebound to them.
-  @in_place_updates [
-    {:Map, :put},
-    {:Map, :delete},
-    {:Map, :merge},
-    {:Map, :update},
-    {:MapSet, :put},
-    {:MapSet, :delete},
-    {:MapSet, :union},
-    {:MapSet, :difference},
-    {:MapSet, :intersection},
-    {:Enum, :sort_by},
-    {:Enum, :dedup}
-  ]
 
   defp mark_mutable_owned_args(args, body, arg_names, arg_types, callables) do
     types = Map.new(Enum.zip(arg_names, arg_types))
@@ -613,21 +602,10 @@ defmodule RustQ.Meta.AST do
         # A field changed in place, as in `record.claims.push(claim)`.
         {{:., _, [{{:., _, [_, field]}, _, []} = receiver, method]}, _, method_args} = call, acc
         when is_atom(field) and is_atom(method) and is_list(method_args) ->
-          {call, put_owned_root(acc, receiver, types, Lower.mutating_method?(method))}
+          {call, put_owned_root(acc, receiver, types, Mutability.mutating_method?(method))}
 
         {:mut_ref, _, [target]} = call, acc ->
           {call, put_owned_root(acc, target, types, true)}
-
-        # `scores = Map.put(scores, ...)` changes `scores` in place.
-        {:=, _,
-         [
-           {name, _, _} = target,
-           {{:., _, [{:__aliases__, _, [module]}, function]}, _, [{name, _, _} | _]}
-         ]} =
-            rebinding,
-        acc
-        when {module, function} in @in_place_updates ->
-          {rebinding, put_owned_root(acc, target, types, true)}
 
         {:assign!, _, [target, _value]} = call, acc ->
           {call, put_owned_root(acc, target, types, true)}
@@ -639,6 +617,21 @@ defmodule RustQ.Meta.AST do
 
     Enum.map(args, fn arg -> %{arg | mutable: MapSet.member?(mutable, arg.name)} end)
   end
+
+  # An owned argument the lowered body changes in place, as rebinding it to its update does.
+  defp mark_updated_args(args, body, types) do
+    mutated = Mutability.mutated_variables(body)
+
+    Enum.map(args, fn %AST.FunctionArg{name: name} = arg ->
+      if owned?(Map.get(types, name)) and MapSet.member?(mutated, name),
+        do: %{arg | mutable: true},
+        else: arg
+    end)
+  end
+
+  defp owned?(%Type{rust: "&" <> _borrowed}), do: false
+  defp owned?(%Type{}), do: true
+  defp owned?(nil), do: false
 
   # The owned argument a field path or variable starts from, when the access changes it.
   defp put_owned_root(acc, _target, _types, false), do: acc
@@ -682,7 +675,7 @@ defmodule RustQ.Meta.AST do
   # An owned value changed in place, such as `values.retain(...)`; a borrowed one stays as is.
   defp mutable_standard_receiver?(%Type{rust: "&" <> _borrowed}, _method), do: false
 
-  defp mutable_standard_receiver?(%Type{}, method), do: Lower.mutating_method?(method)
+  defp mutable_standard_receiver?(%Type{}, method), do: Mutability.mutating_method?(method)
 
   defp nif_attrs?(attrs) do
     Enum.any?(attrs, &match?(%AST.Attribute{path: [:rustler, :nif]}, &1))

@@ -9,9 +9,12 @@ defmodule RustQ.Meta.Lower.Collection do
       { let mut rustq_updated = scores; rustq_updated.insert(name, 1); rustq_updated }
   """
 
-  alias RustQ.Meta.Lower.Stdlib.Context
+  import RustQ.Meta.Lower.Stdlib.Lowering, only: [lowered: 2, lowered: 3, type_of: 2, in_use?: 2]
+
+  alias RustQ.Meta.Lower.Stdlib.Lowering.Context
   alias RustQ.Meta.Type
   alias RustQ.Rust.AST
+  alias RustQ.Rust.AST.Builder, as: A
 
   @maps [:HashMap, :BTreeMap]
   @sets [:HashSet, :BTreeSet]
@@ -50,50 +53,49 @@ defmodule RustQ.Meta.Lower.Collection do
 
   @doc "The keyed collection `collection` is, by its type."
   @spec keyed_of(Macro.t(), Context.t()) :: keyed() | nil
-  def keyed_of(collection, %Context{} = context), do: keyed(context.type_of.(collection))
+  def keyed_of(collection, %Context{} = context), do: keyed(type_of(collection, context))
 
   @doc """
   An update of `collection`: `statements` receives the variable holding the collection, or a
   copy of it when `collection` is still in use, and the block returns that variable.
   """
-  @spec updated(Macro.t(), [Macro.t()], (AST.expr() -> [AST.stmt()]), Context.t()) :: AST.expr()
-  def updated(collection, others, statements, %Context{} = context) do
+  @spec updated(Macro.t(), (AST.expr() -> [AST.stmt()]), Context.t()) :: AST.expr()
+  def updated(collection, statements, %Context{} = context) do
     name = :rustq_updated
-    variable = %AST.Var{name: name}
+    variable = A.var(name)
 
-    %AST.BlockExpr{
-      body:
-        [
-          %AST.Let{
-            pattern: %AST.PatVar{name: name},
-            expr: owned(collection, others, context),
-            mutable: true
-          }
-        ] ++
-          statements.(variable) ++ [%AST.Return{expr: variable}]
-    }
+    A.block_expr(
+      [
+        %AST.Let{
+          pattern: %AST.PatVar{name: name},
+          expr: owned(collection, context),
+          mutable: true
+        }
+      ] ++
+        statements.(variable) ++ [A.return_stmt(variable)]
+    )
   end
 
   @doc "`collection` to take: itself at its last use, otherwise a copy."
-  @spec owned(Macro.t(), [Macro.t()], Context.t()) :: AST.expr()
-  def owned(collection, others, %Context{} = context) do
-    lowered = context.lower.(collection)
+  @spec owned(Macro.t(), Context.t()) :: AST.expr()
+  def owned(collection, %Context{} = context) do
+    lowered = lowered(collection, context)
 
-    if context.in_use?.(collection, others),
-      do: %AST.MethodCall{receiver: lowered, method: :clone, args: []},
+    if in_use?(collection, context),
+      do: A.method(lowered, :clone),
       else: lowered
   end
 
   @doc "A key or item passed by reference, borrowed unless it already is one."
   @spec borrowed(Macro.t(), Type.t(), Context.t()) :: AST.expr()
   def borrowed(expression, %Type{} = type, %Context{} = context),
-    do: context.lower_expected.(expression, Type.ref(type))
+    do: lowered(expression, Type.ref(type), context)
 
   @doc "A value read out of a collection: copied when that costs nothing, otherwise cloned."
   @spec read_out(AST.expr(), Type.t()) :: AST.expr()
   def read_out(option, %Type{} = type) do
     method = if copy?(type), do: :copied, else: :cloned
-    %AST.MethodCall{receiver: option, method: method, args: []}
+    A.method(option, method)
   end
 
   @doc """
@@ -112,13 +114,4 @@ defmodule RustQ.Meta.Lower.Collection do
   end
 
   def copy?(_type), do: false
-
-  @doc "A call on `receiver`."
-  @spec call(AST.expr(), atom(), [AST.expr()]) :: AST.expr()
-  def call(receiver, method, args \\ []),
-    do: %AST.MethodCall{receiver: receiver, method: method, args: args}
-
-  @doc "A statement calling `method` on `receiver`."
-  @spec statement(AST.expr(), atom(), [AST.expr()]) :: AST.stmt()
-  def statement(receiver, method, args), do: %AST.ExprStmt{expr: call(receiver, method, args)}
 end

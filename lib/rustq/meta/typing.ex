@@ -8,13 +8,16 @@ defmodule RustQ.Meta.Typing do
   alias RustQ.Binding.Index, as: BindingIndex
   alias RustQ.Meta.Core.Call
   alias RustQ.Meta.Inference
-  alias RustQ.Meta.Lower
+  alias RustQ.Meta.Lower.Collection
+  alias RustQ.Meta.Lower.Paths
   alias RustQ.Meta.Lower.Stdlib
-  alias RustQ.Meta.Lower.Stdlib.TypeContext, as: StdlibTypeContext
+  alias RustQ.Meta.Lower.Stdlib.Lowering.TypeContext, as: StdlibTypeContext
   alias RustQ.Meta.Pattern
   alias RustQ.Meta.StandardPointer
+  alias RustQ.Meta.StdMethods
   alias RustQ.Meta.Type
   alias RustQ.Rust.AST
+  alias RustQ.Spec
 
   defmodule Env do
     @moduledoc """
@@ -160,13 +163,29 @@ defmodule RustQ.Meta.Typing do
   def synth({:{}, _meta, [first | _rest] = elements}, %Env{} = env) when not is_atom(first),
     do: synth_tuple(elements, env)
 
+  # A comprehension collects its body's values into a list, or into the map or set `into:`
+  # names, as `RustQ.Meta.Desugar` writes `Map.new/1,2` and `MapSet.new/1,2`.
+  def synth({:for, _meta, [{:<-, _, [pattern, collection]} | rest]}, %Env{} = env) do
+    {_qualifiers, options} = Enum.split_while(rest, &(not Keyword.keyword?(&1) or &1 == []))
+    options = Enum.concat(options)
+
+    with %Type{} = list <- synth(collection, env),
+         %Type{} = item <- Type.vec_inner(list) || slice_item(list),
+         {:ok, body} <- Keyword.fetch(options, :do),
+         %Type{} = value <- synth(body, bind_pattern(pattern, item, env)) do
+      collected(Keyword.get(options, :into), value)
+    else
+      _unknown -> nil
+    end
+  end
+
   def synth(call_ast, %Env{} = env) do
     case synth_stdlib(call_ast, env) do
       {:ok, %Type{} = type} ->
         type
 
       :unsupported ->
-        Lower.callable_return_type(
+        Paths.callable_return_type(
           call_ast,
           callables: env.callables,
           rust_modules: env.rust_modules,
@@ -176,6 +195,60 @@ defmodule RustQ.Meta.Typing do
   end
 
   def synth(ast, opts) when is_list(opts), do: synth(ast, env(opts))
+
+  defp slice_item(%Type{} = list) do
+    case Type.slice_inner(list) do
+      %Type{} = item -> Type.ref(item)
+      nil -> nil
+    end
+  end
+
+  defp bind_pattern({name, _meta, context}, %Type{} = item, %Env{} = env)
+       when is_atom(name) and is_atom(context),
+       do: %{env | vars: Map.put(env.vars, name, item)}
+
+  defp bind_pattern(
+         {left, right},
+         %Type{kind: :tuple, meta: %{elements: [left_type, right_type]}},
+         %Env{} = env
+       ),
+       do:
+         env
+         |> then(&bind_pattern(left, left_type, &1))
+         |> then(&bind_pattern(right, right_type, &1))
+
+  defp bind_pattern(_pattern, _item, %Env{} = env), do: env
+
+  defp collected(into, %Type{} = value) do
+    case {Collection.keyed(constructed(into)), value} do
+      {{:map, _, _}, %Type{kind: :tuple, meta: %{elements: [key, item]}}} ->
+        Collection.map(key, item)
+
+      {{:set, _}, value} ->
+        Collection.set(value)
+
+      {nil, value} ->
+        Type.vec(value)
+
+      _other ->
+        nil
+    end
+  end
+
+  # The collection type an `into:` constructor names, with types to be filled in.
+  defp constructed({:%{}, _, []}), do: Collection.map(unknown(), unknown())
+
+  defp constructed({{:., _, [{:__aliases__, _, [module]}, :new]}, _, []})
+       when module in [:Map, :HashMap, :BTreeMap],
+       do: Collection.map(unknown(), unknown())
+
+  defp constructed({{:., _, [{:__aliases__, _, [module]}, :new]}, _, []})
+       when module in [:MapSet, :HashSet, :BTreeSet],
+       do: Collection.set(unknown())
+
+  defp constructed(_into), do: nil
+
+  defp unknown, do: %Type{kind: :type, rust: "_", ast: %AST.TypeRaw{source: "_"}, meta: %{}}
 
   defp indexed_type(%Type{} = type), do: Type.vec_inner(type) || Type.slice_inner(type)
 
@@ -271,12 +344,7 @@ defmodule RustQ.Meta.Typing do
     if Enum.all?(types, &match?(%Type{}, &1)), do: Type.tuple(types)
   end
 
-  defp stdlib_type_context(%Env{} = env) do
-    %StdlibTypeContext{
-      type_of: &synth(&1, env),
-      type_with_vars: fn ast, vars -> synth(ast, %{env | vars: Map.merge(env.vars, vars)}) end
-    }
-  end
+  defp stdlib_type_context(%Env{} = env), do: %StdlibTypeContext{env: env}
 
   defp default_inference_callbacks do
     %{
@@ -482,11 +550,49 @@ defmodule RustQ.Meta.Typing do
 
   defp synth_method_return({{:., _, [receiver, function]}, _meta, args}, %Env{} = env)
        when is_atom(function) and is_list(args) do
-    receiver
-    |> synth(env)
+    receiver_type = synth(receiver, env)
+
+    receiver_type
     |> callable_target_from_type()
-    |> then(&BindingIndex.return_type(env.callables, &1, function, length(args)))
+    |> then(&BindingIndex.return_type(env.callables, &1, function, length(args))) ||
+      std_return(receiver_type, function)
   end
+
+  # What a std method returns on a string, character, list, map, set, or option, as std's
+  # source says; see `RustQ.Meta.StdMethods.returns/0`.
+  defp std_return(%Type{} = receiver, function) do
+    name = Atom.to_string(function)
+    returns = StdMethods.returns()
+
+    receiver
+    |> std_receivers()
+    |> Enum.find_value(&Map.get(returns, {&1, name}))
+    |> then(&(&1 && Spec.from_syn(&1)))
+  end
+
+  defp std_return(_receiver, _function), do: nil
+
+  defp std_receivers(%Type{kind: kind} = type) when kind in [:ref, :mut_ref],
+    do: std_receivers(Type.ref_inner(type))
+
+  defp std_receivers(%Type{kind: :vec}), do: ["Vec", "[T]"]
+  defp std_receivers(%Type{kind: :slice}), do: ["[T]"]
+  defp std_receivers(%Type{kind: :option}), do: ["Option"]
+
+  defp std_receivers(%Type{ast: %AST.TypePath{parts: [:String], generics: []}}),
+    do: ["String", "str"]
+
+  defp std_receivers(%Type{rust: rust}) when rust in ["str", "&str"], do: ["str"]
+  defp std_receivers(%Type{rust: "char"}), do: ["char"]
+
+  defp std_receivers(%Type{ast: %AST.TypePath{parts: parts}}) do
+    case List.last(parts) do
+      collection when collection in [:HashMap, :HashSet] -> [Atom.to_string(collection)]
+      _other -> []
+    end
+  end
+
+  defp std_receivers(_type), do: []
 
   defp field_type(%Type{} = type, field) when is_atom(field) do
     type
@@ -502,7 +608,7 @@ defmodule RustQ.Meta.Typing do
   # lowering does.
   defp synth_piped_call(left, {name, meta, args}, %Env{} = env)
        when is_atom(name) and is_list(args) do
-    Lower.callable_return_type(
+    Paths.callable_return_type(
       {name, meta, [left | args]},
       callables: env.callables,
       rust_modules: env.rust_modules,

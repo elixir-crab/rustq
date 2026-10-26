@@ -65,6 +65,13 @@ defmodule RustQ.Meta.StdMethods.Source do
 
       @doc "Methods of std collections, their own or of traits they implement."
       def collection, do: #{atoms(collection(std, collections))}
+
+      @doc \"""
+      What the inherent methods of std's strings, characters, lists, maps, sets, and options
+      return, keyed by the type they belong to and their name, where that type does not depend
+      on the receiver's own type parameters: `str`'s `len` returns `usize`.
+      \"""
+      def returns, do: #{inspect(returns(std), limit: :infinity, printable_limit: :infinity)}
     end
     """
     |> Code.format_string!()
@@ -246,6 +253,45 @@ defmodule RustQ.Meta.StdMethods.Source do
   end
 
   defp parameter?(impl, name), do: name in impl.type_parameters
+
+  # The std types Elixir values lower to, whose methods RustQ types.
+  @typed_receivers ["str", "String", "char", "[T]", "Vec", "HashMap", "HashSet", "Option"]
+
+  defp returns(std) do
+    for impl <- std.impls,
+        is_nil(impl.trait),
+        (target = target_name(impl)) in @typed_receivers,
+        %{returns_ast: returns} = method when not is_nil(returns) <- impl.methods,
+        method.visibility == :public and receiver?(method),
+        stable?(method),
+        concrete?(returns, impl.type_parameters ++ method.type_parameters),
+        reduce: %{} do
+      returns_by_method -> Map.put_new(returns_by_method, {target, method.name}, returns)
+    end
+  end
+
+  defp stable?(%{docs: docs, name: name, attributes: attributes}),
+    do: docs != [] and "unstable" not in attributes and not String.starts_with?(name, "_")
+
+  # A type naming none of the impl's or method's type parameters, nor `Self` or an opaque
+  # `impl Trait`, means the same for every receiver.
+  defp concrete?(%Type.Path{name: name, args: args}, parameters),
+    do: name not in ["Self" | parameters] and concrete?(args, parameters)
+
+  defp concrete?(%Type.Self{}, _parameters), do: false
+  defp concrete?(%Type.ImplTrait{}, _parameters), do: false
+  defp concrete?(%Type.Fn{}, _parameters), do: false
+
+  defp concrete?(%_{} = type, parameters),
+    do:
+      type
+      |> Map.from_struct()
+      |> Enum.all?(fn {_field, value} -> concrete?(value, parameters) end)
+
+  defp concrete?(values, parameters) when is_list(values),
+    do: Enum.all?(values, &concrete?(&1, parameters))
+
+  defp concrete?(_value, _parameters), do: true
 
   defp inherent_methods(std, targets) do
     for impl <- std.impls,

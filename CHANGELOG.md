@@ -2,8 +2,19 @@
 
 ## Unreleased
 
+### Added
+
+- What std's methods return is known wherever the receiver's own type
+  parameters decide it: `name.as_ref()` on an `&Option<String>` is an
+  `Option<&String>`, and `list.first()` an `Option<&T>` of its items.
+  `Type.substitute/2` binds a type's parameters.
+- A list literal whose items share a type is a list of that type.
+
 ### Fixed
 
+- `Enum.at` on a pipeline stage is the iterator's `nth`, collecting no list.
+- A filter over copied tuples matches each by reference, as `|&(set, field)|`.
+- `Enum.count`, `length`, and `byte_size` stay `usize` where one is expected.
 - A function a `defrustmacro` defines can name the module's own types in its
   spec, as a `defrust` can.
 - A fallible call used as the receiver of a method its result lacks, as

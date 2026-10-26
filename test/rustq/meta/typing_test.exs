@@ -154,6 +154,14 @@ defmodule RustQ.Meta.TypingTest do
              Typing.check(quote(do: owned.as_ref()), borrowed, env)
   end
 
+  test "synthesizes an item indexed out of a borrowed slice with its metadata" do
+    point = %{type(:struct, "Point") | meta: %{fields: [{:x, type(:f32, "f32")}]}}
+    env = Typing.env(vars: %{points: Type.slice_ref(point)}, callables: [])
+
+    assert Typing.synth(quote(do: index(points, 0)), env) == point
+    assert Typing.synth(quote(do: index(points, 0).x), env) == type(:f32, "f32")
+  end
+
   test "synthesizes unambiguous parent-module free-function returns" do
     string = type(:type, "String")
 

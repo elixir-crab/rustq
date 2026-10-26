@@ -67,7 +67,7 @@ defmodule RustQ.Rustler.Term do
   @spec cached_struct_keys(
           R.raw(:"Env<'_>"),
           R.raw(:"&'static OnceLock<Vec<Atom>>"),
-          R.raw(:"&[&str]")
+          R.slice(R.str())
         ) :: R.raw(:"&'static [Atom]")
   defrust cached_struct_keys(env, cache, fields) do
     cache.get_or_init(fn ->

@@ -511,4 +511,38 @@ defmodule RustQ.Meta.Lower.DefrustTypingTest do
     assert source =~ "let mut tally = HashMap::new();"
     assert RustQ.valid?(source, "borrowed_option.rs")
   end
+
+  test "items read out of a borrowed slice keep their types" do
+    defmodule IndexedItemCase do
+      use RustQ.Meta
+      alias RustQ.Type, as: R
+
+      @typep kind :: R.enum(one: [R.u32()], none: [])
+      @typep field :: %{required(:id) => R.u32(), required(:kind) => kind()}
+
+      @spec named(R.ref(kind())) :: R.u32()
+      defrustp named(kind) do
+        case kind do
+          enum_variant(Kind, :one, value) -> taken(value)
+          enum_variant(Kind, :none) -> 0
+        end
+      end
+
+      @spec taken(R.u32()) :: R.u32()
+      defrustp(taken(value), do: value)
+
+      @spec at(R.slice(field()), R.usize()) :: R.u32()
+      defrustp at(fields, index) do
+        field = index(fields, index)
+        field.id + named(index(fields, index).kind)
+      end
+    end
+
+    source = IndexedItemCase.__rustq_source__()
+
+    assert source =~ "Kind::One(value) => taken(*value),"
+    assert source =~ "let field = &fields[index];"
+    assert source =~ "field.id + named(&fields[index].kind)"
+    assert RustQ.valid?(source, "indexed_item.rs")
+  end
 end

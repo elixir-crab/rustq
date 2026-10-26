@@ -165,7 +165,8 @@ defmodule RustQ.Meta.Lower do
       expr:
         expression
         |> lower_expr(expected_type, expression_context)
-        |> Comprehension.collect_as(Comprehension.collect_target(expected_type)),
+        |> Comprehension.collect_as(Comprehension.collect_target(expected_type))
+        |> lent_item(expression, context),
       type: empty_collection_type(expression, expected_type)
     }
     |> Mutability.updated_in_place()
@@ -221,6 +222,17 @@ defmodule RustQ.Meta.Lower do
   defp lower_statement(expression, %Context{} = context) do
     A.stmt(lower_statement_expr(expression, context))
   end
+
+  # An item cannot be moved out of the collection it is indexed in, so one that cannot be copied
+  # is borrowed.
+  defp lent_item(%AST.Index{} = expr, expression, %Context{} = context) do
+    case Typing.synth(expression, typing_env(context)) do
+      %Type{} = type -> if Collection.copy?(type), do: expr, else: A.ref(expr)
+      nil -> expr
+    end
+  end
+
+  defp lent_item(expr, _expression, _context), do: expr
 
   defp cond_statement([{:->, _, [[true], body]} | _rest]), do: body
 
@@ -2386,6 +2398,7 @@ defmodule RustQ.Meta.Lower do
       case pattern do
         tag when is_atom(tag) -> {tag, []}
         {:{}, _, [tag | payloads]} -> {tag, payloads}
+        {:enum_variant, _, [_path, tag | payloads]} -> {tag, payloads}
         {tag, payload} -> {tag, [payload]}
         _other -> {nil, []}
       end

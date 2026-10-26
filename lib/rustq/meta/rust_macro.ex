@@ -80,9 +80,21 @@ defmodule RustQ.Meta.RustMacro do
   end
 
   @doc "Lowers each definition to its `macro_rules!` item."
-  @spec items([Definition.t()], map(), Macro.Env.t(), [term()], index()) :: [Item.t()]
-  def items(definitions, rust_modules, env, callables, index) do
-    Enum.map(definitions, &item(&1, rust_modules, env, callables, index))
+  @typedoc """
+  What lowering a module's definitions needs: its Rust module mappings, environment, callables,
+  `defrustmacro` index, and type aliases, which the macros' specs and bodies name.
+  """
+  @type context :: %{
+          rust_modules: map(),
+          env: Macro.Env.t(),
+          callables: [term()],
+          index: index(),
+          type_aliases: map()
+        }
+
+  @spec items([Definition.t()], context()) :: [Item.t()]
+  def items(definitions, context) do
+    Enum.map(definitions, &item(&1, context))
   end
 
   @doc "The fragment kinds of a definition's non-repeated arguments, in order."
@@ -177,22 +189,15 @@ defmodule RustQ.Meta.RustMacro do
   defp render_call_value(value, _fragment) when is_list(value), do: IO.iodata_to_binary(value)
   defp render_call_value(value, _fragment), do: to_string(value)
 
-  defp item(%Definition{} = definition, rust_modules, env, callables, index) do
+  defp item(%Definition{} = definition, context) do
     ast =
-      case item_macro_body(definition.body_ast, definition, rust_modules, callables, index) do
+      case item_macro_body(definition.body_ast, definition, context) do
         {:ok, source} ->
           %AST.MacroItem{source: source}
 
         :error ->
-          body_ast = MetaAST.expand_body_macros(definition.body_ast, env)
-
-          body =
-            Lower.quoted_body(body_ast, nil, %{},
-              rust_modules: rust_modules,
-              callables: callables,
-              macro_vars: macro_var_map(definition.args),
-              rust_macros: index
-            )
+          body_ast = MetaAST.expand_body_macros(definition.body_ast, context.env)
+          body = Lower.quoted_body(body_ast, nil, %{}, lower_opts(definition, context))
 
           %AST.MacroItem{source: source(definition.name, definition.args, body)}
       end
@@ -335,25 +340,18 @@ defmodule RustQ.Meta.RustMacro do
     )
   end
 
-  defp item_macro_body(
-         {:__block__, _meta, expressions},
-         definition,
-         rust_modules,
-         callables,
-         index
-       ) do
+  defp item_macro_body({:__block__, _meta, expressions}, definition, context) do
     pairs = item_defrust_pairs(expressions)
 
     if pairs == [] do
       :error
     else
-      {:ok, item_macro_source(definition, pairs, rust_modules, callables, index)}
+      {:ok, item_macro_source(definition, pairs, context)}
     end
   end
 
-  defp item_macro_body(expression, definition, rust_modules, callables, index),
-    do:
-      item_macro_body({:__block__, [], [expression]}, definition, rust_modules, callables, index)
+  defp item_macro_body(expression, definition, context),
+    do: item_macro_body({:__block__, [], [expression]}, definition, context)
 
   defp item_defrust_pairs(expressions), do: item_defrust_pairs(expressions, nil, [])
 
@@ -377,44 +375,39 @@ defmodule RustQ.Meta.RustMacro do
 
   defp spec_ast(_expression), do: nil
 
+  defp lower_opts(definition, context) do
+    [
+      rust_modules: context.rust_modules,
+      callables: context.callables,
+      type_aliases: context.type_aliases,
+      macro_vars: macro_var_map(definition.args),
+      rust_macros: context.index
+    ]
+  end
+
   defp defrust_ast({:defrust, _meta, [call_ast, [do: body_ast]]}), do: {call_ast, body_ast}
   defp defrust_ast(_expression), do: nil
 
-  defp item_macro_source(definition, pairs, rust_modules, callables, index) do
+  defp item_macro_source(definition, pairs, context) do
     pattern = item_pattern(definition.args)
 
     expansion =
-      pairs
-      |> Enum.map_join("\n\n", fn {spec, defrust} ->
-        item_function_expansion(definition, spec, defrust, rust_modules, callables, index)
+      Enum.map_join(pairs, "\n\n", fn {spec, defrust} ->
+        item_function_expansion(definition, spec, defrust, context)
       end)
 
     "macro_rules! #{definition.name} {\n#{indent("(#{pattern}) => {\n#{indent(expansion)}\n};")}\n}"
   end
 
-  defp item_function_expansion(
-         definition,
-         {spec_call, return_ast},
-         {call_ast, body_ast},
-         rust_modules,
-         callables,
-         index
-       ) do
+  defp item_function_expansion(definition, {spec_call, return_ast}, {call_ast, body_ast}, context) do
     {_spec_name, _spec_meta, arg_type_asts} = spec_call
     {name_ast, _call_meta, arg_asts} = call_ast
 
     arg_names = Enum.map(arg_asts, &capture_var_name!/1)
-    arg_types = Enum.map(arg_type_asts, &Type.parse(&1, %{}))
-    return_type = Type.parse(return_ast, %{})
+    arg_types = Enum.map(arg_type_asts, &Type.parse(&1, context.type_aliases))
+    return_type = Type.parse(return_ast, context.type_aliases)
     vars = Map.new(Enum.zip(arg_names, arg_types))
-
-    body =
-      Lower.quoted_body(body_ast, return_type, vars,
-        rust_modules: rust_modules,
-        callables: callables,
-        macro_vars: macro_var_map(definition.args),
-        rust_macros: index
-      )
+    body = Lower.quoted_body(body_ast, return_type, vars, lower_opts(definition, context))
 
     function_expansion(
       name_ast,

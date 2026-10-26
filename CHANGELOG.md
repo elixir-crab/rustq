@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- A function a `defrustmacro` defines can name the module's own types in its
+  spec, as a `defrust` can.
+
 ## 1.0.0-rc.18 - 2026-10-26
 
 ### Added

@@ -3,19 +3,18 @@ defmodule RustQ.Meta.Lower.Range do
   Lowers ranges and `in` over them for `RustQ.Meta.Lower.Stdlib`, and types such calls.
   """
 
+  use RustQ.Meta.Lower.Stdlib.Lowering
+
   alias RustQ.Diagnostic
-  alias RustQ.Meta.Core.Call
-  alias RustQ.Meta.Lower.Stdlib.{Context, TypeContext}
-  alias RustQ.Rust.AST
   alias RustQ.Spec
 
-  @spec lower(Call.t(), Context.t()) :: {:ok, term()} | :unsupported
+  @impl true
   def lower(%Call{function: :.., args: [start, stop]} = call, %Context{} = context) do
     if ascending_literal_range?(start, stop) do
       {:ok,
        %AST.Range{
-         start: context.lower.(start),
-         stop: context.lower.(stop),
+         start: lowered(start, context),
+         stop: lowered(stop, context),
          inclusive: true
        }}
     else
@@ -30,22 +29,17 @@ defmodule RustQ.Meta.Lower.Range do
 
   def lower(%Call{function: :in, args: [value, collection]}, %Context{} = context) do
     receiver =
-      case context.lower.(collection) do
-        %AST.Range{} = range -> %AST.BlockExpr{body: [%AST.Return{expr: range}]}
+      case lowered(collection, context) do
+        %AST.Range{} = range -> A.block_expr([A.return_stmt(range)])
         expression -> expression
       end
 
-    {:ok,
-     %AST.MethodCall{
-       receiver: receiver,
-       method: :contains,
-       args: [%AST.Ref{expr: context.lower.(value)}]
-     }}
+    {:ok, A.method(receiver, :contains, [A.ref(lowered(value, context))])}
   end
 
   def lower(%Call{}, %Context{}), do: :unsupported
 
-  @spec synth(Call.t(), TypeContext.t()) :: {:ok, term()} | :unsupported
+  @impl true
   def synth(%Call{function: :in}, %TypeContext{}),
     do: {:ok, Spec.type(quote(do: boolean()))}
 

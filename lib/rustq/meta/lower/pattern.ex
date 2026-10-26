@@ -18,6 +18,7 @@ defmodule RustQ.Meta.Lower.Pattern do
   alias RustQ.Meta.Type
   alias RustQ.Meta.Typing
   alias RustQ.Rust.AST
+  alias RustQ.Rust.AST.Builder, as: A
   alias RustQ.Rust.AST.Walk
 
   @doc "Whether `case` clauses match `{:ok, _}`/`{:error, _}` or `{:some, _}`/`nil`."
@@ -347,7 +348,7 @@ defmodule RustQ.Meta.Lower.Pattern do
     do: {:__rustq_path__, [], Paths.mapped_alias_parts(parts, context.rust_modules)}
 
   def lower_match_pattern({:__rustq_path__, _, parts}, _case_type),
-    do: %AST.PatPath{path: %AST.Path{parts: parts}}
+    do: %AST.PatPath{path: A.path(parts)}
 
   def lower_match_pattern(:ok, %Type{kind: kind}) when kind in [:result, :nif_result],
     do: %AST.PatOk{pattern: %AST.PatTuple{patterns: []}}
@@ -420,7 +421,7 @@ defmodule RustQ.Meta.Lower.Pattern do
       )
       when is_list(fields) do
     %AST.PatStruct{
-      path: %AST.Path{parts: [rust_name]},
+      path: A.path([rust_name]),
       fields: lower_struct_pattern_fields(fields, type_fields)
     }
   end
@@ -431,7 +432,7 @@ defmodule RustQ.Meta.Lower.Pattern do
       )
       when is_list(fields) do
     %AST.PatStruct{
-      path: %AST.Path{parts: [rust_name]},
+      path: A.path([rust_name]),
       fields: lower_struct_pattern_fields(fields, type_fields)
     }
   end
@@ -443,10 +444,10 @@ defmodule RustQ.Meta.Lower.Pattern do
     module = List.last(modules)
 
     %AST.PatPathTuple{
-      path: %AST.Path{parts: [rust_name, module]},
+      path: A.path([rust_name, module]),
       patterns: [
         %AST.PatStruct{
-          path: %AST.Path{parts: [module]},
+          path: A.path([module]),
           fields:
             Enum.map(fields, fn {name, pattern} -> {name, lower_match_pattern(pattern, nil)} end)
         }
@@ -474,11 +475,11 @@ defmodule RustQ.Meta.Lower.Pattern do
       when is_atom(pattern) or is_tuple(pattern) do
     case Lower.rust_enum_variant(pattern, type) do
       {variant, [], _types} ->
-        %AST.PatPath{path: %AST.Path{parts: [rust_name, Lower.rust_variant(variant)]}}
+        %AST.PatPath{path: A.path([rust_name, Lower.rust_variant(variant)])}
 
       {variant, payloads, types} when length(payloads) == length(types) ->
         %AST.PatPathTuple{
-          path: %AST.Path{parts: [rust_name, Lower.rust_variant(variant)]},
+          path: A.path([rust_name, Lower.rust_variant(variant)]),
           patterns: Enum.zip_with(payloads, types, &lower_tuple_element_pattern/2)
         }
 
@@ -488,7 +489,7 @@ defmodule RustQ.Meta.Lower.Pattern do
   end
 
   def lower_match_pattern(atom, %Type{kind: :enum, rust: rust_name}) when is_atom(atom),
-    do: %AST.PatPath{path: %AST.Path{parts: [rust_name, Lower.rust_variant(atom)]}}
+    do: %AST.PatPath{path: A.path([rust_name, Lower.rust_variant(atom)])}
 
   def lower_match_pattern(atom, %Type{kind: :atom}) when is_atom(atom),
     do: %AST.PatAtomGuard{name: atom}

@@ -17,6 +17,7 @@ defmodule RustQ.Meta.Lower.Comprehension do
   alias RustQ.Meta.Type
   alias RustQ.Meta.Typing
   alias RustQ.Rust.AST
+  alias RustQ.Rust.AST.Builder, as: A
 
   @any_vec %AST.TypeVec{inner: %AST.TypeRaw{source: "_"}}
   @iterator_methods StdMethods.iterator()
@@ -345,7 +346,7 @@ defmodule RustQ.Meta.Lower.Comprehension do
         body: [
           %AST.IfLet{
             pattern: LowerPattern.lower_match_pattern(pattern, nil, context),
-            expr: %AST.Var{name: :__rustq_item},
+            expr: A.var(:__rustq_item),
             then:
               lower_for_loop_body(
                 rest,
@@ -366,12 +367,10 @@ defmodule RustQ.Meta.Lower.Comprehension do
 
   defp lower_for_loop_body([filter | rest], body, %Context{} = context) do
     [
-      %AST.ExprStmt{
-        expr: %AST.If{
-          condition: Lower.lower_expr(filter, context),
-          then: lower_for_loop_body(rest, body, context)
-        }
-      }
+      A.stmt(%AST.If{
+        condition: Lower.lower_expr(filter, context),
+        then: lower_for_loop_body(rest, body, context)
+      })
     ]
   end
 
@@ -384,32 +383,18 @@ defmodule RustQ.Meta.Lower.Comprehension do
         %Type{} = return_type,
         %Context{} = context
       ) do
-    acc = :__rustq_reduce
+    acc = A.var(:__rustq_reduce)
     acc_type = reduce_acc_type(initial, return_type)
 
-    %AST.BlockExpr{
-      body: [
-        %AST.Let{
-          pattern: %AST.PatVar{name: acc},
-          mutable: true,
-          expr: lower_reduce_initial(initial, acc_type, context)
-        },
-        %AST.For{
-          pattern: LowerPattern.lower_binding_pattern(pattern),
-          expr: Lower.lower_expr(expression, context),
-          body: [
-            %AST.Assign{
-              target: %AST.Var{name: acc},
-              expr: %AST.Match{
-                expr: %AST.Var{name: acc},
-                arms: lower_for_reduce_arms(clauses, acc_type, context)
-              }
-            }
-          ]
-        },
-        %AST.Return{expr: %AST.Var{name: acc}}
-      ]
-    }
+    A.block_expr([
+      A.let_mut(acc.name, lower_reduce_initial(initial, acc_type, context)),
+      A.for_(
+        LowerPattern.lower_binding_pattern(pattern),
+        Lower.lower_expr(expression, context),
+        [A.assign(acc, A.match_expr(acc, lower_for_reduce_arms(clauses, acc_type, context)))]
+      ),
+      A.return_stmt(acc)
+    ])
   end
 
   def lower_for_reduce_expr(other, _return_type, _context) do
@@ -461,7 +446,7 @@ defmodule RustQ.Meta.Lower.Comprehension do
       [
         %AST.Arm{
           pattern: %AST.PatVar{name: carry},
-          body: [%AST.Return{expr: %AST.Var{name: carry}}]
+          body: [A.return_stmt(A.var(carry))]
         }
       ]
   end

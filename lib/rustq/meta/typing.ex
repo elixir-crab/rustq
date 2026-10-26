@@ -11,7 +11,7 @@ defmodule RustQ.Meta.Typing do
   alias RustQ.Meta.Lower.Collection
   alias RustQ.Meta.Lower.Paths
   alias RustQ.Meta.Lower.Stdlib
-  alias RustQ.Meta.Lower.Stdlib.TypeContext, as: StdlibTypeContext
+  alias RustQ.Meta.Lower.Stdlib.Lowering.TypeContext, as: StdlibTypeContext
   alias RustQ.Meta.Pattern
   alias RustQ.Meta.StandardPointer
   alias RustQ.Meta.StdMethods
@@ -344,12 +344,7 @@ defmodule RustQ.Meta.Typing do
     if Enum.all?(types, &match?(%Type{}, &1)), do: Type.tuple(types)
   end
 
-  defp stdlib_type_context(%Env{} = env) do
-    %StdlibTypeContext{
-      type_of: &synth(&1, env),
-      type_with_vars: fn ast, vars -> synth(ast, %{env | vars: Map.merge(env.vars, vars)}) end
-    }
-  end
+  defp stdlib_type_context(%Env{} = env), do: %StdlibTypeContext{env: env}
 
   defp default_inference_callbacks do
     %{

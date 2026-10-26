@@ -597,6 +597,26 @@ defmodule RustQ.Meta.Lower.Enum do
 
   def synth(%Call{}, %TypeContext{}), do: :unsupported
 
+  # Cloning each item copies the list's items: what references point to is cloned with
+  # `cloned()`, as clippy prefers to a map, and owned items are already their own copies.
+  defp lower_map(
+         collection,
+         {:fn, _,
+          [
+            {:->, _,
+             [[{name, _, ast_context}], {{:., _, [{name, _, ast_context}, :clone]}, _, []}]}
+          ]},
+         context
+       )
+       when is_atom(name) and is_atom(ast_context) do
+    iterator = iterate(collection, :keeps_items, context)
+
+    case collection_inner(type_of(collection, context)) do
+      %Type{kind: :ref} -> iterator |> A.method(:cloned) |> collect(context)
+      _owned -> collect(iterator, context)
+    end
+  end
+
   defp lower_map(collection, {:fn, _, [{:->, _, [args, body]}]}, context) do
     mapped_type = collection_inner(context.expected)
     iteration = iteration(collection, :maps_items, context)

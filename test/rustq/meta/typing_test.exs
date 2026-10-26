@@ -10,6 +10,44 @@ defmodule RustQ.Meta.TypingTest do
     %Type{kind: kind, rust: rust, ast: %AST.TypePath{parts: [String.to_atom(rust)]}}
   end
 
+  test "a branching expression has its first known branch's type" do
+    names = Type.vec(Type.parse(quote(do: String.t()), %{}))
+    maybe = Type.option(names)
+    env = %Typing.Env{vars: %{names: names, maybe: maybe}}
+
+    assert %Type{rust: "Vec<String>"} =
+             Typing.synth(
+               quote(
+                 do:
+                   case(maybe,
+                     do: (
+                       :none -> []
+                       {:some, found} -> found
+                     )
+                   )
+               ),
+               env
+             )
+
+    assert %Type{rust: "Vec<String>"} =
+             Typing.synth(quote(do: if(true, do: nil, else: names)), env)
+
+    assert %Type{rust: "Vec<String>"} =
+             Typing.synth(
+               quote(
+                 do:
+                   cond(
+                     do: (
+                       names == [] -> nil
+                       maybe == nil -> nil
+                       true -> names
+                     )
+                   )
+               ),
+               env
+             )
+  end
+
   test "infers known clone and dereference results without guessing foreign clones" do
     string = Type.parse(quote(do: String.t()), %{})
     reference = Type.parse(quote(do: R.ref(String.t())), %{})

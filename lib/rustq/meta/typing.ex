@@ -174,6 +174,25 @@ defmodule RustQ.Meta.Typing do
   def synth({:{}, _meta, [first | _rest] = elements}, %Env{} = env) when not is_atom(first),
     do: synth_tuple(elements, env)
 
+  # A branching expression has the type of its first branch whose type is known, as `nil` and
+  # `[]` have none; a `case` branch reads what its pattern binds from the subject.
+  def synth({:case, _meta, [subject, [do: clauses]]}, %Env{} = env) when is_list(clauses) do
+    subject_type = synth(subject, env)
+
+    Enum.find_value(clauses, fn {:->, _, [[pattern], body]} ->
+      synth(body, bind_pattern(unguarded(pattern), subject_type, env))
+    end)
+  end
+
+  def synth({:if, _meta, [_condition, branches]}, %Env{} = env) when is_list(branches),
+    do: Enum.find_value([:do, :else], &synth(Keyword.get(branches, &1), env))
+
+  def synth({:cond, _meta, [[do: clauses]]}, %Env{} = env) when is_list(clauses),
+    do: Enum.find_value(clauses, fn {:->, _, [_condition, body]} -> synth(body, env) end)
+
+  def synth({:__block__, _meta, [_ | _] = expressions}, %Env{} = env),
+    do: synth(List.last(expressions), env)
+
   # A list literal whose items all have one known type is a list of that type.
   def synth([first | rest], %Env{} = env) do
     with %Type{} = item <- synth(first, env),
@@ -246,6 +265,9 @@ defmodule RustQ.Meta.Typing do
          |> then(&bind_pattern(right, right_type, &1))
 
   defp bind_pattern(_pattern, _item, %Env{} = env), do: env
+
+  defp unguarded({:when, _, [pattern, _guard]}), do: pattern
+  defp unguarded(pattern), do: pattern
 
   defp bind_inner(pattern, %Type{} = wrapper, %Env{} = env) do
     case Type.inner(wrapper) do

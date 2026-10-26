@@ -18,6 +18,10 @@
   `{:ok, value}` patterns included, and a tuple bound with `=` types each
   variable.
 - A `Vec` read from Rust source is a list, as one a spec names is.
+- A `case`, `if`, `cond`, or block has the type of its first branch whose type
+  is known, and a block's bindings are typed in order.
+- `Enum.map(list, fn item -> item.clone() end)` is `cloned()` over a list of
+  references, and the list itself otherwise.
 
 ### Fixed
 

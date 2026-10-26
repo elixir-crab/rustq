@@ -128,6 +128,7 @@ defmodule RustQ.Meta.Lower do
   @keyed_collections [:HashMap, :HashSet, :BTreeMap, :BTreeSet]
   @stdlib_modules [:Kernel, :Enum, :List, :Map, :MapSet, :String, :Tuple, :Range]
   @iterator_option_methods StdMethods.iterator_option()
+  @wrapper_methods StdMethods.wrapper()
 
   # An empty map or set filled through `entry(key).or_default()` leaves Rust without its value
   # type; when RustQ knows it, the binding states it.
@@ -2035,8 +2036,19 @@ defmodule RustQ.Meta.Lower do
     end
   end
 
-  defp lower_method_receiver(receiver, _receiver_type, _function, %Context{} = context),
-    do: lower_expr(receiver, context)
+  # A fallible receiver of a method its result lacks, as `decoder.read_bool().encode(env)`,
+  # propagates its error first, as a fallible operand does.
+  defp lower_method_receiver(receiver, receiver_type, function, %Context{} = context) do
+    if fallible_receiver?(receiver_type, function, context),
+      do: A.try(lower_expr(receiver, context)),
+      else: lower_expr(receiver, context)
+  end
+
+  defp fallible_receiver?(%Type{kind: kind}, function, %Context{} = context)
+       when kind in [:result, :nif_result],
+       do: function not in @wrapper_methods and propagation_allowed?(context.return_type)
+
+  defp fallible_receiver?(_receiver_type, _function, %Context{}), do: false
 
   defp lower_local_or_macro_call(name, args, %Context{} = context) do
     cond do

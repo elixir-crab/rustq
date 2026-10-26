@@ -519,7 +519,14 @@ defmodule RustQ.Meta do
             rust_macro_index
           )
         ),
-      built_macros: RustMacro.items(rust_macros, rust_modules, env, callables, rust_macro_index),
+      built_macros:
+        RustMacro.items(rust_macros, %{
+          rust_modules: rust_modules,
+          env: env,
+          callables: callables,
+          index: rust_macro_index,
+          type_aliases: type_aliases
+        }),
       local_callables: local_callables,
       rust_macros: rust_macros,
       type_aliases: own_type_aliases,

@@ -40,7 +40,14 @@ defmodule RustQ.Meta.RustMacroTest do
         {quote(do: identity(value)), quote(do: value), [:helpers]}
       ])
 
-    [item] = RustMacro.items([definition], %{}, __ENV__, [], RustMacro.index!([definition]))
+    [item] =
+      RustMacro.items([definition], %{
+        rust_modules: %{},
+        env: __ENV__,
+        callables: [],
+        index: RustMacro.index!([definition]),
+        type_aliases: %{}
+      })
 
     assert item.rust_module == [:helpers]
     assert item.ast.source =~ "macro_rules! identity"
@@ -52,6 +59,25 @@ defmodule RustQ.Meta.RustMacroTest do
   describe "defrustmacro" do
     alias RustQ.Diagnostic
     alias RustQ.Meta.AST, as: MetaAST
+
+    test "a function a defrustmacro defines names the module's types" do
+      defmodule DefrustMacroTypeCase do
+        use RustQ.Meta
+        alias RustQ.Type, as: R
+
+        @type variant :: %{required(:value) => R.u32()}
+
+        defrustmacro first_value(fn: name(:ident)) do
+          @spec name(R.slice(variant())) :: R.u32()
+          defrust name(variants) do
+            index(variants, 0).value
+          end
+        end
+      end
+
+      [item] = MetaAST.macro_items!(DefrustMacroTypeCase, [:first_value])
+      assert item.source =~ "fn $name(variants: &[Variant]) -> u32"
+    end
 
     test "defrustmacro defines Rust macros from Rusty-Elixir bodies" do
       defmodule DefrustMacroFieldCase do

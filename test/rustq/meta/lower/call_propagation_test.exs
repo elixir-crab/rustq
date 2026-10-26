@@ -176,6 +176,22 @@ defmodule RustQ.Meta.Lower.CallPropagationTest do
            ] = statements
   end
 
+  test "a fallible receiver of a method its result lacks propagates first" do
+    nif_count = RustQ.Spec.type(quote(do: RustQ.Type.nif_result(RustQ.Type.u32())))
+
+    statements =
+      Lower.quoted_body(
+        quote do
+          {:ok, read_count().max(1)}
+        end,
+        nif_count,
+        %{},
+        callables: [%Callable{name: "read_count", kind: :function, args: [], returns: nif_count}]
+      )
+
+    assert RustQ.Rust.render_all(statements) =~ "Ok(read_count()?.max(1))"
+  end
+
   test "infers remote call argument propagation from free-function callable metadata" do
     mode_type = %Type{kind: :type, rust: "Mode", ast: %AST.TypePath{parts: [:Mode]}}
 

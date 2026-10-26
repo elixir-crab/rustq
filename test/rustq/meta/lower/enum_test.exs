@@ -55,6 +55,16 @@ defmodule RustQ.Meta.Lower.EnumTest do
 
     @spec nonzero(R.ref(String.t())) :: R.option(R.usize())
     defrust(nonzero(name), do: if(name.is_empty(), do: nil, else: some(name.len())))
+
+    @spec greet_all(R.slice(String.t())) :: R.unit()
+    defrust greet_all(names) do
+      for name <- names do
+        greet(name)
+      end
+    end
+
+    @spec greet(R.ref(String.t())) :: R.usize()
+    defrust(greet(name), do: name.len())
   end
 
   defmodule Queries do
@@ -201,6 +211,10 @@ defmodule RustQ.Meta.Lower.EnumTest do
 
   test "a closure borrows a new value for an argument taken by reference" do
     assert rust_source!(Lists, :checked) =~ "unseen(&name, &HashSet::new())"
+  end
+
+  test "a loop over a slice reads each item by reference" do
+    assert rust_source!(Lists, :greet_all) =~ "greet(name);"
   end
 
   test "a generator over one value matches it beside the item" do

@@ -15,6 +15,12 @@
 - `Enum.at` on a pipeline stage is the iterator's `nth`, collecting no list.
 - A filter over copied tuples matches each by reference, as `|&(set, field)|`.
 - `Enum.count`, `length`, and `byte_size` stay `usize` where one is expected.
+- A function a `defrustmacro` defines can name the module's own types in its
+  spec, as a `defrust` can.
+- A fallible call used as the receiver of a method its result lacks, as
+  `decoder.read_bool().encode(env)`, propagates its error first.
+- A loop over a slice, or a list behind a reference, reads each item by
+  reference, so passing one on where a reference is expected borrows it once.
 
 ## 1.0.0-rc.18 - 2026-10-26
 

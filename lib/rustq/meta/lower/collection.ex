@@ -9,7 +9,9 @@ defmodule RustQ.Meta.Lower.Collection do
       { let mut rustq_updated = scores; rustq_updated.insert(name, 1); rustq_updated }
   """
 
-  alias RustQ.Meta.Lower.Stdlib.Context
+  import RustQ.Meta.Lower.Stdlib.Lowering, only: [lowered: 2, lowered: 3, type_of: 2, in_use?: 2]
+
+  alias RustQ.Meta.Lower.Stdlib.Lowering.Context
   alias RustQ.Meta.Type
   alias RustQ.Rust.AST
   alias RustQ.Rust.AST.Builder, as: A
@@ -51,7 +53,7 @@ defmodule RustQ.Meta.Lower.Collection do
 
   @doc "The keyed collection `collection` is, by its type."
   @spec keyed_of(Macro.t(), Context.t()) :: keyed() | nil
-  def keyed_of(collection, %Context{} = context), do: keyed(context.type_of.(collection))
+  def keyed_of(collection, %Context{} = context), do: keyed(type_of(collection, context))
 
   @doc """
   An update of `collection`: `statements` receives the variable holding the collection, or a
@@ -77,9 +79,9 @@ defmodule RustQ.Meta.Lower.Collection do
   @doc "`collection` to take: itself at its last use, otherwise a copy."
   @spec owned(Macro.t(), Context.t()) :: AST.expr()
   def owned(collection, %Context{} = context) do
-    lowered = context.lower.(collection)
+    lowered = lowered(collection, context)
 
-    if context.in_use?.(collection),
+    if in_use?(collection, context),
       do: A.method(lowered, :clone),
       else: lowered
   end
@@ -87,7 +89,7 @@ defmodule RustQ.Meta.Lower.Collection do
   @doc "A key or item passed by reference, borrowed unless it already is one."
   @spec borrowed(Macro.t(), Type.t(), Context.t()) :: AST.expr()
   def borrowed(expression, %Type{} = type, %Context{} = context),
-    do: context.lower_expected.(expression, Type.ref(type))
+    do: lowered(expression, Type.ref(type), context)
 
   @doc "A value read out of a collection: copied when that costs nothing, otherwise cloned."
   @spec read_out(AST.expr(), Type.t()) :: AST.expr()

@@ -4,21 +4,18 @@ defmodule RustQ.Meta.Lower.List do
   and types such calls.
   """
 
-  alias RustQ.Meta.Core.Call
-  alias RustQ.Meta.Lower.Stdlib
-  alias RustQ.Meta.Lower.Stdlib.{Context, TypeContext}
-  alias RustQ.Meta.Type
-  alias RustQ.Rust.AST
-  alias RustQ.Rust.AST.Builder, as: A
+  use RustQ.Meta.Lower.Stdlib.Lowering
 
-  @spec lower(Call.t(), Context.t()) :: {:ok, term()} | :unsupported
+  alias RustQ.Meta.Type
+
+  @impl true
   def lower(%Call{function: function, args: [list]}, %Context{} = context)
       when function in [:first, :last] do
     terminal = if function == :first, do: :next, else: :last
 
     {:ok,
      list
-     |> context.lower.()
+     |> lowered(context)
      |> A.method(:into_iter)
      |> A.method(terminal)}
   end
@@ -29,21 +26,21 @@ defmodule RustQ.Meta.Lower.List do
 
     {:ok,
      list
-     |> context.lower.()
+     |> lowered(context)
      |> A.method(:into_iter)
      |> A.method(terminal)
-     |> A.method(:unwrap_or, [context.lower.(default)])}
+     |> A.method(:unwrap_or, [lowered(default, context)])}
   end
 
   def lower(%Call{function: :wrap, args: [nil]}, %Context{}),
     do: {:ok, %AST.VecLiteral{values: []}}
 
   def lower(%Call{function: :wrap, args: [value]}, %Context{} = context) do
-    case context.type_of.(value) do
+    case type_of(value, context) do
       %Type{} = type ->
         if collection_inner(type),
-          do: {:ok, context.lower.(value)},
-          else: {:ok, %AST.VecLiteral{values: [context.lower.(value)]}}
+          do: {:ok, lowered(value, context)},
+          else: {:ok, %AST.VecLiteral{values: [lowered(value, context)]}}
 
       _unknown ->
         :unsupported
@@ -51,12 +48,12 @@ defmodule RustQ.Meta.Lower.List do
   end
 
   def lower(%Call{function: :duplicate, args: [value, count]}, %Context{} = context) do
-    case Stdlib.nonnegative_count(count, context) do
+    case nonnegative_count(count, context) do
       {:ok, lowered_count} ->
         {:ok,
          %AST.PathCall{
            path: A.path([:std, :iter, :repeat]),
-           args: [context.lower.(value)]
+           args: [lowered(value, context)]
          }
          |> A.method(:take, [lowered_count])
          |> A.method(:collect)}
@@ -67,10 +64,10 @@ defmodule RustQ.Meta.Lower.List do
   end
 
   def lower(%Call{function: :flatten, args: [list]}, %Context{} = context) do
-    depth = flatten_depth(context.type_of.(list))
+    depth = flatten_depth(type_of(list, context))
 
     if is_integer(depth) and depth > 0 do
-      iterator = list |> context.lower.() |> A.method(:into_iter)
+      iterator = list |> lowered(context) |> A.method(:into_iter)
 
       {:ok, iterator |> flatten_iterator(depth) |> A.method(:collect)}
     else
@@ -80,10 +77,10 @@ defmodule RustQ.Meta.Lower.List do
 
   def lower(%Call{}, %Context{}), do: :unsupported
 
-  @spec synth(Call.t(), TypeContext.t()) :: {:ok, Type.t()} | :unsupported
+  @impl true
   def synth(%Call{function: function, args: [list]}, %TypeContext{} = context)
       when function in [:first, :last] do
-    case collection_inner(context.type_of.(list)) do
+    case collection_inner(type_of(list, context)) do
       %Type{} = inner -> {:ok, Type.option(inner)}
       nil -> :unsupported
     end
@@ -91,10 +88,10 @@ defmodule RustQ.Meta.Lower.List do
 
   def synth(%Call{function: function, args: [_list, default]}, %TypeContext{} = context)
       when function in [:first, :last],
-      do: type_result(context.type_of.(default))
+      do: type_result(type_of(default, context))
 
   def synth(%Call{function: :wrap, args: [value]}, %TypeContext{} = context) do
-    case context.type_of.(value) do
+    case type_of(value, context) do
       %Type{} = type ->
         {:ok,
          if(collection_inner(type), do: Type.vec(collection_inner(type)), else: Type.vec(type))}
@@ -105,14 +102,14 @@ defmodule RustQ.Meta.Lower.List do
   end
 
   def synth(%Call{function: :duplicate, args: [value, _count]}, %TypeContext{} = context) do
-    case context.type_of.(value) do
+    case type_of(value, context) do
       %Type{} = type -> {:ok, Type.vec(type)}
       nil -> :unsupported
     end
   end
 
   def synth(%Call{function: :flatten, args: [list]}, %TypeContext{} = context) do
-    case innermost_type(context.type_of.(list)) do
+    case innermost_type(type_of(list, context)) do
       %Type{} = inner -> {:ok, Type.vec(inner)}
       nil -> :unsupported
     end

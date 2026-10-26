@@ -6,14 +6,12 @@ defmodule RustQ.Meta.Lower.MapSet do
   see `RustQ.Meta.Lower.Collection`.
   """
 
-  alias RustQ.Meta.Core.Call
-  alias RustQ.Meta.Lower.Collection
-  alias RustQ.Meta.Lower.Stdlib.{Context, TypeContext}
-  alias RustQ.Meta.Type
-  alias RustQ.Rust.AST
-  alias RustQ.Rust.AST.Builder, as: A
+  use RustQ.Meta.Lower.Stdlib.Lowering
 
-  @spec lower(Call.t(), Context.t()) :: {:ok, term()} | :unsupported
+  alias RustQ.Meta.Lower.Collection
+  alias RustQ.Meta.Type
+
+  @impl true
   def lower(%Call{function: :new, args: []}, %Context{}),
     do: {:ok, %AST.PathCall{path: A.path([:HashSet, :new]), args: []}}
 
@@ -31,7 +29,7 @@ defmodule RustQ.Meta.Lower.MapSet do
      Collection.updated(
        set,
        fn set ->
-         [A.stmt(A.method(set, :insert, [context.lower_expected.(value, item)]))]
+         [A.stmt(A.method(set, :insert, [lowered(value, item, context)]))]
        end,
        context
      )}
@@ -49,7 +47,7 @@ defmodule RustQ.Meta.Lower.MapSet do
   end
 
   defp lower_set(%Call{function: :member?, args: [set, value]}, item, context) do
-    {:ok, A.method(context.lower.(set), :contains, [Collection.borrowed(value, item, context)])}
+    {:ok, A.method(lowered(set, context), :contains, [Collection.borrowed(value, item, context)])}
   end
 
   defp lower_set(%Call{function: :union, args: [set, other]}, _item, context) do
@@ -65,7 +63,7 @@ defmodule RustQ.Meta.Lower.MapSet do
 
   defp lower_set(%Call{function: function, args: [set, other]}, _item, context)
        when function in [:difference, :intersection] do
-    kept = A.method(context.lower.(other), :contains, [A.var(:rustq_item)])
+    kept = A.method(lowered(other, context), :contains, [A.var(:rustq_item)])
 
     kept = if function == :difference, do: %AST.UnaryOp{op: :not, expr: kept}, else: kept
 
@@ -83,11 +81,11 @@ defmodule RustQ.Meta.Lower.MapSet do
        when function in [:subset?, :disjoint?] do
     method = if function == :subset?, do: :is_subset, else: :is_disjoint
 
-    {:ok, A.method(context.lower.(set), method, [A.ref(context.lower.(other))])}
+    {:ok, A.method(lowered(set, context), method, [A.ref(lowered(other, context))])}
   end
 
   defp lower_set(%Call{function: :size, args: [set]}, _item, context) do
-    {:ok, A.cast(A.method(context.lower.(set), :len), %AST.TypePath{parts: [:i64]})}
+    {:ok, A.cast(A.method(lowered(set, context), :len), %AST.TypePath{parts: [:i64]})}
   end
 
   defp lower_set(%Call{function: :to_list, args: [set]}, item, context) do
@@ -102,11 +100,11 @@ defmodule RustQ.Meta.Lower.MapSet do
 
   defp lower_set(%Call{}, _item, _context), do: :unsupported
 
-  @spec synth(Call.t(), TypeContext.t()) :: {:ok, Type.t()} | :unsupported
+  @impl true
   def synth(%Call{function: :new}, %TypeContext{}), do: :unsupported
 
   def synth(%Call{function: function, args: [set | _]}, %TypeContext{} = context) do
-    case {function, Collection.keyed(context.type_of.(set))} do
+    case {function, Collection.keyed(type_of(set, context))} do
       {_function, nil} ->
         :unsupported
 
@@ -120,7 +118,7 @@ defmodule RustQ.Meta.Lower.MapSet do
         {:ok, Type.vec(item)}
 
       {function, _set} when function in [:put, :delete, :union, :difference, :intersection] ->
-        owned(context.type_of.(set))
+        owned(type_of(set, context))
 
       _other ->
         :unsupported

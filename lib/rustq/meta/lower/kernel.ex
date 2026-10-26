@@ -4,14 +4,10 @@ defmodule RustQ.Meta.Lower.Kernel do
   `is_nil/1` for `RustQ.Meta.Lower.Stdlib`, and types such calls.
   """
 
-  import RustQ.Meta.Lower.Stdlib, only: [evaluated_constant: 3, shape_type: 1]
+  use RustQ.Meta.Lower.Stdlib.Lowering
 
   alias RustQ.Diagnostic
-  alias RustQ.Meta.Core.Call
-  alias RustQ.Meta.Lower.Stdlib.{Context, TypeContext}
   alias RustQ.Meta.Type
-  alias RustQ.Rust.AST
-  alias RustQ.Rust.AST.Builder, as: A
   alias RustQ.Spec
 
   @binary_ops %{
@@ -33,9 +29,12 @@ defmodule RustQ.Meta.Lower.Kernel do
 
   @comparison_functions [:==, :!=, :<, :<=, :>, :>=, :and, :or, :not, :is_nil]
 
-  @spec lower(Call.t(), Context.t()) :: {:ok, term()} | :unsupported
+  @impl true
+  def lower(%Call{function: function} = call, %Context{} = context) when function in [:.., :in],
+    do: RustQ.Meta.Lower.Range.lower(call, context)
+
   def lower(%Call{function: :/, args: [left, right]} = call, %Context{} = context) do
-    if integer_type?(context.type_of.(left)) or integer_type?(context.type_of.(right)) do
+    if integer_type?(type_of(left, context)) or integer_type?(type_of(right, context)) do
       unsupported_semantics!(
         call,
         "Kernel.//2 with integer operands requires an explicit floating-point conversion"
@@ -43,9 +42,9 @@ defmodule RustQ.Meta.Lower.Kernel do
     else
       {:ok,
        %AST.BinaryOp{
-         left: context.lower_binary_operand.(left),
+         left: operand(left, context),
          op: :div,
-         right: context.lower_binary_operand.(right)
+         right: operand(right, context)
        }}
     end
   end
@@ -55,8 +54,8 @@ defmodule RustQ.Meta.Lower.Kernel do
       when function in [:==, :!=] do
     lower_operand =
       if wrapper_comparison?(left, right, context),
-        do: context.lower,
-        else: context.lower_binary_operand
+        do: &lowered(&1, context),
+        else: &operand(&1, context)
 
     {:ok,
      %AST.BinaryOp{
@@ -70,28 +69,28 @@ defmodule RustQ.Meta.Lower.Kernel do
       when is_map_key(@binary_ops, function) do
     {:ok,
      %AST.BinaryOp{
-       left: context.lower_binary_operand.(left),
+       left: operand(left, context),
        op: Map.fetch!(@binary_ops, function),
-       right: context.lower_binary_operand.(right)
+       right: operand(right, context)
      }}
   end
 
   def lower(%Call{function: :-, args: [expression]}, %Context{} = context),
-    do: {:ok, %AST.UnaryOp{op: :neg, expr: context.lower.(expression)}}
+    do: {:ok, %AST.UnaryOp{op: :neg, expr: lowered(expression, context)}}
 
   def lower(%Call{function: :+, args: [expression]}, %Context{} = context),
-    do: {:ok, context.lower.(expression)}
+    do: {:ok, lowered(expression, context)}
 
   def lower(%Call{function: :not, args: [expression]}, %Context{} = context),
-    do: {:ok, %AST.UnaryOp{op: :not, expr: context.lower.(expression)}}
+    do: {:ok, %AST.UnaryOp{op: :not, expr: lowered(expression, context)}}
 
   def lower(%Call{function: :abs, args: [expression]}, %Context{} = context),
-    do: {:ok, A.method(context.lower.(expression), :abs)}
+    do: {:ok, A.method(lowered(expression, context), :abs)}
 
   def lower(%Call{function: function, args: [left, right]} = call, %Context{} = context)
       when function in [:min, :max] do
-    if integer_type?(context.type_of.(left)) and integer_type?(context.type_of.(right)) do
-      {:ok, A.method(context.lower.(left), function, [context.lower.(right)])}
+    if integer_type?(type_of(left, context)) and integer_type?(type_of(right, context)) do
+      {:ok, A.method(lowered(left, context), function, [lowered(right, context)])}
     else
       unsupported_semantics!(
         call,
@@ -102,10 +101,10 @@ defmodule RustQ.Meta.Lower.Kernel do
 
   def lower(%Call{function: function, args: [value]}, %Context{} = context)
       when function in [:byte_size, :length],
-      do: {:ok, cast_i64(A.method(context.lower.(value), :len))}
+      do: {:ok, cast_i64(A.method(lowered(value, context), :len))}
 
   def lower(%Call{function: :map_size, args: [map]} = call, %Context{} = context) do
-    case struct_fields(shape_type(context.type_of.(map))) do
+    case struct_fields(shape_type(type_of(map, context))) do
       fields when is_list(fields) ->
         evaluated_constant(map, length(fields), context)
 
@@ -116,11 +115,11 @@ defmodule RustQ.Meta.Lower.Kernel do
 
   def lower(%Call{function: :elem, args: [tuple, index]}, %Context{} = context)
       when is_integer(index) and index >= 0,
-      do: {:ok, %AST.Field{receiver: context.lower.(tuple), field: index}}
+      do: {:ok, %AST.Field{receiver: lowered(tuple, context), field: index}}
 
   def lower(%Call{function: :put_elem, args: [tuple, index, value]} = call, %Context{} = context)
       when is_integer(index) and index >= 0 do
-    case tuple_elements(context.type_of.(tuple)) do
+    case tuple_elements(type_of(tuple, context)) do
       elements when index < length(elements) ->
         tuple_name = :rustq_tuple_value
         tuple_var = A.var(tuple_name)
@@ -129,13 +128,13 @@ defmodule RustQ.Meta.Lower.Kernel do
           elements
           |> Elixir.Enum.with_index()
           |> Elixir.Enum.map(fn
-            {type, ^index} -> context.lower_expected.(value, type)
+            {type, ^index} -> lowered(value, type, context)
             {_type, field} -> %AST.Field{receiver: tuple_var, field: field}
           end)
 
         {:ok,
          A.block_expr([
-           %AST.Let{pattern: %AST.PatVar{name: tuple_name}, expr: context.lower.(tuple)},
+           %AST.Let{pattern: %AST.PatVar{name: tuple_name}, expr: lowered(tuple, context)},
            A.return_stmt(%AST.Tuple{values: values})
          ])}
 
@@ -148,7 +147,7 @@ defmodule RustQ.Meta.Lower.Kernel do
   end
 
   def lower(%Call{function: :tuple_size, args: [tuple]} = call, %Context{} = context) do
-    case tuple_elements(shape_type(context.type_of.(tuple))) do
+    case tuple_elements(shape_type(type_of(tuple, context))) do
       elements when is_list(elements) ->
         evaluated_constant(tuple, length(elements), context)
 
@@ -158,18 +157,22 @@ defmodule RustQ.Meta.Lower.Kernel do
   end
 
   def lower(%Call{function: :is_nil, args: [value]}, %Context{} = context),
-    do: {:ok, A.method(context.lower.(value), :is_none)}
+    do: {:ok, A.method(lowered(value, context), :is_none)}
 
   def lower(%Call{}, %Context{}), do: :unsupported
 
-  @spec synth(Call.t(), TypeContext.t()) :: {:ok, Type.t()} | :unsupported
+  @impl true
+  def synth(%Call{function: function} = call, %TypeContext{} = context)
+      when function in [:.., :in],
+      do: RustQ.Meta.Lower.Range.synth(call, context)
+
   def synth(%Call{function: function}, %TypeContext{}) when function in @comparison_functions,
     do: {:ok, Spec.type(quote(do: boolean()))}
 
   # Arithmetic on an option or result works on the value its operand propagates.
   def synth(%Call{function: function, args: [left | _rest]}, %TypeContext{} = context)
       when function in [:+, :-, :*, :/, :div, :rem, :abs, :min, :max],
-      do: left |> context.type_of.() |> propagated_value() |> type_result()
+      do: left |> type_of(context) |> propagated_value() |> type_result()
 
   def synth(%Call{function: function}, %TypeContext{})
       when function in [:byte_size, :length, :map_size, :tuple_size],
@@ -177,14 +180,14 @@ defmodule RustQ.Meta.Lower.Kernel do
 
   def synth(%Call{function: :elem, args: [tuple, index]}, %TypeContext{} = context)
       when is_integer(index) and index >= 0 do
-    case tuple_elements(context.type_of.(tuple)) do
+    case tuple_elements(type_of(tuple, context)) do
       elements when index < length(elements) -> type_result(Elixir.Enum.at(elements, index))
       _unknown -> :unsupported
     end
   end
 
   def synth(%Call{function: :put_elem, args: [tuple, _index, _value]}, %TypeContext{} = context),
-    do: type_result(context.type_of.(tuple))
+    do: type_result(type_of(tuple, context))
 
   def synth(%Call{}, %TypeContext{}), do: :unsupported
 
@@ -219,8 +222,8 @@ defmodule RustQ.Meta.Lower.Kernel do
 
   defp wrapper_comparison?(left, right, %Context{} = context) do
     wrapper_literal?(left) or wrapper_literal?(right) or
-      (wrapper_kind(context.type_of.(left)) != nil and
-         wrapper_kind(context.type_of.(left)) == wrapper_kind(context.type_of.(right)))
+      (wrapper_kind(type_of(left, context)) != nil and
+         wrapper_kind(type_of(left, context)) == wrapper_kind(type_of(right, context)))
   end
 
   defp wrapper_literal?({:some, _, [_value]}), do: true

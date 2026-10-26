@@ -24,7 +24,7 @@ defmodule RustQ.Meta.Lower do
   alias RustQ.Meta.Lower.Paths
   alias RustQ.Meta.Lower.Pattern, as: LowerPattern
   alias RustQ.Meta.Lower.Stdlib
-  alias RustQ.Meta.Lower.Stdlib.Context, as: StdlibContext
+  alias RustQ.Meta.Lower.Stdlib.Lowering.Context, as: StdlibContext
   alias RustQ.Meta.Ownership
   alias RustQ.Meta.RustMacro
   alias RustQ.Meta.Semantics
@@ -60,6 +60,8 @@ defmodule RustQ.Meta.Lower do
       rust_macros: %{},
       built_from: %{}
     ]
+
+    @type t :: %__MODULE__{}
   end
 
   alias __MODULE__.Env, as: Context
@@ -2370,21 +2372,8 @@ defmodule RustQ.Meta.Lower do
     }
   end
 
-  defp stdlib_context(%Context{} = context, expected \\ nil) do
-    %StdlibContext{
-      lower: &lower_expr(&1, context),
-      lower_expected: &lower_expr(&1, &2, context),
-      lower_binary_operand: &lower_binary_operand(&1, context),
-      lower_closure: &lower_closure_args(&1, &2, context),
-      lower_typed_closure: &lower_closure_args(&1, &2, context, &3),
-      lower_closure_body: &lower_closure_body(&1, &2, context),
-      lower_capture: &lower_function_capture(&1, context),
-      closure_arg: &closure_arg!/1,
-      type_of: &Typing.synth(&1, typing_env(context)),
-      in_use?: &in_use?(&1, context),
-      expected: expected
-    }
-  end
+  defp stdlib_context(%Context{} = context, expected \\ nil),
+    do: %StdlibContext{env: context, expected: expected}
 
   @doc "Whether a collection is still in use after this use of it; see `RustQ.Meta.Ownership`."
   # A collection is in use unless this is its value's last use; see `RustQ.Meta.Ownership`. A
@@ -2400,7 +2389,8 @@ defmodule RustQ.Meta.Lower do
     end
   end
 
-  defp lower_binary_operand(expression, %Context{} = context) do
+  @doc "`expression`, lowered as an operand: a fallible one propagates its error with `?`."
+  def lower_binary_operand(expression, %Context{} = context) do
     if fallible_expression?(expression, context) and propagation_allowed?(context.return_type) do
       %AST.Try{expr: lower_expr(expression, context)}
     else
@@ -2447,8 +2437,9 @@ defmodule RustQ.Meta.Lower do
     }
   end
 
-  defp lower_closure_args(args, body, %Context{} = context, expected_return_type \\ nil)
-       when is_list(args) do
+  @doc "A closure taking `args` and returning `body`, as a value of `expected_return_type` when given."
+  def lower_closure_args(args, body, %Context{} = context, expected_return_type \\ nil)
+      when is_list(args) do
     {args, typed} = Enum.map_reduce(args, [], &untyped_closure_arg/2)
 
     captured =
@@ -2485,11 +2476,12 @@ defmodule RustQ.Meta.Lower do
 
   defp untyped_closure_arg(arg, typed), do: {arg, typed}
 
-  defp lower_closure_body(
-         {:__block__, _, [_first, _second | _rest] = expressions},
-         expected_return_type,
-         %Context{} = context
-       ) do
+  @doc "A closure's `body`, lowered to return a value of `expected_return_type` when given."
+  def lower_closure_body(
+        {:__block__, _, [_first, _second | _rest] = expressions},
+        expected_return_type,
+        %Context{} = context
+      ) do
     body =
       case expected_return_type do
         %Type{} = type -> lower_expected_block(expressions, context, type)
@@ -2499,7 +2491,7 @@ defmodule RustQ.Meta.Lower do
     A.block_expr(body)
   end
 
-  defp lower_closure_body(body, expected_return_type, %Context{} = context),
+  def lower_closure_body(body, expected_return_type, %Context{} = context),
     do: lower_expr(closure_body_expr(body), expected_return_type, context)
 
   defp lower_value_block(expressions, %Context{} = context) do
@@ -2518,23 +2510,24 @@ defmodule RustQ.Meta.Lower do
 
   defp map_type?(_type), do: false
 
-  defp lower_function_capture({name, _, capture_context}, %Context{})
-       when is_atom(name) and is_atom(capture_context),
-       do: A.path([name])
+  @doc "A captured named function, as the Rust path of that function."
+  def lower_function_capture({name, _, capture_context}, %Context{})
+      when is_atom(name) and is_atom(capture_context),
+      do: A.path([name])
 
-  defp lower_function_capture(
-         {{:., _, [{:__aliases__, _, [:Super]}, name]}, _, []},
-         %Context{}
-       ),
-       do: A.path([:super, name])
+  def lower_function_capture(
+        {{:., _, [{:__aliases__, _, [:Super]}, name]}, _, []},
+        %Context{}
+      ),
+      do: A.path([:super, name])
 
-  defp lower_function_capture(
-         {{:., _, [{:__aliases__, _, parts}, name]}, _, []},
-         %Context{} = context
-       ),
-       do: A.path(Paths.mapped_alias_parts(parts, context.rust_modules) ++ [name])
+  def lower_function_capture(
+        {{:., _, [{:__aliases__, _, parts}, name]}, _, []},
+        %Context{} = context
+      ),
+      do: A.path(Paths.mapped_alias_parts(parts, context.rust_modules) ++ [name])
 
-  defp lower_function_capture(other, %Context{}) do
+  def lower_function_capture(other, %Context{}) do
     Diagnostic.lower(
       :unsupported_function_capture,
       other,
@@ -2543,9 +2536,10 @@ defmodule RustQ.Meta.Lower do
     )
   end
 
-  defp closure_arg!({name, _, context}) when is_atom(name) and is_atom(context), do: name
+  @doc "A closure argument, as a Rust closure argument: a name, or a binding pattern."
+  def closure_arg!({name, _, context}) when is_atom(name) and is_atom(context), do: name
 
-  defp closure_arg!(other), do: LowerPattern.lower_binding_pattern(other)
+  def closure_arg!(other), do: LowerPattern.lower_binding_pattern(other)
 
   defp closure_body_expr([expression]), do: expression
   defp closure_body_expr(expression), do: expression
